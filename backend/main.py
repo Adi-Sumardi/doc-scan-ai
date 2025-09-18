@@ -12,7 +12,7 @@ import aiofiles
 from pathlib import Path
 
 # Import our AI processing modules
-from ai_processor import process_document_ai, create_enhanced_excel_export, create_enhanced_pdf_export
+from ai_processor import process_document_ai, create_enhanced_excel_export, create_enhanced_pdf_export, RealOCRProcessor
 from models import BatchResponse, ScanResult, BatchStatus
 
 app = FastAPI(title="AI Document Scanner API", version="1.0.0")
@@ -42,6 +42,32 @@ results_storage = {}
 @app.get("/")
 async def root():
     return {"message": "AI Document Scanner API", "status": "online"}
+
+@app.post("/api/heartbeat")
+async def heartbeat():
+    """Health check endpoint for production validation"""
+    try:
+        # Test OCR system health
+        ocr_processor = RealOCRProcessor()
+        ocr_info = ocr_processor.get_ocr_system_info()
+        
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "ocr_system": ocr_info,
+            "message": "Production OCR system ready"
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy", 
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
+@app.get("/api/health")
+async def health_check():
+    """Alternative health check endpoint"""
+    return {"status": "healthy", "service": "doc-scan-ai", "timestamp": datetime.now().isoformat()}
 
 @app.post("/api/upload", response_model=BatchResponse)
 async def upload_documents(
@@ -120,6 +146,12 @@ async def process_batch_async(batch_id: str):
                     file_info["type"]
                 )
                 
+                # DEBUG: Log the raw result from AI processor
+                print(f"🔍 DEBUG - Raw AI Result for {file_info['name']}:")
+                print(f"   - Full Result: {result}")
+                print(f"   - Confidence from AI: {result.get('confidence', 'NOT_FOUND')}")
+                print(f"   - Confidence Type: {type(result.get('confidence', 'NOT_FOUND'))}")
+                
                 # Save result
                 result_id = str(uuid.uuid4())
                 result_data = {
@@ -132,6 +164,12 @@ async def process_batch_async(batch_id: str):
                     "created_at": datetime.now().isoformat()
                 }
                 
+                # DEBUG: Log the final result data being stored
+                print(f"🔍 DEBUG - Final Result Data being stored:")
+                print(f"   - Result ID: {result_id}")
+                print(f"   - Confidence in storage: {result_data['confidence']}")
+                print(f"   - Full result_data: {result_data}")
+                
                 results_storage[result_id] = result_data
                 
                 # Update file status
@@ -142,6 +180,7 @@ async def process_batch_async(batch_id: str):
                 print(f"✅ Processing SUCCESS: {file_info['name']}")
                 print(f"   - Document Type: {file_info['type']}")
                 print(f"   - Confidence: {result.get('confidence', 0):.2%}")
+                print(f"   - Stored Confidence: {result_data['confidence']:.2%}")
                 
                 # Log extracted data structure
                 extracted_data = result.get("extracted_data", result)
@@ -257,7 +296,92 @@ async def get_batch_results(batch_id: str):
         if result["batch_id"] == batch_id
     ]
     
+    # AUTO-RECALCULATE CONFIDENCE with current algorithm
+    from ai_processor import calculate_confidence
+    
+    for result in batch_results:
+        old_confidence = result["confidence"]
+        new_confidence = calculate_confidence(
+            result["extracted_data"], 
+            result["document_type"]
+        )
+        
+        # Update confidence if significantly different
+        if abs(new_confidence - old_confidence) > 0.01:
+            print(f"🔄 AUTO-UPDATING confidence for {result['original_filename']}")
+            print(f"   - Old: {old_confidence:.4f} ({old_confidence:.2%})")
+            print(f"   - New: {new_confidence:.4f} ({new_confidence:.2%})")
+            result["confidence"] = new_confidence
+            result["updated_at"] = datetime.now().isoformat()
+    
+    # DEBUG: Log what we're sending to frontend
+    print(f"🔍 DEBUG - Sending to Frontend for batch {batch_id}:")
+    for result in batch_results:
+        print(f"   - File: {result['original_filename']}")
+        print(f"   - Confidence in storage: {result['confidence']}")
+        print(f"   - Document Type: {result['document_type']}")
+    
+    print(f"🔍 DEBUG - Full batch_results: {batch_results}")
+    
     return batch_results
+
+@app.post("/api/debug/recalculate-confidence/{batch_id}")
+async def recalculate_confidence(batch_id: str):
+    """Recalculate confidence for all results in a batch with current algorithm"""
+    if batch_id not in batches_storage:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    
+    batch_results = [
+        result for result in results_storage.values() 
+        if result["batch_id"] == batch_id
+    ]
+    
+    updated_results = []
+    for result in batch_results:
+        # Import here to get latest version
+        from ai_processor import calculate_confidence
+        
+        # Recalculate confidence with current algorithm
+        new_confidence = calculate_confidence(
+            result["extracted_data"], 
+            result["document_type"]
+        )
+        
+        # Update the stored result
+        result["confidence"] = new_confidence
+        result["updated_at"] = datetime.now().isoformat()
+        
+        print(f"🔄 Updated {result['original_filename']}: {new_confidence:.4f} ({new_confidence:.2%})")
+        updated_results.append({
+            "filename": result["original_filename"],
+            "old_confidence": "unknown",
+            "new_confidence": new_confidence
+        })
+    
+    return {
+        "message": f"Recalculated confidence for {len(updated_results)} results",
+        "batch_id": batch_id,
+        "updates": updated_results
+    }
+
+@app.delete("/api/debug/clear-storage")
+async def clear_all_storage():
+    """Clear all storage - FOR DEBUGGING ONLY"""
+    global batches_storage, results_storage
+    
+    old_batches_count = len(batches_storage)
+    old_results_count = len(results_storage)
+    
+    batches_storage.clear()
+    results_storage.clear()
+    
+    return {
+        "message": "Storage cleared",
+        "cleared": {
+            "batches": old_batches_count,
+            "results": old_results_count
+        }
+    }
 
 @app.get("/api/batches")
 async def get_all_batches():

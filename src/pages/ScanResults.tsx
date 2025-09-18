@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDocument } from '../context/DocumentContext';
+import AIDataDisplay from '../components/AIDataDisplay';
+import { AIDataFormatter } from '../utils/aiDataFormatter';
 import { 
   ArrowLeft, 
   Download, 
@@ -21,6 +23,12 @@ const ScanResults = () => {
 
   const batch = getBatch(batchId!);
   const scanResults = getScanResultsByBatch(batchId!);
+
+  // SUPER DEBUG: Log batch and scan results
+  console.log('🔍 SUPER DEBUG - Batch Data:', batch);
+  console.log('🔍 SUPER DEBUG - All Scan Results:', scanResults);
+  console.log('🔍 SUPER DEBUG - Active Tab:', activeTab);
+  console.log('🔍 SUPER DEBUG - Current Active Result:', scanResults[activeTab]);
 
   // Refresh batch data periodically if still processing
   useEffect(() => {
@@ -61,535 +69,136 @@ const ScanResults = () => {
     }
   };
 
-  const renderExtractedData = (result: any) => {
-    const data = result.extracted_data;
-    
-    if (result.document_type === 'faktur_pajak') {
-      return (
-        <div className="space-y-6">
-          {/* A. Faktur Pajak Keluaran */}
-          <div className="bg-green-50 p-6 rounded-lg border border-green-200">
-            <h4 className="text-lg font-semibold text-green-900 mb-4">A. Faktur Pajak Keluaran (data pengusaha kena pajak)</h4>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-green-700">Nama Lawan Transaksi</label>
-                <p className="text-green-900">{data.keluaran?.nama_lawan_transaksi || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-green-700">No Seri FP</label>
-                <p className="text-green-900">{data.keluaran?.no_seri_fp || 'N/A'}</p>
-              </div>
-              <div className="col-span-2">
-                <label className="text-sm font-medium text-green-700">Alamat</label>
-                <p className="text-green-900">{data.keluaran?.alamat || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-green-700">NPWP</label>
-                <p className="text-green-900">{data.keluaran?.npwp || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-green-700">Quantity</label>
-                <p className="text-green-900">{data.keluaran?.quantity || 0}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-green-700">Diskon</label>
-                <p className="text-green-900">Rp {data.keluaran?.diskon?.toLocaleString() || '0'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-green-700">Harga</label>
-                <p className="text-green-900">Rp {data.keluaran?.harga?.toLocaleString() || '0'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-green-700">DPP</label>
-                <p className="text-green-900">Rp {data.keluaran?.dpp?.toLocaleString() || '0'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-green-700">PPN</label>
-                <p className="text-green-900">Rp {data.keluaran?.ppn?.toLocaleString() || '0'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-green-700">Tgl Faktur</label>
-                <p className="text-green-900">{data.keluaran?.tgl_faktur || 'N/A'}</p>
-              </div>
-              <div className="col-span-2">
-                <label className="text-sm font-medium text-green-700">Keterangan Lain</label>
-                <p className="text-green-900">{data.keluaran?.keterangan_lain || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-green-700">Tgl Rekam</label>
-                <p className="text-green-900">{data.keluaran?.tgl_rekam || 'N/A'}</p>
-              </div>
-            </div>
-            
-            {/* Keterangan Barang Table */}
-            {data.keluaran?.keterangan_barang && data.keluaran.keterangan_barang.length > 0 && (
-              <div className="mt-4">
-                <h5 className="text-md font-semibold text-green-900 mb-2">Keterangan Barang</h5>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm border border-green-300">
-                    <thead className="bg-green-100">
-                      <tr>
-                        <th className="px-3 py-2 text-left border-r border-green-300">No.</th>
-                        <th className="px-3 py-2 text-left border-r border-green-300">Kode Barang/Jasa</th>
-                        <th className="px-3 py-2 text-left border-r border-green-300">Nama Barang kena pajak/Jasa kena pajak</th>
-                        <th className="px-3 py-2 text-right">Harga Jual / Penggantian / Uang Muka / Termin (Rp)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.keluaran.keterangan_barang.map((item: any, index: number) => (
-                        <tr key={index} className="border-t border-green-200">
-                          <td className="px-3 py-2 border-r border-green-200">{item.no}</td>
-                          <td className="px-3 py-2 border-r border-green-200">{item.kode_barang_jasa}</td>
-                          <td className="px-3 py-2 border-r border-green-200">{item.nama_barang_kena_pajak_jasa_kena_pajak}</td>
-                          <td className="px-3 py-2 text-right">Rp {item.harga_jual_penggantian_uang_muka_termin?.toLocaleString() || '0'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* B. Faktur Pajak Masukan */}
-          <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
-            <h4 className="text-lg font-semibold text-blue-900 mb-4">B. Faktur Pajak Masukan (data pembeli barang kena pajak / penerima jasa kena pajak)</h4>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-blue-700">Nama Lawan Transaksi</label>
-                <p className="text-blue-900">{data.masukan?.nama_lawan_transaksi || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-blue-700">No Seri FP</label>
-                <p className="text-blue-900">{data.masukan?.no_seri_fp || 'N/A'}</p>
-              </div>
-              <div className="col-span-2">
-                <label className="text-sm font-medium text-blue-700">Alamat</label>
-                <p className="text-blue-900">{data.masukan?.alamat || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-blue-700">NPWP</label>
-                <p className="text-blue-900">{data.masukan?.npwp || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-blue-700">Email</label>
-                <p className="text-blue-900">{data.masukan?.email || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-blue-700">Quantity</label>
-                <p className="text-blue-900">{data.masukan?.quantity || 0}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-blue-700">Diskon</label>
-                <p className="text-blue-900">Rp {data.masukan?.diskon?.toLocaleString() || '0'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-blue-700">Harga</label>
-                <p className="text-blue-900">Rp {data.masukan?.harga?.toLocaleString() || '0'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-blue-700">DPP</label>
-                <p className="text-blue-900">Rp {data.masukan?.dpp?.toLocaleString() || '0'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-blue-700">PPN</label>
-                <p className="text-blue-900">Rp {data.masukan?.ppn?.toLocaleString() || '0'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-blue-700">Tgl Faktur</label>
-                <p className="text-blue-900">{data.masukan?.tgl_faktur || 'N/A'}</p>
-              </div>
-              <div className="col-span-2">
-                <label className="text-sm font-medium text-blue-700">Keterangan Lain</label>
-                <p className="text-blue-900">{data.masukan?.keterangan_lain || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-blue-700">Tgl Rekam</label>
-                <p className="text-blue-900">{data.masukan?.tgl_rekam || 'N/A'}</p>
-              </div>
-            </div>
-            
-            {/* Keterangan Barang Table */}
-            {data.masukan?.keterangan_barang && data.masukan.keterangan_barang.length > 0 && (
-              <div className="mt-4">
-                <h5 className="text-md font-semibold text-blue-900 mb-2">Keterangan Barang</h5>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm border border-blue-300">
-                    <thead className="bg-blue-100">
-                      <tr>
-                        <th className="px-3 py-2 text-left border-r border-blue-300">No.</th>
-                        <th className="px-3 py-2 text-left border-r border-blue-300">Kode Barang/Jasa</th>
-                        <th className="px-3 py-2 text-left border-r border-blue-300">Nama Barang kena pajak/Jasa kena pajak</th>
-                        <th className="px-3 py-2 text-right">Harga Jual / Penggantian / Uang Muka / Termin (Rp)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.masukan.keterangan_barang.map((item: any, index: number) => (
-                        <tr key={index} className="border-t border-blue-200">
-                          <td className="px-3 py-2 border-r border-blue-200">{item.no}</td>
-                          <td className="px-3 py-2 border-r border-blue-200">{item.kode_barang_jasa}</td>
-                          <td className="px-3 py-2 border-r border-blue-200">{item.nama_barang_kena_pajak_jasa_kena_pajak}</td>
-                          <td className="px-3 py-2 text-right">Rp {item.harga_jual_penggantian_uang_muka_termin?.toLocaleString() || '0'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    if (result.document_type === 'pph21') {
-      return (
-        <div className="bg-yellow-50 p-6 rounded-lg border border-yellow-200">
-          <h4 className="text-lg font-semibold text-yellow-900 mb-4">PPh 21 Data</h4>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium text-yellow-700">Nomor</label>
-              <p className="text-yellow-900">{data.nomor || 'N/A'}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-yellow-700">Masa Pajak</label>
-              <p className="text-yellow-900">{data.masa_pajak || 'N/A'}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-yellow-700">Sifat Pemotongan</label>
-              <p className="text-yellow-900">{data.sifat_pemotongan || 'N/A'}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-yellow-700">Status Bukti Pemotongan</label>
-              <p className="text-yellow-900">{data.status_bukti_pemotongan || 'N/A'}</p>
-            </div>
-          </div>
-          
-          {/* Identitas Penerima Penghasilan */}
-          <div className="mt-4">
-            <h5 className="text-md font-semibold text-yellow-900 mb-2">Identitas Penerima Penghasilan</h5>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-yellow-700">NPWP/NIK</label>
-                <p className="text-yellow-900">{data.identitas_penerima_penghasilan?.npwp_nik || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-yellow-700">Nama</label>
-                <p className="text-yellow-900">{data.identitas_penerima_penghasilan?.nama || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-yellow-700">NITKU</label>
-                <p className="text-yellow-900">{data.identitas_penerima_penghasilan?.nitku || 'N/A'}</p>
-              </div>
-            </div>
-          </div>
-          
-          {/* PPh Information */}
-          <div className="mt-4">
-            <h5 className="text-md font-semibold text-yellow-900 mb-2">Informasi PPh</h5>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-yellow-700">Jenis PPh</label>
-                <p className="text-yellow-900">{data.jenis_pph || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-yellow-700">Kode Objek Pajak</label>
-                <p className="text-yellow-900">{data.kode_objek_pajak || 'N/A'}</p>
-              </div>
-              <div className="col-span-2">
-                <label className="text-sm font-medium text-yellow-700">Objek Pajak</label>
-                <p className="text-yellow-900">{data.objek_pajak || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-yellow-700">Penghasilan Bruto</label>
-                <p className="text-lg font-semibold text-yellow-900">
-                  Rp {typeof data.penghasilan_bruto === 'number' && data.penghasilan_bruto > 0 
-                    ? data.penghasilan_bruto.toLocaleString() 
-                    : '0'}
-                </p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-yellow-700">DPP</label>
-                <p className="text-yellow-900">
-                  Rp {typeof data.dpp === 'number' && data.dpp > 0 
-                    ? data.dpp.toLocaleString() 
-                    : '0'}
-                </p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-yellow-700">Tarif</label>
-                <p className="text-yellow-900">{data.tarif || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-yellow-700">PPh</label>
-                <p className="text-lg font-bold text-yellow-900">
-                  Rp {typeof data.pph === 'number' && data.pph > 0 
-                    ? data.pph.toLocaleString() 
-                    : '0'}
-                </p>
-              </div>
-            </div>
-          </div>
-          
-          {/* Dasar Dokumen */}
-          <div className="mt-4">
-            <h5 className="text-md font-semibold text-yellow-900 mb-2">Dasar Dokumen</h5>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-yellow-700">Jenis Dokumen</label>
-                <p className="text-yellow-900">{data.dasar_dokumen?.jenis_dokumen || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-yellow-700">Nomor Dokumen</label>
-                <p className="text-yellow-900">{data.dasar_dokumen?.nomor_dokumen || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-yellow-700">Tanggal Dokumen</label>
-                <p className="text-yellow-900">{data.dasar_dokumen?.tanggal_dokumen || 'N/A'}</p>
-              </div>
-            </div>
-          </div>
-          
-          {/* Identitas Pemotong */}
-          <div className="mt-4">
-            <h5 className="text-md font-semibold text-yellow-900 mb-2">Identitas Pemotong</h5>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-yellow-700">NPWP/NIK</label>
-                <p className="text-yellow-900">{data.identitas_pemotong?.npwp_nik || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-yellow-700">NITKU</label>
-                <p className="text-yellow-900">{data.identitas_pemotong?.nitku || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-yellow-700">Nama Pemotong</label>
-                <p className="text-yellow-900">{data.identitas_pemotong?.nama_pemotong || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-yellow-700">Tanggal Pemotongan</label>
-                <p className="text-yellow-900">{data.identitas_pemotong?.tanggal_pemotongan || 'N/A'}</p>
-              </div>
-              <div className="col-span-2">
-                <label className="text-sm font-medium text-yellow-700">Nama Penandatanganan</label>
-                <p className="text-yellow-900">{data.identitas_pemotong?.nama_penandatanganan || 'N/A'}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    if (result.document_type === 'pph23') {
-      return (
-        <div className="bg-orange-50 p-6 rounded-lg border border-orange-200">
-          <h4 className="text-lg font-semibold text-orange-900 mb-4">PPh 23 Data</h4>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium text-orange-700">Nomor</label>
-              <p className="text-orange-900">{data.nomor || 'N/A'}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-orange-700">Masa Pajak</label>
-              <p className="text-orange-900">{data.masa_pajak || 'N/A'}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-orange-700">Sifat Pemotongan</label>
-              <p className="text-orange-900">{data.sifat_pemotongan || 'N/A'}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-orange-700">Status Bukti Pemotongan</label>
-              <p className="text-orange-900">{data.status_bukti_pemotongan || 'N/A'}</p>
-            </div>
-          </div>
-          
-          {/* Identitas Penerima Penghasilan */}
-          <div className="mt-4">
-            <h5 className="text-md font-semibold text-orange-900 mb-2">Identitas Penerima Penghasilan</h5>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-orange-700">NPWP/NIK</label>
-                <p className="text-orange-900">{data.identitas_penerima_penghasilan?.npwp_nik || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-orange-700">Nama</label>
-                <p className="text-orange-900">{data.identitas_penerima_penghasilan?.nama || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-orange-700">NITKU</label>
-                <p className="text-orange-900">{data.identitas_penerima_penghasilan?.nitku || 'N/A'}</p>
-              </div>
-            </div>
-          </div>
-          
-          {/* PPh Information */}
-          <div className="mt-4">
-            <h5 className="text-md font-semibold text-orange-900 mb-2">Informasi PPh</h5>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-orange-700">Jenis PPh</label>
-                <p className="text-orange-900">{data.jenis_pph || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-orange-700">Kode Objek Pajak</label>
-                <p className="text-orange-900">{data.kode_objek_pajak || 'N/A'}</p>
-              </div>
-              <div className="col-span-2">
-                <label className="text-sm font-medium text-orange-700">Objek Pajak</label>
-                <p className="text-orange-900">{data.objek_pajak || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-orange-700">DPP</label>
-                <p className="text-orange-900">
-                  Rp {typeof data.dpp === 'number' && data.dpp > 0 
-                    ? data.dpp.toLocaleString() 
-                    : '0'}
-                </p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-orange-700">Tarif</label>
-                <p className="text-orange-900">{data.tarif || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-orange-700">PPh</label>
-                <p className="text-lg font-bold text-orange-900">
-                  Rp {typeof data.pph === 'number' && data.pph > 0 
-                    ? data.pph.toLocaleString() 
-                    : '0'}
-                </p>
-              </div>
-            </div>
-          </div>
-          
-          {/* Dasar Dokumen */}
-          <div className="mt-4">
-            <h5 className="text-md font-semibold text-orange-900 mb-2">Dasar Dokumen</h5>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-orange-700">Jenis Dokumen</label>
-                <p className="text-orange-900">{data.dasar_dokumen?.jenis_dokumen || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-orange-700">Nomor Dokumen</label>
-                <p className="text-orange-900">{data.dasar_dokumen?.nomor_dokumen || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-orange-700">Tanggal Dokumen</label>
-                <p className="text-orange-900">{data.dasar_dokumen?.tanggal_dokumen || 'N/A'}</p>
-              </div>
-            </div>
-          </div>
-          
-          {/* Identitas Pemotong */}
-          <div className="mt-4">
-            <h5 className="text-md font-semibold text-orange-900 mb-2">Identitas Pemotong</h5>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-orange-700">NPWP/NIK</label>
-                <p className="text-orange-900">{data.identitas_pemotong?.npwp_nik || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-orange-700">NITKU</label>
-                <p className="text-orange-900">{data.identitas_pemotong?.nitku || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-orange-700">Nama Pemotong</label>
-                <p className="text-orange-900">{data.identitas_pemotong?.nama_pemotong || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-orange-700">Tanggal Pemotongan</label>
-                <p className="text-orange-900">{data.identitas_pemotong?.tanggal_pemotongan || 'N/A'}</p>
-              </div>
-              <div className="col-span-2">
-                <label className="text-sm font-medium text-orange-700">Nama Penandatanganan</label>
-                <p className="text-orange-900">{data.identitas_pemotong?.nama_penandatanganan || 'N/A'}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    if (result.document_type === 'rekening_koran') {
-      return (
-        <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
-          <h4 className="text-lg font-semibold text-blue-900 mb-4">Rekening Koran</h4>
-          <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-blue-700">Tanggal</label>
-                <p className="text-blue-900">{data.tanggal || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-blue-700">Nilai Uang Masuk</label>
-                <p className="text-blue-900">Rp {data.nilai_uang_masuk?.toLocaleString() || '0'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-blue-700">Nilai Uang Keluar</label>
-                <p className="text-blue-900">Rp {data.nilai_uang_keluar?.toLocaleString() || '0'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-blue-700">Saldo</label>
-                <p className="text-blue-900">Rp {data.saldo?.toLocaleString() || '0'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-blue-700">Sumber Uang Masuk</label>
-                <p className="text-blue-900">{data.sumber_uang_masuk || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-blue-700">Tujuan Uang Keluar</label>
-                <p className="text-blue-900">{data.tujuan_uang_keluar || 'N/A'}</p>
-              </div>
-              <div className="col-span-2">
-                <label className="text-sm font-medium text-blue-700">Keterangan</label>
-                <p className="text-blue-900">{data.keterangan || 'N/A'}</p>
-              </div>
-          </div>
-        </div>
-      );
-    }
-
-    if (result.document_type === 'invoice') {
-      return (
-        <div className="bg-purple-50 p-6 rounded-lg border border-purple-200">
-          <h4 className="text-lg font-semibold text-purple-900 mb-4">Invoice</h4>
-          <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-purple-700">PO</label>
-                <p className="text-purple-900">{data.po || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-purple-700">Tanggal PO</label>
-                <p className="text-purple-900">{data.tanggal_po || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-purple-700">Tanggal Invoice</label>
-                <p className="text-purple-900">{data.tanggal_invoice || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-purple-700">Tanggal</label>
-                <p className="text-purple-900">{data.tanggal || 'N/A'}</p>
-              </div>
-              <div className="col-span-2">
-                <label className="text-sm font-medium text-purple-700">Keterangan</label>
-                <p className="text-purple-900">{data.keterangan || 'N/A'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-purple-700">Nilai</label>
-                <p className="text-lg font-bold text-purple-900">Rp {data.nilai?.toLocaleString() || '0'}</p>
-              </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Default rendering for other document types
+  const renderDebugInfo = (result: any) => {
     return (
-      <div className="bg-gray-50 p-6 rounded-lg">
-        <pre className="text-sm text-gray-700 whitespace-pre-wrap">
-          {JSON.stringify(data, null, 2)}
-        </pre>
+      <div className="bg-gray-900 text-green-400 p-6 rounded-lg font-mono text-xs overflow-auto max-h-96">
+        <div className="mb-4">
+          <h5 className="text-green-300 font-bold mb-2">🔍 SUPER DETAILED DEBUG INFO</h5>
+          <div className="grid grid-cols-2 gap-4 mb-4 text-yellow-300">
+            <div>📄 File: {result.original_filename}</div>
+            <div>🏷️ Type: {result.document_type}</div>
+            <div>🎯 Confidence: {(result.confidence * 100).toFixed(2)}%</div>
+            <div>📅 Processed: {new Date(result.created_at).toLocaleString()}</div>
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <h6 className="text-cyan-300 font-bold mb-2">📊 FULL RESULT OBJECT STRUCTURE:</h6>
+          <pre className="text-xs bg-gray-800 p-3 rounded overflow-x-auto">
+            {JSON.stringify(result, null, 2)}
+          </pre>
+        </div>
+
+        <div className="mb-4">
+          <h6 className="text-cyan-300 font-bold mb-2">🧠 EXTRACTED DATA ANALYSIS:</h6>
+          {result.extracted_data && (
+            <div className="space-y-2">
+              <div>🔢 Total Fields: {Object.keys(result.extracted_data).length}</div>
+              <div>📋 Field Names: {Object.keys(result.extracted_data).join(', ')}</div>
+              
+              {Object.entries(result.extracted_data).map(([key, value]: [string, any]) => (
+                <div key={key} className="border-l-2 border-blue-400 pl-3 my-2">
+                  <div className="text-blue-300 font-bold">{key}:</div>
+                  <div className="text-gray-300 ml-2">
+                    Type: {Array.isArray(value) ? 'Array' : typeof value} | 
+                    Value: {typeof value === 'object' && value !== null 
+                      ? `Object with ${Object.keys(value).length} properties`
+                      : String(value)}
+                  </div>
+                  {typeof value === 'object' && value !== null && (
+                    <pre className="text-xs bg-gray-800 p-2 rounded mt-1 overflow-x-auto">
+                      {JSON.stringify(value, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="mb-4">
+          <h6 className="text-cyan-300 font-bold mb-2">🔍 DATA TYPE ANALYSIS:</h6>
+          {result.extracted_data && Object.entries(result.extracted_data).map(([key, value]: [string, any]) => (
+            <div key={key} className="mb-2">
+              <span className="text-yellow-300">{key}:</span>
+              <span className="ml-2">
+                {Array.isArray(value) && `Array[${value.length}]`}
+                {typeof value === 'object' && value !== null && !Array.isArray(value) && `Object{${Object.keys(value).join(', ')}}`}
+                {typeof value === 'string' && `String(${value.length} chars)`}
+                {typeof value === 'number' && `Number(${value})`}
+                {typeof value === 'boolean' && `Boolean(${value})`}
+                {value === null && 'Null'}
+                {value === undefined && 'Undefined'}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div className="mb-4">
+          <h6 className="text-cyan-300 font-bold mb-2">🏗️ AI FORMATTER INPUT/OUTPUT:</h6>
+          <div className="space-y-2">
+            <div>
+              <div className="text-yellow-300">📥 Input to AIDataFormatter:</div>
+              <pre className="text-xs bg-gray-800 p-2 rounded overflow-x-auto">
+                {JSON.stringify({
+                  document_type: result.document_type,
+                  confidence: result.confidence,
+                  extracted_data: result.extracted_data,
+                  original_filename: result.original_filename
+                }, null, 2)}
+              </pre>
+            </div>
+            <div>
+              <div className="text-yellow-300">📤 Output from AIDataFormatter:</div>
+              <pre className="text-xs bg-gray-800 p-2 rounded overflow-x-auto">
+                {JSON.stringify(AIDataFormatter.formatDocumentData(result), null, 2)}
+              </pre>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h6 className="text-cyan-300 font-bold mb-2">⚙️ PROCESSING METADATA:</h6>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div>ID: {result.id}</div>
+            <div>Status: {result.status}</div>
+            <div>Processing Time: {result.processing_time || 'N/A'}ms</div>
+            <div>File Size: {result.file_size || 'N/A'} bytes</div>
+            <div>Created: {result.created_at}</div>
+            <div>Updated: {result.updated_at}</div>
+          </div>
+        </div>
       </div>
     );
+  };
+
+  const renderExtractedData = (result: any) => {
+    // SUPER DEBUG: Log all data to console
+    console.log('🔍 SUPER DEBUG - Full Result Object:', result);
+    console.log('📊 Document Type:', result.document_type);
+    console.log('🎯 Confidence:', result.confidence);
+    console.log('📄 Filename:', result.original_filename);
+    console.log('🧠 Extracted Data:', result.extracted_data);
+    console.log('⚙️ AI Formatted Data:', AIDataFormatter.formatDocumentData(result));
+    
+    try {
+      // Use AI formatter to prepare data for display
+      const aiFormattedData = AIDataFormatter.formatDocumentData(result);
+      
+      return <AIDataDisplay data={aiFormattedData} />;
+    } catch (error) {
+      console.error('AI formatting error:', error);
+      
+      // Fallback to raw data display
+      const data = result.extracted_data;
+      return (
+        <div className="bg-gray-50 p-6 rounded-lg">
+          <pre className="text-sm text-gray-700 whitespace-pre-wrap">
+            {JSON.stringify(data, null, 2)}
+          </pre>
+        </div>
+      );
+    }
   };
 
   return (
@@ -706,6 +315,81 @@ const ScanResults = () => {
 
           {/* Tab Content */}
           <div className="p-6">
+            {/* Global Debug for All Scan Results */}
+            <div className="mb-6">
+              <details className="bg-blue-50 rounded-lg border border-blue-200">
+                <summary className="p-3 cursor-pointer font-medium text-blue-900 hover:bg-blue-100 rounded-lg">
+                  🌍 Global Debug: All Scan Results ({scanResults.length} files)
+                </summary>
+                <div className="p-3 pt-0">
+                  <div className="mb-4 flex space-x-2">
+                    <button
+                      onClick={async () => {
+                        try {
+                          const response = await fetch(`http://localhost:8000/api/debug/recalculate-confidence/${batchId}`, {
+                            method: 'POST'
+                          });
+                          if (response.ok) {
+                            const result = await response.json();
+                            console.log('🔄 Recalculation result:', result);
+                            alert(`✅ Recalculated confidence for ${result.updates.length} files`);
+                            // Refresh the page to see new values
+                            window.location.reload();
+                          } else {
+                            console.error('❌ Recalculation failed');
+                            alert('❌ Failed to recalculate confidence');
+                          }
+                        } catch (error) {
+                          console.error('❌ Error:', error);
+                          alert('❌ Error recalculating confidence');
+                        }
+                      }}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                    >
+                      🔄 Recalculate Confidence
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (confirm('⚠️ This will clear ALL storage. Are you sure?')) {
+                          try {
+                            const response = await fetch('http://localhost:8000/api/debug/clear-storage', {
+                              method: 'DELETE'
+                            });
+                            if (response.ok) {
+                              const result = await response.json();
+                              console.log('🧹 Clear storage result:', result);
+                              alert(`✅ Cleared ${result.cleared.batches} batches and ${result.cleared.results} results`);
+                              // Navigate back to home
+                              navigate('/');
+                            } else {
+                              alert('❌ Failed to clear storage');
+                            }
+                          } catch (error) {
+                            console.error('❌ Error:', error);
+                            alert('❌ Error clearing storage');
+                          }
+                        }
+                      }}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                    >
+                      🧹 Clear Storage
+                    </button>
+                  </div>
+                  <div className="bg-blue-900 text-green-400 p-4 rounded-lg font-mono text-xs overflow-auto max-h-64">
+                    <div className="text-cyan-300 font-bold mb-2">📊 BATCH OVERVIEW:</div>
+                    <div className="mb-2">Total Files: {scanResults.length}</div>
+                    <div className="mb-2">Document Types: {[...new Set(scanResults.map(r => r.document_type))].join(', ')}</div>
+                    <div className="mb-4">Average Confidence: {(scanResults.reduce((sum, r) => sum + r.confidence, 0) / scanResults.length * 100).toFixed(2)}%</div>
+                    
+                    <div className="text-cyan-300 font-bold mb-2">📋 ALL SCAN RESULTS:</div>
+                    <pre className="text-xs bg-gray-800 p-3 rounded overflow-x-auto">
+                      {JSON.stringify(scanResults, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              </details>
+            </div>
+
             {scanResults[activeTab] && (
               <div className="space-y-6">
                 {/* File Info */}
@@ -747,6 +431,18 @@ const ScanResults = () => {
 
                 {/* Extracted Data */}
                 {renderExtractedData(scanResults[activeTab])}
+
+                {/* Debug Information */}
+                <div className="mt-8">
+                  <details className="bg-gray-100 rounded-lg">
+                    <summary className="p-4 cursor-pointer font-medium text-gray-900 hover:bg-gray-200 rounded-lg">
+                      🔍 Debug Information (Click to expand)
+                    </summary>
+                    <div className="p-4 pt-0">
+                      {renderDebugInfo(scanResults[activeTab])}
+                    </div>
+                  </details>
+                </div>
               </div>
             )}
           </div>

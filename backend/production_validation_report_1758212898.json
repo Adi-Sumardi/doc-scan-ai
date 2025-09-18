@@ -1,0 +1,67 @@
+{
+  "backend_health": {
+    "backend_responsive": false,
+    "upload_working": false,
+    "ocr_performance": {},
+    "overall_health": false
+  },
+  "frontend_health": {
+    "frontend_responsive": false,
+    "status_code": 0
+  },
+  "performance": {
+    "ocr_health": {
+      "status": "healthy",
+      "ocr_engines_available": [
+        "PaddleOCR",
+        "EasyOCR"
+      ],
+      "memory_usage_mb": 1438.015625,
+      "disk_space_available": true,
+      "statistics": {
+        "total_processed": 0,
+        "successful": 0,
+        "failed": 0,
+        "avg_processing_time": 0.0,
+        "total_processing_time": 0.0,
+        "success_rate": 0.0
+      }
+    },
+    "performance_metrics": {
+      "total_files": 5,
+      "successful_files": 5,
+      "success_rate": 100.0,
+      "total_processing_time": 0.8175339698791504,
+      "avg_time_per_file": 0.16350679397583007,
+      "total_characters": 19698,
+      "avg_confidence": 95.0,
+      "memory_efficient": true,
+      "speed_efficient": true
+    },
+    "system_ready": true
+  },
+  "final_report": {
+    "timestamp": "2025-09-18 23:28:18",
+    "scores": {
+      "backend": 0,
+      "frontend": 0,
+      "performance": 100,
+      "overall": 33.333333333333336
+    },
+    "readiness": {
+      "deployment_ready": false,
+      "recommendation": "DEPLOYMENT NOT RECOMMENDED - Major issues require resolution",
+      "critical_issues": [
+        "Backend API not responsive",
+        "File upload functionality broken",
+        "Frontend not accessible"
+      ]
+    },
+    "technical_summary": {
+      "ocr_accuracy": 95.0,
+      "processing_speed": 0.16350679397583007,
+      "system_stability": false,
+      "frontend_responsive": false
+    }
+  }
+}

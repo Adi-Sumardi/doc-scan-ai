@@ -3,63 +3,75 @@ fastapi==0.116.1
 uvicorn==0.35.0
 python-multipart==0.0.20
 aiofiles==24.1.0
-starlette==0.47.3
-h11==0.16.0
-anyio==4.10.0
-sniffio==1.3.1
-idna==3.10
 
-# OCR Libraries
+# OCR and Computer Vision Libraries
+paddleocr==3.2.0
+paddlepaddle==3.2.0
+paddlex==3.2.1
 easyocr==1.7.2
 pytesseract==0.3.13
 opencv-python==4.12.0.88
-opencv-python-headless==4.12.0.88
+opencv-contrib-python==4.10.0.84
 pillow==11.3.0
 
 # PDF Processing
 PyPDF2==3.0.1
 pdf2image==1.17.0
+pdfplumber==0.11.7
+pdfminer.six==20250506
+pypdfium2==4.30.0
+
+# Advanced Document Analysis
+layoutparser==0.3.4
+
+# Machine Learning and AI
+scikit-learn==1.7.2
+imbalanced-learn==0.14.0
+transformers==4.56.1
+tokenizers==0.22.0
+torch==2.8.0
+safetensors==0.6.2
+huggingface-hub==0.35.0
+
+# Scientific Computing
+numpy==2.2.6
+scipy==1.15.3
+scikit-image==0.25.2
+pandas==2.3.2
+matplotlib==3.10.6
+seaborn==0.13.2
+
+# Image Processing
+imageio==2.37.0
+tifffile==2025.5.10
+opencv-python-headless==4.12.0.88
 
 # Export Libraries
 openpyxl==3.1.5
 reportlab==4.4.3
-et_xmlfile==2.0.0
 
 # Core Dependencies
-numpy==2.2.6
-torch==2.8.0
-torchvision==0.23.0
-scipy==1.15.3
-scikit-image==0.25.2
 PyYAML==6.0.2
-
-# Machine Learning Support
-imageio==2.37.0
-tifffile==2025.5.10
-lazy_loader==0.4
-networkx==3.4.2
-sympy==1.14.0
-mpmath==1.3.0
+requests==2.32.5
+tqdm==4.67.1
+joblib==1.5.2
+threadpoolctl==3.6.0
 
 # OCR-specific Dependencies
 python-bidi==0.6.6
 pyclipper==1.3.0.post6
-ninja==1.13.0
-shapely==2.1.1
+imutils==0.5.4
 
-# Pydantic and Validation
-pydantic==2.11.7
-pydantic_core==2.33.2
-annotated-types==0.7.0
-typing-inspection==0.4.1
-typing_extensions==4.15.0
+# Cryptography and Security
+cryptography==46.0.1
+cffi==2.0.0
+pycryptodome==3.23.0
 
-# Utilities and Support
-click==8.2.1
+# Utilities
+python-dateutil==2.9.0.post0
+pytz==2025.2
+tzdata==2025.2
 charset-normalizer==3.4.3
-filelock==3.19.1
-fsspec==2025.9.0
-Jinja2==3.1.6
-MarkupSafe==3.0.2
-packaging==25.0
-exceptiongroup==1.3.0
+urllib3==2.5.0
+certifi==2025.8.3
+regex==2025.9.1
