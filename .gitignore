@@ -91,3 +91,4 @@ tmp/
 temp/
 *.tmp
 *.temp
+backend/doc_scan_env/
