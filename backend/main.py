@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import uvicorn
@@ -10,34 +10,87 @@ from datetime import datetime
 from typing import List, Optional
 import aiofiles
 from pathlib import Path
+from sqlalchemy.orm import Session
+from sqlalchemy import desc, and_
+import logging
 
-# Import our AI processing modules
+# Import our modules
 from ai_processor import process_document_ai, create_enhanced_excel_export, create_enhanced_pdf_export, RealOCRProcessor
 from models import BatchResponse, ScanResult, BatchStatus
+from database import SessionLocal, engine, Base, Batch, DocumentFile, ScanResult as DBScanResult, ProcessingLog, SystemMetrics
+from config import settings, get_upload_dir, get_results_dir, get_exports_dir
+from websocket_manager import manager
+from redis_cache import cache
+# Temporarily comment out security validator for now
+# from utils import FileSecurityValidator
+
+# Configure logging
+logging.basicConfig(
+    level=getattr(logging, settings.log_level),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="AI Document Scanner API", version="1.0.0")
+
+# Create database tables
+Base.metadata.create_all(bind=engine)
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Vite dev server
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Dependency to get database session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 # Storage directories
-UPLOAD_DIR = Path("uploads")
-RESULTS_DIR = Path("results")
-EXPORTS_DIR = Path("exports")
+UPLOAD_DIR = Path(get_upload_dir())
+RESULTS_DIR = Path(get_results_dir())
+EXPORTS_DIR = Path(get_exports_dir())
 
 for dir_path in [UPLOAD_DIR, RESULTS_DIR, EXPORTS_DIR]:
     dir_path.mkdir(exist_ok=True)
 
-# In-memory storage (in production, use database)
-batches_storage = {}
-results_storage = {}
+# Simple file validation function
+def validate_file(content: bytes, filename: str) -> dict:
+    """Simple file validation for error handling demo"""
+    errors = []
+    warnings = []
+    
+    # Check file size (max 10MB)
+    if len(content) > 10 * 1024 * 1024:
+        errors.append("File size exceeds 10MB limit")
+    
+    # Check file extension
+    allowed_extensions = ['.jpg', '.jpeg', '.png', '.pdf', '.tiff', '.tif']
+    file_ext = Path(filename).suffix.lower()
+    if file_ext not in allowed_extensions:
+        errors.append(f"File type '{file_ext}' not supported. Allowed: {', '.join(allowed_extensions)}")
+    
+    # Check if file has content
+    if len(content) == 0:
+        errors.append("File is empty")
+    
+    return {
+        "is_valid": len(errors) == 0,
+        "errors": errors,
+        "warnings": warnings,
+        "file_info": {
+            "mime_type": "application/octet-stream",
+            "md5": "temp_md5",
+            "sha256": "temp_sha256"
+        }
+    }
 
 @app.get("/")
 async def root():
@@ -66,418 +119,971 @@ async def heartbeat():
 
 @app.get("/api/health")
 async def health_check():
-    """Alternative health check endpoint"""
-    return {"status": "healthy", "service": "doc-scan-ai", "timestamp": datetime.now().isoformat()}
+    """Enhanced health check with cache status"""
+    cache_stats = cache.get_cache_stats()
+    return {
+        "status": "healthy", 
+        "service": "doc-scan-ai", 
+        "timestamp": datetime.now().isoformat(),
+        "cache": {
+            "redis_connected": cache_stats.get("connected", False),
+            "total_cached_items": cache_stats.get("total_keys", 0)
+        }
+    }
+
+@app.get("/api/cache/stats")
+async def get_cache_statistics():
+    """Get comprehensive Redis cache statistics"""
+    return cache.get_cache_stats()
+
+@app.post("/api/cache/clear")
+async def clear_cache():
+    """Clear all cache entries"""
+    if cache.clear_all_cache():
+        return {"message": "Cache cleared successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to clear cache")
+
+@app.websocket("/ws")
+async def websocket_general(websocket: WebSocket):
+    """WebSocket endpoint for general system updates"""
+    await manager.connect(websocket)
+    try:
+        # Send connection confirmation
+        await manager.send_personal_message(json.dumps({
+            "type": "connection_established",
+            "message": "Connected to general updates",
+            "timestamp": datetime.now().isoformat()
+        }), websocket)
+        
+        while True:
+            # Keep connection alive and handle any client messages
+            data = await websocket.receive_text()
+            # Echo back for testing
+            await manager.send_personal_message(f"Echo: {data}", websocket)
+            
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+@app.websocket("/ws/batch/{batch_id}")
+async def websocket_batch(websocket: WebSocket, batch_id: str):
+    """WebSocket endpoint for specific batch progress updates"""
+    await manager.connect(websocket, batch_id)
+    try:
+        # Send connection confirmation with batch info
+        await manager.send_personal_message(json.dumps({
+            "type": "batch_connection_established", 
+            "batch_id": batch_id,
+            "message": f"Connected to batch {batch_id} updates",
+            "timestamp": datetime.now().isoformat()
+        }), websocket)
+        
+        while True:
+            # Keep connection alive and handle any client messages
+            data = await websocket.receive_text()
+            # Could handle client commands here (pause, cancel, etc.)
+            await manager.send_personal_message(f"Batch {batch_id} Echo: {data}", websocket)
+            
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, batch_id)
+
+@app.get("/api/connections")
+async def get_connection_stats():
+    """Get WebSocket connection statistics"""
+    return manager.get_connection_stats()
 
 @app.post("/api/upload", response_model=BatchResponse)
 async def upload_documents(
+    background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
-    document_types: List[str] = Form(...)
+    document_types: List[str] = Form(...),
+    db: Session = Depends(get_db)
 ):
-    """Upload multiple documents for batch processing"""
+    """Upload multiple documents for batch processing with comprehensive error handling and security validation"""
+    batch_id = None
     try:
+        # Input validation
+        if not files:
+            raise HTTPException(
+                status_code=400, 
+                detail={
+                    "error": "No files provided",
+                    "message": "Please select at least one file to upload",
+                    "error_code": "NO_FILES"
+                }
+            )
+        
+        if not document_types:
+            raise HTTPException(
+                status_code=400, 
+                detail={
+                    "error": "No document types provided",
+                    "message": "Please specify document types for each file",
+                    "error_code": "NO_DOCUMENT_TYPES"
+                }
+            )
+        
+        if len(files) != len(document_types):
+            raise HTTPException(
+                status_code=400, 
+                detail={
+                    "error": "File count mismatch",
+                    "message": f"Number of files ({len(files)}) must match number of document types ({len(document_types)})",
+                    "error_code": "COUNT_MISMATCH"
+                }
+            )
+        
+        # Validate file limits
+        if len(files) > 50:  # Maximum batch size
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "Too many files",
+                    "message": f"Maximum batch size is 50 files. You provided {len(files)} files.",
+                    "error_code": "BATCH_SIZE_EXCEEDED"
+                }
+            )
+        
         batch_id = str(uuid.uuid4())
         batch_dir = UPLOAD_DIR / batch_id
-        batch_dir.mkdir(exist_ok=True)
         
-        # Save uploaded files
-        file_info = []
-        for i, (file, doc_type) in enumerate(zip(files, document_types)):
-            file_id = str(uuid.uuid4())
-            file_path = batch_dir / f"{file_id}_{file.filename}"
-            
-            async with aiofiles.open(file_path, 'wb') as f:
-                content = await file.read()
-                await f.write(content)
-            
-            file_info.append({
-                "id": file_id,
-                "name": file.filename,
-                "type": doc_type,
-                "path": str(file_path),
-                "status": "pending",
-                "progress": 0
-            })
-        
-        # Store batch info
-        batch_data = {
-            "id": batch_id,
-            "files": file_info,
-            "status": "processing",
-            "created_at": datetime.now().isoformat(),
-            "total_files": len(files),
-            "processed_files": 0
-        }
-        
-        batches_storage[batch_id] = batch_data
-        
-        # Start background processing
-        asyncio.create_task(process_batch_async(batch_id))
-        
-        return BatchResponse(**batch_data)
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-async def process_batch_async(batch_id: str):
-    """Background task to process documents with AI"""
-    try:
-        batch = batches_storage[batch_id]
-        
-        for file_info in batch["files"]:
-            # Update file status to processing
-            file_info["status"] = "processing"
-            file_info["progress"] = 10
-            
-            # Simulate AI processing steps
-            await asyncio.sleep(1)  # LayoutLMv3 processing
-            file_info["progress"] = 30
-            
-            await asyncio.sleep(1.5)  # EasyOCR processing
-            file_info["progress"] = 60
-            
-            await asyncio.sleep(1)  # Transformers + spaCy processing
-            file_info["progress"] = 80
-            
-            # Process with AI
-            try:
-                result = await process_document_ai(
-                    file_info["path"], 
-                    file_info["type"]
-                )
-                
-                # DEBUG: Log the raw result from AI processor
-                print(f"🔍 DEBUG - Raw AI Result for {file_info['name']}:")
-                print(f"   - Full Result: {result}")
-                print(f"   - Confidence from AI: {result.get('confidence', 'NOT_FOUND')}")
-                print(f"   - Confidence Type: {type(result.get('confidence', 'NOT_FOUND'))}")
-                
-                # Save result
-                result_id = str(uuid.uuid4())
-                result_data = {
-                    "id": result_id,
-                    "batch_id": batch_id,
-                    "document_type": file_info["type"],
-                    "original_filename": file_info["name"],
-                    "extracted_data": result.get("extracted_data", result),
-                    "confidence": result.get("confidence", 0.0),
-                    "created_at": datetime.now().isoformat()
+        try:
+            batch_dir.mkdir(exist_ok=True)
+        except OSError as e:
+            logger.error(f"Failed to create batch directory {batch_dir}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "Storage error",
+                    "message": "Failed to prepare storage for file upload. Please try again.",
+                    "error_code": "STORAGE_ERROR"
                 }
+            )
+        
+        # Create database batch with error handling
+        try:
+            db_batch = Batch(
+                id=batch_id,
+                status="processing",
+                created_at=datetime.now()
+            )
+            db.add(db_batch)
+            db.commit()
+        except Exception as e:
+            logger.error(f"Database error creating batch {batch_id}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "Database error",
+                    "message": "Failed to create batch record. Please try again.",
+                    "error_code": "DATABASE_ERROR"
+                }
+            )
+        
+        logger.info(f"📁 Created batch {batch_id} with {len(files)} files")
+        
+        # Process each file with security validation and comprehensive error handling
+        file_paths = []
+        validation_results = []
+        
+        for i, (file, doc_type) in enumerate(zip(files, document_types)):
+            try:
+                # Validate document type
+                valid_types = ["invoice", "receipt", "id_card", "passport", "driver_license", "other"]
+                if doc_type not in valid_types:
+                    validation_result = {
+                        "is_valid": False,
+                        "errors": [f"Invalid document type '{doc_type}'. Valid types: {', '.join(valid_types)}"],
+                        "warnings": [],
+                        "filename": file.filename
+                    }
+                    validation_results.append(validation_result)
+                    continue
                 
-                # DEBUG: Log the final result data being stored
-                print(f"🔍 DEBUG - Final Result Data being stored:")
-                print(f"   - Result ID: {result_id}")
-                print(f"   - Confidence in storage: {result_data['confidence']}")
-                print(f"   - Full result_data: {result_data}")
+                # Validate file content exists
+                if not file.filename:
+                    validation_result = {
+                        "is_valid": False,
+                        "errors": ["File has no filename"],
+                        "warnings": [],
+                        "filename": "unknown"
+                    }
+                    validation_results.append(validation_result)
+                    continue
                 
-                results_storage[result_id] = result_data
-                
-                # Update file status
-                file_info["status"] = "completed"
-                file_info["progress"] = 100
-                file_info["result_id"] = result_id
-                
-                print(f"✅ Processing SUCCESS: {file_info['name']}")
-                print(f"   - Document Type: {file_info['type']}")
-                print(f"   - Confidence: {result.get('confidence', 0):.2%}")
-                print(f"   - Stored Confidence: {result_data['confidence']:.2%}")
-                
-                # Log extracted data structure
-                extracted_data = result.get("extracted_data", result)
-                if isinstance(extracted_data, dict):
-                    print(f"   - Extracted keys: {list(extracted_data.keys())}")
+                # Read file content for validation
+                try:
+                    content = await file.read()
+                    await file.seek(0)  # Reset file pointer for later processing
                     
-                    # Log specific fields for PPh documents
-                    if file_info["type"] in ["pph21", "pph23"]:
-                        if "penghasilan_bruto" in extracted_data:
-                            print(f"   - Penghasilan Bruto: Rp {extracted_data['penghasilan_bruto']:,}")
-                        if "dpp" in extracted_data:
-                            print(f"   - DPP: Rp {extracted_data['dpp']:,}")
-                        if "pph" in extracted_data:
-                            print(f"   - PPh: Rp {extracted_data['pph']:,}")
-                    
-                    # Log specific fields for Faktur Pajak
-                    elif file_info["type"] == "faktur_pajak":
-                        if "keluaran" in extracted_data and extracted_data["keluaran"]:
-                            keluaran = extracted_data["keluaran"]
-                            if "dpp" in keluaran:
-                                print(f"   - Keluaran DPP: Rp {keluaran['dpp']:,}")
-                            if "ppn" in keluaran:
-                                print(f"   - Keluaran PPN: Rp {keluaran['ppn']:,}")
-                        if "masukan" in extracted_data and extracted_data["masukan"]:
-                            masukan = extracted_data["masukan"]
-                            if "dpp" in masukan:
-                                print(f"   - Masukan DPP: Rp {masukan['dpp']:,}")
-                            if "ppn" in masukan:
-                                print(f"   - Masukan PPN: Rp {masukan['ppn']:,}")
-                else:
-                    print(f"   - Extracted data type: {type(extracted_data)}")
+                    if len(content) == 0:
+                        validation_result = {
+                            "is_valid": False,
+                            "errors": ["File is empty"],
+                            "warnings": [],
+                            "filename": file.filename
+                        }
+                        validation_results.append(validation_result)
+                        continue
+                        
+                except Exception as e:
+                    logger.error(f"Failed to read file {file.filename}: {e}")
+                    validation_result = {
+                        "is_valid": False,
+                        "errors": [f"Failed to read file content: {str(e)}"],
+                        "warnings": [],
+                        "filename": file.filename
+                    }
+                    validation_results.append(validation_result)
+                    continue
                 
-                # Check if this is a fallback result
-                if result.get('processing_note'):
-                    print(f"   - Note: {result.get('processing_note')}")
+                # Perform security validation
+                validation_result = validate_file(content, file.filename)
+                validation_result["filename"] = file.filename
+                validation_results.append(validation_result)
+                
+                if not validation_result["is_valid"]:
+                    logger.warning(f"🚫 File {file.filename} failed security validation: {validation_result['errors']}")
+                    # Log failed validation
+                    log_entry = ProcessingLog(
+                        batch_id=batch_id,
+                        level="WARNING",
+                        message=f"File security validation failed for {file.filename}: {'; '.join(validation_result['errors'])}"
+                    )
+                    db.add(log_entry)
+                    continue
+                
+                # Save file with comprehensive error handling
+                safe_filename = f"{i:03d}_{file.filename}"
+                file_path = batch_dir / safe_filename
+                
+                try:
+                    async with aiofiles.open(file_path, 'wb') as f:
+                        content = await file.read()
+                        await f.write(content)
+                    
+                    # Verify file was written correctly
+                    if not file_path.exists() or file_path.stat().st_size == 0:
+                        raise Exception("File was not saved properly")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to save file {file.filename}: {e}")
+                    validation_result = {
+                        "is_valid": False,
+                        "errors": [f"Failed to save file: {str(e)}"],
+                        "warnings": [],
+                        "filename": file.filename
+                    }
+                    validation_results.append(validation_result)
+                    continue
+                
+                # Create database file record with error handling
+                try:
+                    db_file = DocumentFile(
+                        batch_id=batch_id,
+                        filename=file.filename,
+                        file_path=str(file_path),
+                        document_type=doc_type,
+                        file_size=len(content),
+                        mime_type=validation_result["file_info"].get("mime_type", "unknown"),
+                        checksum_md5=validation_result["file_info"].get("md5", ""),
+                        checksum_sha256=validation_result["file_info"].get("sha256", ""),
+                        security_validation=json.dumps(validation_result)
+                    )
+                    db.add(db_file)
+                    
+                    file_paths.append({
+                        "path": str(file_path),
+                        "filename": file.filename,
+                        "document_type": doc_type,
+                        "security_validation": validation_result
+                    })
+                    
+                    logger.info(f"✅ Successfully uploaded and validated: {file.filename}")
+                    
+                except Exception as e:
+                    logger.error(f"Database error for file {file.filename}: {e}")
+                    # Clean up the saved file if database operation failed
+                    try:
+                        file_path.unlink()
+                    except:
+                        pass
+                    validation_result = {
+                        "is_valid": False,
+                        "errors": [f"Database error: {str(e)}"],
+                        "warnings": [],
+                        "filename": file.filename
+                    }
+                    validation_results.append(validation_result)
+                    continue
                 
             except Exception as e:
-                print(f"⚠️ Processing error for {file_info['name']}: {e}")
-                # Create fallback result instead of failing
+                logger.error(f"Unexpected error processing file {getattr(file, 'filename', 'unknown')}: {e}")
+                # Log error
                 try:
-                    from ai_processor import create_fallback_result
-                    fallback_result = create_fallback_result(file_info["type"], str(e))
-                    
-                    result_id = str(uuid.uuid4())
-                    result_data = {
-                        "id": result_id,
-                        "batch_id": batch_id,
-                        "document_type": file_info["type"],
-                        "original_filename": file_info["name"],
-                        "extracted_data": fallback_result,
-                        "confidence": fallback_result.get("confidence", 0.3),
-                        "created_at": datetime.now().isoformat()
-                    }
-                    
-                    results_storage[result_id] = result_data
-                    
-                    file_info["status"] = "completed"
-                    file_info["progress"] = 100
-                    file_info["result_id"] = result_id
-                    
-                    print(f"🔄 Created fallback result for {file_info['name']}")
-                    
-                except Exception as fallback_error:
-                    print(f"❌ Fallback creation failed: {fallback_error}")
-                    file_info["status"] = "error"
-                    file_info["progress"] = 0
-                    file_info["error"] = str(e)
+                    log_entry = ProcessingLog(
+                        batch_id=batch_id,
+                        level="ERROR",
+                        message=f"File processing error for {getattr(file, 'filename', 'unknown')}: {str(e)}"
+                    )
+                    db.add(log_entry)
+                except:
+                    pass  # Don't fail if logging fails
+        
+        # Update batch with file count and commit changes
+        try:
+            db_batch.total_files = len(file_paths)
+            db_batch.processed_files = 0
+            db.commit()
+        except Exception as e:
+            logger.error(f"Failed to update batch {batch_id}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "Database error",
+                    "message": "Failed to save batch information. Please try again.",
+                    "error_code": "BATCH_UPDATE_ERROR"
+                }
+            )
+        
+        # Check if any files passed validation
+        if not file_paths:
+            # No valid files - provide detailed feedback
+            failed_files = [r for r in validation_results if not r.get("is_valid", False)]
+            error_summary = {}
+            
+            for result in failed_files:
+                for error in result.get("errors", []):
+                    if error in error_summary:
+                        error_summary[error] += 1
+                    else:
+                        error_summary[error] = 1
+            
+            try:
+                db_batch.status = "failed"
+                db_batch.error_message = "No valid files passed security validation"
+                db.commit()
+            except:
+                pass  # Don't fail if status update fails
+            
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "No valid files",
+                    "message": f"None of the {len(files)} uploaded files passed security validation",
+                    "error_code": "NO_VALID_FILES",
+                    "validation_summary": {
+                        "total_files": len(files),
+                        "failed_files": len(failed_files),
+                        "common_errors": error_summary
+                    },
+                    "failed_files": [
+                        {
+                            "filename": r.get("filename", "unknown"),
+                            "errors": r.get("errors", [])
+                        } for r in failed_files
+                    ]
+                }
+            )
+        
+        # Start async processing using FastAPI BackgroundTasks
+        try:
+            background_tasks.add_task(process_batch_async, batch_id, file_paths)
+        except Exception as e:
+            logger.error(f"Failed to start background processing for batch {batch_id}: {e}")
+            try:
+                db_batch.status = "failed"
+                db_batch.error_message = f"Failed to start processing: {str(e)}"
+                db.commit()
+            except:
+                pass
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "Processing error",
+                    "message": "Failed to start document processing. Please try again.",
+                    "error_code": "PROCESSING_START_ERROR"
+                }
+            )
+        
+        # Success response with comprehensive information
+        success_rate = (len(file_paths) / len(files)) * 100 if files else 0
+        
+        return BatchResponse(
+            batch_id=batch_id,
+            status="processing",
+            message=f"Batch created successfully! {len(file_paths)} of {len(files)} files passed validation and are being processed.",
+            total_files=len(file_paths),
+            processed_files=0,
+            validation_summary={
+                "total_submitted": len(files),
+                "passed_validation": len(file_paths),
+                "failed_validation": len(files) - len(file_paths),
+                "success_rate": success_rate,
+                "validation_details": validation_results
+            }
+        )
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions with their detailed error messages
+        raise
+    except Exception as e:
+        logger.error(f"🚨 Unexpected upload error: {e}", exc_info=True)
+        
+        # Clean up batch directory if it was created
+        if batch_id:
+            try:
+                batch_dir = UPLOAD_DIR / batch_id
+                if batch_dir.exists():
+                    import shutil
+                    shutil.rmtree(batch_dir)
+            except Exception as cleanup_error:
+                logger.error(f"Failed to cleanup batch directory {batch_id}: {cleanup_error}")
+        
+        # Update batch status to failed if batch was created
+        if batch_id:
+            try:
+                db = SessionLocal()
+                batch = db.query(Batch).filter(Batch.id == batch_id).first()
+                if batch:
+                    batch.status = "failed"
+                    batch.error_message = f"System error: {str(e)}"
+                    db.commit()
+                db.close()
+            except Exception as db_error:
+                logger.error(f"Failed to update failed batch status: {db_error}")
+        
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "error": "System error",
+                "message": "An unexpected error occurred while processing your upload. Please try again.",
+                "error_code": "SYSTEM_ERROR",
+                "timestamp": datetime.now().isoformat()
+            }
+        )
+        import traceback
+        logger.error(f"Upload error traceback: {traceback.format_exc()}")
+        
+        # Update batch status in database
+        if 'batch_id' in locals():
+            try:
+                db_batch = db.query(Batch).filter(Batch.id == batch_id).first()
+                if db_batch:
+                    db_batch.status = "failed"
+                    db_batch.error_message = str(e)
+                    db.commit()
+            except:
+                pass
+        
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+async def process_batch_async(batch_id: str, file_paths: List[dict]):
+    """Background task to process documents with AI using database with real-time progress"""
+    db = SessionLocal()
+    try:
+        logger.info(f"Starting async processing for batch {batch_id}")
+        
+        # Send batch processing started notification
+        await manager.send_batch_progress(batch_id, {
+            "status": "started",
+            "total_files": len(file_paths),
+            "processed_files": 0,
+            "message": f"Starting processing of {len(file_paths)} files"
+        })
+        
+        batch = db.query(Batch).filter(Batch.id == batch_id).first()
+        if not batch:
+            logger.error(f"Batch {batch_id} not found in database")
+            await manager.send_batch_error(batch_id, {
+                "error": "Batch not found in database",
+                "batch_id": batch_id
+            })
+            return
+        
+        processed_count = 0
+        
+        for i, file_info in enumerate(file_paths):
+            try:
+                # Send file processing started notification
+                await manager.send_file_progress(batch_id, {
+                    "filename": file_info.get("filename", "unknown"),
+                    "file_index": i + 1,
+                    "total_files": len(file_paths),
+                    "status": "processing",
+                    "message": f"Processing file {i + 1} of {len(file_paths)}"
+                })
+                
+                # Get file record from database
+                db_file = db.query(DocumentFile).filter(
+                    and_(DocumentFile.batch_id == batch_id, 
+                         DocumentFile.file_path == file_info["path"])
+                ).first()
+                
+                if not db_file:
+                    logger.error(f"File record not found for {file_info['path']}")
+                    await manager.send_file_progress(batch_id, {
+                        "filename": file_info.get("filename", "unknown"),
+                        "file_index": i + 1,
+                        "status": "error",
+                        "error": "File record not found in database"
+                    })
                     continue
-            
-            batch["processed_files"] += 1
-            
-            await asyncio.sleep(0.5)
+                
+                # Update file status to processing
+                db_file.status = "processing"
+                db_file.processing_started_at = datetime.now()
+                db.commit()
+                
+                # Log processing start
+                log_entry = ProcessingLog(
+                    batch_id=batch_id,
+                    level="INFO",
+                    message=f"Starting AI processing for {db_file.filename}"
+                )
+                db.add(log_entry)
+                db.commit()
+                
+                # Send OCR processing notification
+                await manager.send_file_progress(batch_id, {
+                    "filename": db_file.filename,
+                    "file_index": i + 1,
+                    "status": "ocr_processing",
+                    "message": f"Running OCR and AI analysis on {db_file.filename}"
+                })
+                
+                # Process with AI
+                result = await process_document_ai(
+                    file_info["path"], 
+                    file_info["document_type"]
+                )
+                
+                # Cache OCR results and processed document
+                cache.cache_ocr_result(file_info["path"], result.get("ocr_text", ""))
+                cache.cache_processed_document(file_info["path"], result)
+                
+                # Create scan result in database
+                scan_result = DBScanResult(
+                    batch_id=batch_id,
+                    file_id=db_file.id,
+                    filename=db_file.filename,
+                    document_type=db_file.document_type,
+                    original_data=json.dumps(result.get("original_data", {})),
+                    extracted_data=json.dumps(result.get("extracted_data", {})),
+                    confidence_score=result.get("confidence_score", 0.0),
+                    processing_time=result.get("processing_time", 0.0),
+                    ocr_text=result.get("ocr_text", ""),
+                    processing_metadata=json.dumps(result.get("debug_info", {}))
+                )
+                db.add(scan_result)
+                
+                # Update file status
+                db_file.status = "completed"
+                db_file.processing_completed_at = datetime.now()
+                db_file.scan_result_id = scan_result.id
+                
+                processed_count += 1
+                
+                # Update batch progress
+                batch.processed_files = processed_count
+                
+                db.commit()
+                
+                # Send file completion notification
+                await manager.send_file_progress(batch_id, {
+                    "filename": db_file.filename,
+                    "file_index": i + 1,
+                    "status": "completed",
+                    "confidence_score": result.get("confidence_score", 0.0),
+                    "processing_time": result.get("processing_time", 0.0),
+                    "message": f"Successfully processed {db_file.filename}"
+                })
+                
+                # Send overall batch progress update
+                await manager.send_batch_progress(batch_id, {
+                    "status": "processing",
+                    "total_files": len(file_paths),
+                    "processed_files": processed_count,
+                    "current_file": db_file.filename,
+                    "progress_percentage": (processed_count / len(file_paths)) * 100,
+                    "message": f"Processed {processed_count} of {len(file_paths)} files"
+                })
+                
+                # Log success
+                log_entry = ProcessingLog(
+                    batch_id=batch_id,
+                    level="INFO",
+                    message=f"Successfully processed {db_file.filename}"
+                )
+                db.add(log_entry)
+                db.commit()
+                
+                logger.info(f"Successfully processed {db_file.filename} with confidence {result.get('confidence_score', 0.0):.2f}%")
+                
+            except Exception as e:
+                logger.error(f"Error processing file {file_info.get('filename', 'unknown')}: {e}")
+                
+                # Send file error notification
+                await manager.send_file_progress(batch_id, {
+                    "filename": file_info.get("filename", "unknown"),
+                    "file_index": i + 1,
+                    "status": "error",
+                    "error": str(e),
+                    "message": f"Failed to process {file_info.get('filename', 'unknown')}"
+                })
+                
+                # Update file status to failed
+                if 'db_file' in locals() and db_file:
+                    db_file.status = "failed"
+                    db_file.error_message = str(e)
+                    db_file.processing_completed_at = datetime.now()
+                    
+                # Log error
+                log_entry = ProcessingLog(
+                    batch_id=batch_id,
+                    level="ERROR",
+                    message=f"Processing failed: {str(e)}"
+                )
+                db.add(log_entry)
+                db.commit()
         
-        # Check processing results
-        successful_files = [f for f in batch["files"] if f["status"] == "completed"]
-        failed_files = [f for f in batch["files"] if f["status"] == "error"]
-        
-        # Always mark as completed if we have any results (including fallback)
-        batch["status"] = "completed"
-        batch["completed_at"] = datetime.now().isoformat()
-        
-        if failed_files:
-            print(f"⚠️ Batch {batch_id} completed with {len(failed_files)} failed files")
-        
-        if not successful_files and failed_files:
-            batch["status"] = "error"
-            batch["error"] = "All files failed to process"
-            print(f"❌ Batch {batch_id} failed: All files failed to process")
+        # Update batch final status and send completion notification
+        if processed_count == len(file_paths):
+            batch.status = "completed"
+            batch.completed_at = datetime.now()
+            # Cache the completed batch status
+            cache.cache_batch_status(batch_id, "completed")
+            await manager.send_batch_complete(batch_id, {
+                "status": "completed",
+                "total_files": len(file_paths),
+                "processed_files": processed_count,
+                "success_rate": 100.0,
+                "message": f"All {len(file_paths)} files processed successfully"
+            })
+            logger.info(f"Batch {batch_id} completed successfully")
+        elif processed_count > 0:
+            batch.status = "partial"
+            batch.completed_at = datetime.now()
+            success_rate = (processed_count / len(file_paths)) * 100
+            # Cache the partial batch status
+            cache.cache_batch_status(batch_id, "partial")
+            await manager.send_batch_complete(batch_id, {
+                "status": "partial",
+                "total_files": len(file_paths),
+                "processed_files": processed_count,
+                "success_rate": success_rate,
+                "message": f"Partially completed: {processed_count} of {len(file_paths)} files processed ({success_rate:.1f}%)"
+            })
+            logger.info(f"Batch {batch_id} partially completed ({processed_count}/{len(file_paths)})")
         else:
-            print(f"✅ Batch {batch_id} completed: {len(successful_files)} successful, {len(failed_files)} failed")
+            batch.status = "failed"
+            batch.error_message = "No files processed successfully"
+            batch.completed_at = datetime.now()
+            # Cache the failed batch status
+            cache.cache_batch_status(batch_id, "failed")
+            await manager.send_batch_error(batch_id, {
+                "error": "No files processed successfully",
+                "total_files": len(file_paths),
+                "processed_files": 0,
+                "message": "Batch processing failed - no files could be processed"
+            })
+            logger.error(f"Batch {batch_id} failed - no files processed")
+        
+        db.commit()
         
     except Exception as e:
-        print(f"❌ Batch processing error: {e}")
-        batch["status"] = "error"
-        batch["error"] = str(e)
+        logger.error(f"Batch processing error for {batch_id}: {e}")
+        await manager.send_batch_error(batch_id, {
+            "error": str(e),
+            "message": f"Critical error during batch processing: {str(e)}"
+        })
+        # Update batch status to failed
+        try:
+            batch = db.query(Batch).filter(Batch.id == batch_id).first()
+            if batch:
+                batch.status = "failed"
+                batch.error_message = str(e)
+                batch.completed_at = datetime.now()
+                db.commit()
+        except:
+            pass
+    finally:
+        db.close()
 
 @app.get("/api/batches/{batch_id}")
-async def get_batch_status(batch_id: str):
-    """Get batch processing status"""
-    if batch_id not in batches_storage:
-        raise HTTPException(status_code=404, detail="Batch not found")
-    
-    return batches_storage[batch_id]
+async def get_batch_status(batch_id: str, db: Session = Depends(get_db)):
+    """Get batch processing status with comprehensive error handling and Redis caching"""
+    try:
+        # Validate batch_id format
+        if not batch_id or len(batch_id) < 10:
+            raise HTTPException(
+                status_code=400, 
+                detail={
+                    "error": "Invalid batch ID",
+                    "message": "Batch ID must be a valid UUID format",
+                    "error_code": "INVALID_BATCH_ID"
+                }
+            )
+        
+        # Try to get status from cache first for completed batches
+        cached_status = cache.get_batch_status(batch_id)
+        
+        # Get batch from database
+        try:
+            batch = db.query(Batch).filter(Batch.id == batch_id).first()
+        except Exception as e:
+            logger.error(f"Database error querying batch {batch_id}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "Database error",
+                    "message": "Failed to retrieve batch information. Please try again.",
+                    "error_code": "DATABASE_ERROR"
+                }
+            )
+        
+        if not batch:
+            raise HTTPException(
+                status_code=404, 
+                detail={
+                    "error": "Batch not found",
+                    "message": f"No batch found with ID {batch_id}. Please check the batch ID and try again.",
+                    "error_code": "BATCH_NOT_FOUND"
+                }
+            )
+        
+        # If batch is completed and we have cached status, log cache hit
+        if cached_status and batch.status.value in ["completed", "failed", "partial"]:
+            logger.info(f"📊 Retrieved batch status from cache: {batch_id[:8]}... (status: {cached_status})")
+        
+        # Get files in batch with error handling
+        try:
+            files = db.query(DocumentFile).filter(DocumentFile.batch_id == batch_id).all()
+            results = db.query(DBScanResult).filter(DBScanResult.batch_id == batch_id).all()
+        except Exception as e:
+            logger.error(f"Database error retrieving batch details for {batch_id}: {e}")
+            # Return basic batch info if detailed query fails
+            return {
+                "id": batch.id,
+                "status": batch.status.value,
+                "total_files": batch.total_files,
+                "processed_files": batch.processed_files,
+                "created_at": batch.created_at.isoformat(),
+                "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
+                "error_message": batch.error_message,
+                "files": [],
+                "warning": "Detailed file information unavailable due to database error"
+            }
+        
+        # Format file information with error handling
+        file_info = []
+        for file in files:
+            try:
+                file_data = {
+                    "id": file.id,
+                    "filename": file.filename,
+                    "document_type": file.document_type,
+                    "status": file.status,
+                    "file_size": file.file_size,
+                    "processing_started_at": file.processing_started_at.isoformat() if file.processing_started_at else None,
+                    "processing_completed_at": file.processing_completed_at.isoformat() if file.processing_completed_at else None,
+                    "error_message": file.error_message
+                }
+                
+                # Add result if available
+                result = next((r for r in results if r.file_id == file.id), None)
+                if result:
+                    file_data["result_id"] = result.id
+                    file_data["confidence_score"] = result.confidence_score
+                    file_data["processing_time"] = result.processing_time
+                
+                file_info.append(file_data)
+                
+            except Exception as e:
+                logger.error(f"Error processing file info for file {file.id}: {e}")
+                # Add basic file info even if there's an error
+                file_info.append({
+                    "id": file.id,
+                    "filename": getattr(file, 'filename', 'unknown'),
+                    "status": "error",
+                    "error_message": f"Error retrieving file information: {str(e)}"
+                })
+        
+        # Calculate processing progress
+        progress_percentage = 0
+        if batch.total_files > 0:
+            progress_percentage = (batch.processed_files / batch.total_files) * 100
+        
+        return {
+            "id": batch.id,
+            "status": batch.status.value,
+            "total_files": batch.total_files,
+            "processed_files": batch.processed_files,
+            "progress_percentage": round(progress_percentage, 1),
+            "created_at": batch.created_at.isoformat(),
+            "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
+            "error_message": batch.error_message,
+            "files": file_info,
+            "cached_status": cached_status is not None
+        }
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions (they already have proper error format)
+        raise
+    except Exception as e:
+        logger.error(f"🚨 Unexpected error getting batch status for {batch_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "error": "System error",
+                "message": "An unexpected error occurred while retrieving batch status. Please try again.",
+                "error_code": "SYSTEM_ERROR",
+                "batch_id": batch_id
+            }
+        )
 
 @app.get("/api/batches/{batch_id}/results")
-async def get_batch_results(batch_id: str):
-    """Get scan results for a batch"""
-    if batch_id not in batches_storage:
-        raise HTTPException(status_code=404, detail="Batch not found")
-    
-    batch_results = [
-        result for result in results_storage.values() 
-        if result["batch_id"] == batch_id
-    ]
-    
-    # AUTO-RECALCULATE CONFIDENCE with current algorithm
-    from ai_processor import calculate_confidence
-    
-    for result in batch_results:
-        old_confidence = result["confidence"]
-        new_confidence = calculate_confidence(
-            result["extracted_data"], 
-            result["document_type"]
-        )
+async def get_batch_results(batch_id: str, db: Session = Depends(get_db)):
+    """Get scan results for a batch with Redis caching"""
+    try:
+        # Try to get results from cache first
+        cached_results = cache.get_batch_results(batch_id)
+        if cached_results:
+            logger.info(f"📊 Retrieved batch results from cache: {batch_id[:8]}...")
+            return {
+                "batch_id": batch_id,
+                "results": cached_results,
+                "cached": True,
+                "retrieved_at": datetime.now().isoformat()
+            }
         
-        # Update confidence if significantly different
-        if abs(new_confidence - old_confidence) > 0.01:
-            print(f"🔄 AUTO-UPDATING confidence for {result['original_filename']}")
-            print(f"   - Old: {old_confidence:.4f} ({old_confidence:.2%})")
-            print(f"   - New: {new_confidence:.4f} ({new_confidence:.2%})")
-            result["confidence"] = new_confidence
-            result["updated_at"] = datetime.now().isoformat()
-    
-    # DEBUG: Log what we're sending to frontend
-    print(f"🔍 DEBUG - Sending to Frontend for batch {batch_id}:")
-    for result in batch_results:
-        print(f"   - File: {result['original_filename']}")
-        print(f"   - Confidence in storage: {result['confidence']}")
-        print(f"   - Document Type: {result['document_type']}")
-    
-    print(f"🔍 DEBUG - Full batch_results: {batch_results}")
-    
-    return batch_results
-
-@app.post("/api/debug/recalculate-confidence/{batch_id}")
-async def recalculate_confidence(batch_id: str):
-    """Recalculate confidence for all results in a batch with current algorithm"""
-    if batch_id not in batches_storage:
-        raise HTTPException(status_code=404, detail="Batch not found")
-    
-    batch_results = [
-        result for result in results_storage.values() 
-        if result["batch_id"] == batch_id
-    ]
-    
-    updated_results = []
-    for result in batch_results:
-        # Import here to get latest version
-        from ai_processor import calculate_confidence
+        # Verify batch exists
+        batch = db.query(Batch).filter(Batch.id == batch_id).first()
+        if not batch:
+            raise HTTPException(status_code=404, detail="Batch not found")
         
-        # Recalculate confidence with current algorithm
-        new_confidence = calculate_confidence(
-            result["extracted_data"], 
-            result["document_type"]
-        )
+        # Get all results for this batch from database
+        results = db.query(DBScanResult).filter(DBScanResult.batch_id == batch_id).all()
         
-        # Update the stored result
-        result["confidence"] = new_confidence
-        result["updated_at"] = datetime.now().isoformat()
+        # Format results for API response
+        batch_results = []
+        for result in results:
+            result_data = {
+                "id": result.id,
+                "batch_id": result.batch_id,
+                "filename": result.filename,
+                "document_type": result.document_type,
+                "original_data": json.loads(result.original_data) if result.original_data else {},
+                "extracted_data": json.loads(result.extracted_data) if result.extracted_data else {},
+                "confidence_score": result.confidence_score,
+                "processing_time": result.processing_time,
+                "ocr_text": result.ocr_text,
+                "created_at": result.created_at.isoformat(),
+                "processing_metadata": json.loads(result.processing_metadata) if result.processing_metadata else {}
+            }
+            batch_results.append(result_data)
         
-        print(f"🔄 Updated {result['original_filename']}: {new_confidence:.4f} ({new_confidence:.2%})")
-        updated_results.append({
-            "filename": result["original_filename"],
-            "old_confidence": "unknown",
-            "new_confidence": new_confidence
-        })
-    
-    return {
-        "message": f"Recalculated confidence for {len(updated_results)} results",
-        "batch_id": batch_id,
-        "updates": updated_results
-    }
-
-@app.delete("/api/debug/clear-storage")
-async def clear_all_storage():
-    """Clear all storage - FOR DEBUGGING ONLY"""
-    global batches_storage, results_storage
-    
-    old_batches_count = len(batches_storage)
-    old_results_count = len(results_storage)
-    
-    batches_storage.clear()
-    results_storage.clear()
-    
-    return {
-        "message": "Storage cleared",
-        "cleared": {
-            "batches": old_batches_count,
-            "results": old_results_count
+        # Cache the results for future requests
+        cache.cache_batch_results(batch_id, batch_results)
+        
+        logger.info(f"📊 Retrieved {len(batch_results)} results for batch {batch_id} from database and cached")
+        return {
+            "batch_id": batch_id,
+            "results": batch_results,
+            "cached": False,
+            "retrieved_at": datetime.now().isoformat()
         }
-    }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting batch results: {e}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving batch results: {str(e)}")
 
 @app.get("/api/batches")
-async def get_all_batches():
-    """Get all batches"""
-    return list(batches_storage.values())
+async def get_all_batches(db: Session = Depends(get_db)):
+    """Get all batches from database"""
+    try:
+        batches = db.query(Batch).order_by(desc(Batch.created_at)).all()
+        
+        batch_list = []
+        for batch in batches:
+            batch_data = {
+                "id": batch.id,
+                "status": batch.status.value,
+                "total_files": batch.total_files,
+                "processed_files": batch.processed_files,
+                "created_at": batch.created_at.isoformat(),
+                "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
+                "error_message": batch.error_message
+            }
+            batch_list.append(batch_data)
+        
+        return batch_list
+        
+    except Exception as e:
+        logger.error(f"Error getting all batches: {e}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving batches: {str(e)}")
 
 @app.get("/api/results")
-async def get_all_results():
-    """Get all scan results"""
-    return list(results_storage.values())
+async def get_all_results(db: Session = Depends(get_db)):
+    """Get all scan results from database"""
+    try:
+        results = db.query(DBScanResult).order_by(desc(DBScanResult.created_at)).all()
+        
+        results_list = []
+        for result in results:
+            result_data = {
+                "id": result.id,
+                "batch_id": result.batch_id,
+                "filename": result.filename,
+                "document_type": result.document_type,
+                "confidence_score": result.confidence_score,
+                "processing_time": result.processing_time,
+                "created_at": result.created_at.isoformat(),
+                "extracted_data": json.loads(result.extracted_data) if result.extracted_data else {}
+            }
+            results_list.append(result_data)
+        
+        return results_list
+        
+    except Exception as e:
+        logger.error(f"Error getting all results: {e}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving results: {str(e)}")
 
-@app.post("/api/export/{result_id}/excel")
-async def export_excel(result_id: str):
-    """Export scan result to Excel"""
-    if result_id not in results_storage:
-        raise HTTPException(status_code=404, detail="Result not found")
-    
-    result = results_storage[result_id]
-    
-    # Create Excel file
-    excel_path = EXPORTS_DIR / f"{result_id}_export.xlsx"
-    success = create_enhanced_excel_export(result, str(excel_path))
-    
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to create Excel export")
-    
-    return FileResponse(
-        excel_path,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"{result['original_filename']}_extracted.xlsx"
-    )
-
-@app.post("/api/export/{result_id}/pdf")
-async def export_pdf(result_id: str):
-    """Export scan result to PDF"""
-    if result_id not in results_storage:
-        raise HTTPException(status_code=404, detail="Result not found")
-    
-    result = results_storage[result_id]
-    
-    # Create PDF file
-    pdf_path = EXPORTS_DIR / f"{result_id}_export.pdf"
-    success = create_enhanced_pdf_export(result, str(pdf_path))
-    
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to create PDF export")
-    
-    return FileResponse(
-        pdf_path,
-        media_type="application/pdf",
-        filename=f"{result['original_filename']}_extracted.pdf"
-    )
-
-@app.post("/api/export/batch/{batch_id}/excel")
-async def export_batch_excel(batch_id: str):
-    """Export all batch results to Excel"""
-    if batch_id not in batches_storage:
-        raise HTTPException(status_code=404, detail="Batch not found")
-    
-    batch_results = [
-        result for result in results_storage.values() 
-        if result["batch_id"] == batch_id
-    ]
-    
-    if not batch_results:
-        raise HTTPException(status_code=404, detail="No results found for batch")
-    
-    # Create combined Excel file
-    excel_path = EXPORTS_DIR / f"batch_{batch_id}_export.xlsx"
-    
-    # For batch export, create a combined result
-    combined_result = {
-        "document_type": "batch",
-        "original_filename": f"batch_{batch_id[:8]}",
-        "created_at": datetime.now().isoformat(),
-        "confidence": sum(r["confidence"] for r in batch_results) / len(batch_results),
-        "extracted_data": {
-            "batch_info": {
-                "batch_id": batch_id,
-                "total_documents": len(batch_results),
-                "average_confidence": sum(r["confidence"] for r in batch_results) / len(batch_results)
-            },
-            "documents": batch_results
+@app.delete("/api/debug/clear-storage")
+async def clear_all_storage(db: Session = Depends(get_db)):
+    """Clear all storage - FOR DEBUGGING ONLY"""
+    try:
+        # Count existing records
+        batches_count = db.query(Batch).count()
+        results_count = db.query(DBScanResult).count()
+        files_count = db.query(DocumentFile).count()
+        logs_count = db.query(ProcessingLog).count()
+        
+        # Clear all tables
+        db.query(ProcessingLog).delete()
+        db.query(DBScanResult).delete()
+        db.query(DocumentFile).delete()
+        db.query(Batch).delete()
+        db.commit()
+        
+        logger.warning("Database storage cleared for debugging")
+        
+        return {
+            "message": "Database storage cleared",
+            "cleared": {
+                "batches": batches_count,
+                "results": results_count,
+                "files": files_count,
+                "logs": logs_count
+            }
         }
-    }
-    
-    success = create_enhanced_excel_export(combined_result, str(excel_path))
-    
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to create batch Excel export")
-    
-    return FileResponse(
-        excel_path,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"batch_{batch_id[:8]}_results.xlsx"
-    )
+        
+    except Exception as e:
+        logger.error(f"Error clearing storage: {e}")
+        raise HTTPException(status_code=500, detail=f"Error clearing storage: {str(e)}")
 
 if __name__ == "__main__":
+    logger.info("Starting AI Document Scanner API with MySQL database")
     uvicorn.run(app, host="0.0.0.0", port=8000)

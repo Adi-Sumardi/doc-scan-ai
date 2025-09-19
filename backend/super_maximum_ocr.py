@@ -50,9 +50,22 @@ from transformers import pipeline
 try:
     import layoutparser as lp
     LAYOUTPARSER_AVAILABLE = True
+    print("✅ LayoutParser loaded successfully - Advanced layout analysis enabled")
 except ImportError:
     LAYOUTPARSER_AVAILABLE = False
     print("⚠️ LayoutParser not available - using basic layout analysis")
+
+# Device Configuration for Optimal Performance
+try:
+    from device_config import get_device, get_device_info
+    DEVICE = get_device()
+    DEVICE_INFO = get_device_info()
+    print(f"✅ Device configured: {DEVICE_INFO['acceleration']} - {DEVICE_INFO['device_name']}")
+except ImportError:
+    import torch
+    DEVICE = torch.device("cpu")
+    DEVICE_INFO = {"acceleration": "CPU Only", "device_name": "cpu"}
+    print("⚠️ Device config not available - using CPU")
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -279,6 +292,134 @@ class SuperMaximumMultiEngineOCR:
         self.confidence_model = None
         self._init_ocr_engines()
         self._init_ml_models()
+        self._init_layout_parser()
+        
+    def _init_layout_parser(self):
+        """Initialize LayoutParser for advanced document layout analysis"""
+        if LAYOUTPARSER_AVAILABLE:
+            try:
+                # Try different LayoutParser model initialization approaches
+                try:
+                    # Method 1: Direct model path
+                    self.layout_model = lp.models.Detectron2LayoutModel(
+                        config_path='lp://PubLayNet/faster_rcnn_R_50_FPN_3x/config',
+                        extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.8]
+                    )
+                    logger.info("✅ LayoutParser initialized with Detectron2 PubLayNet model")
+                except:
+                    # Method 2: Simple initialization
+                    self.layout_model = lp.AutoLayoutModel('lp://PubLayNet/faster_rcnn_R_50_FPN_3x/config')
+                    logger.info("✅ LayoutParser initialized with AutoLayoutModel")
+                
+                self.has_layout_parser = True
+                
+            except Exception as e:
+                logger.warning(f"⚠️ LayoutParser model loading failed: {e}")
+                # Try lightweight alternative
+                try:
+                    # Use basic detectron2 if available
+                    import detectron2
+                    logger.info("🔄 Detectron2 available, using basic layout detection")
+                    self.layout_model = None
+                    self.has_layout_parser = False
+                except ImportError:
+                    logger.warning("⚠️ Neither LayoutParser nor Detectron2 models available")
+                    self.layout_model = None
+                    self.has_layout_parser = False
+        else:
+            self.layout_model = None
+            self.has_layout_parser = False
+            logger.info("📝 Using basic layout analysis (LayoutParser not available)")
+    
+    def analyze_document_layout(self, image: np.ndarray) -> Dict[str, Any]:
+        """Analyze document layout using LayoutParser or fallback method"""
+        if self.has_layout_parser and self.layout_model:
+            try:
+                # Convert to PIL Image for LayoutParser
+                from PIL import Image
+                if len(image.shape) == 3:
+                    pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+                else:
+                    pil_image = Image.fromarray(image).convert('RGB')
+                
+                # Detect layout elements
+                layout = self.layout_model.detect(pil_image)
+                
+                # Extract layout information
+                layout_info = {
+                    'regions': [],
+                    'text_blocks': [],
+                    'figures': [],
+                    'tables': []
+                }
+                
+                for element in layout:
+                    element_info = {
+                        'type': element.type,
+                        'bbox': [element.block.x_1, element.block.y_1, 
+                                element.block.x_2, element.block.y_2],
+                        'confidence': getattr(element, 'score', 0.0)
+                    }
+                    
+                    if element.type == 'Text':
+                        layout_info['text_blocks'].append(element_info)
+                    elif element.type == 'Figure':
+                        layout_info['figures'].append(element_info)
+                    elif element.type == 'Table':
+                        layout_info['tables'].append(element_info)
+                    else:
+                        layout_info['regions'].append(element_info)
+                
+                logger.info(f"✅ Layout analysis complete: {len(layout_info['text_blocks'])} text blocks, "
+                           f"{len(layout_info['figures'])} figures, {len(layout_info['tables'])} tables")
+                
+                return layout_info
+                
+            except Exception as e:
+                logger.warning(f"⚠️ LayoutParser analysis failed: {e}")
+                return self._basic_layout_analysis(image)
+        else:
+            return self._basic_layout_analysis(image)
+    
+    def _basic_layout_analysis(self, image: np.ndarray) -> Dict[str, Any]:
+        """Fallback basic layout analysis without LayoutParser"""
+        try:
+            # Convert to grayscale if needed
+            if len(image.shape) == 3:
+                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = image.copy()
+            
+            # Simple text region detection using morphological operations
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (30, 5))
+            morphed = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, kernel)
+            
+            # Find contours for text regions
+            contours, _ = cv2.findContours(morphed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            text_blocks = []
+            for contour in contours:
+                x, y, w, h = cv2.boundingRect(contour)
+                if w > 50 and h > 20:  # Filter small regions
+                    text_blocks.append({
+                        'type': 'Text',
+                        'bbox': [x, y, x+w, y+h],
+                        'confidence': 0.7
+                    })
+            
+            layout_info = {
+                'regions': [],
+                'text_blocks': text_blocks,
+                'figures': [],
+                'tables': []
+            }
+            
+            logger.info(f"📝 Basic layout analysis: {len(text_blocks)} text regions detected")
+            return layout_info
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Basic layout analysis failed: {e}")
+            return {'regions': [], 'text_blocks': [], 'figures': [], 'tables': []}
         
     def _init_ocr_engines(self):
         """Initialize all OCR engines with optimized settings"""
@@ -294,9 +435,15 @@ class SuperMaximumMultiEngineOCR:
             self.paddle_ocr = None
             
         try:
-            # EasyOCR - Multi-language support
-            self.easy_ocr = easyocr.Reader(['id', 'en'], gpu=False)
-            logger.info("✅ EasyOCR initialized successfully")
+            # EasyOCR - Multi-language support with optimal device
+            gpu_available = DEVICE.type in ['cuda', 'mps'] if 'DEVICE' in globals() else False
+            
+            if gpu_available:
+                self.easy_ocr = easyocr.Reader(['id', 'en'], gpu=True)
+                logger.info(f"✅ EasyOCR initialized with {DEVICE_INFO['acceleration']} acceleration")
+            else:
+                self.easy_ocr = easyocr.Reader(['id', 'en'], gpu=False)
+                logger.info("✅ EasyOCR initialized with CPU")
         except Exception as e:
             logger.error(f"❌ EasyOCR initialization failed: {e}")
             self.easy_ocr = None

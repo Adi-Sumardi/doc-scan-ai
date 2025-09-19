@@ -3,6 +3,23 @@ fastapi==0.116.1
 uvicorn==0.35.0
 python-multipart==0.0.20
 aiofiles==24.1.0
+pydantic[email]==2.5.0
+
+# Database - MySQL Production Ready
+sqlalchemy==2.0.36
+pymysql==1.1.1
+alembic==1.14.0
+mysql-connector-python==9.1.0
+
+# Security and File Validation
+python-magic==0.4.27
+clamd==1.0.2
+aioredis==2.0.1
+python-dotenv==1.0.1
+
+# Production Monitoring
+prometheus-client==0.21.1
+structlog==24.4.0
 
 # OCR and Computer Vision Libraries
 paddleocr==3.2.0
