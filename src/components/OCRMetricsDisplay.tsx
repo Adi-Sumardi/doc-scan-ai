@@ -1,5 +1,5 @@
 import React from 'react';
-import { Brain, Zap, Target, Clock, Cpu, TrendingUp } from 'lucide-react';
+import { Brain, Zap, Target, Cpu, TrendingUp } from 'lucide-react';
 import { NextGenOCRMetrics, ProcessingQuality } from '../services/api';
 
 interface OCRMetricsDisplayProps {

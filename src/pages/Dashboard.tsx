@@ -7,17 +7,12 @@ import {
   TrendingUp,
   Upload as UploadIcon,
   Brain,
-  Zap,
-  Target,
-  Award
+  Zap
 } from 'lucide-react';
 
 const Dashboard = () => {
   const { batches, scanResults } = useDocument();
 
-  const totalBatches = batches.length;
-  const completedBatches = batches.filter(b => b.status === 'completed').length;
-  const processingBatches = batches.filter(b => b.status === 'processing').length;
   const totalDocuments = scanResults.length;
 
   // Calculate Next-Gen OCR metrics

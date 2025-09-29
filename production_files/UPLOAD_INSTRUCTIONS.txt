@@ -1,0 +1,26 @@
+🚀 HOSTINGER UPLOAD INSTRUCTIONS
+
+1. Upload ALL contents of this production_files folder to your public_html/ directory
+2. Struktur yang benar di Hostinger:
+   public_html/
+   ├── index.html (from dist)
+   ├── assets/ (from dist/assets)
+   ├── .htaccess
+   ├── api.php
+   ├── backend/
+   │   ├── *.py files
+   │   ├── requirements.txt
+   │   └── .env
+   ├── uploads/ (empty folder)
+   ├── exports/ (empty folder)
+   └── logs/ (empty folder)
+
+3. Setup database MySQL di panel Hostinger
+4. Update file backend/.env dengan kredensial database
+5. Install Python dependencies di server
+
+NEXT STEPS AFTER UPLOAD:
+- Setup database MySQL
+- Configure backend/.env
+- Install Python packages
+- Test at https://docscan.adilabs.id
