@@ -3,6 +3,14 @@ from typing import List
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
+    
+    frontend_url: str
+    backend_url: str
+    upload_folder: str
+    export_folder: str
+    default_ocr_engine: str
+    enable_cloud_ocr: bool
+    
     # Database Configuration
     database_url: str = "mysql+pymysql://docuser:docpass123@localhost:3306/docscan_db"
     database_pool_size: int = 20
