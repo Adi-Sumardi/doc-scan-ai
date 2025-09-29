@@ -4,7 +4,7 @@ Real AI Document Processor for Indonesian Tax Documents
 Production version - NO DUMMY DATA
 Enhanced with PaddleOCR and Advanced Preprocessing for 90-95% accuracy
 """
-
+import numpy as np
 import asyncio
 import json
 import os
