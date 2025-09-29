@@ -6,8 +6,9 @@ echo "🚀 Setting up Doc Scan AI on Hostinger..."
 echo "Domain: docscan.adilabs.id"
 echo "=========================================="
 
-# Set working directory
-cd ~/public_html
+# Get current working directory (should be public_html)
+CURRENT_DIR=$(pwd)
+echo "📍 Current directory: $CURRENT_DIR"
 
 # Create required directories
 echo "📁 Creating required directories..."
@@ -33,25 +34,40 @@ else
     exit 1
 fi
 
-# Set up Python virtual environment
+# Set up Python environment
 echo "🐍 Setting up Python environment..."
-if command -v python3 &> /dev/null; then
-    python3 -m venv venv
-    source venv/bin/activate
-    echo "✅ Virtual environment created"
+cd backend
+
+# Check for available Python commands
+if command -v python3.11 &> /dev/null; then
+    PYTHON_CMD="python3.11"
+elif command -v python3.10 &> /dev/null; then
+    PYTHON_CMD="python3.10"
+elif command -v python3.9 &> /dev/null; then
+    PYTHON_CMD="python3.9"
+elif command -v python3 &> /dev/null; then
+    PYTHON_CMD="python3"
+elif command -v python &> /dev/null; then
+    PYTHON_CMD="python"
 else
-    echo "⚠️  Python3 not found. Using system Python."
+    echo "❌ No Python found! Please install Python first."
+    exit 1
 fi
 
-# Install Python dependencies
+echo "✅ Using Python: $PYTHON_CMD"
+
+# Install Python dependencies using --user flag
 echo "📦 Installing Python dependencies..."
-cd backend
-pip install --user -r requirements.txt
-echo "✅ Python packages installed"
+$PYTHON_CMD -m pip install --user -r requirements.txt
+if [ $? -eq 0 ]; then
+    echo "✅ Python packages installed successfully"
+else
+    echo "⚠️  Some packages may have failed to install. Continuing..."
+fi
 
 # Initialize database
 echo "🗄️ Setting up database..."
-python -c "
+$PYTHON_CMD -c "
 import sys
 sys.path.append('.')
 try:
@@ -60,24 +76,47 @@ try:
     print('✅ Database initialized successfully')
 except Exception as e:
     print(f'⚠️  Database setup: {e}')
-"
+" || echo "⚠️  Database initialization failed - will try at runtime"
 
-# Set up log rotation (optional)
+# Set up logging
 echo "📝 Setting up logging..."
-cd ~/public_html
+cd "$CURRENT_DIR"
 touch logs/app.log
 echo "✅ Logging configured"
 
-# Create startup script
-cat > start_backend.sh << 'EOF'
+# Create startup script with proper paths
+cat > start_backend.sh << EOF
 #!/bin/bash
-cd ~/public_html/backend
-nohup python main.py > ../logs/backend.log 2>&1 &
-echo $! > ../logs/backend.pid
-echo "Backend started with PID: $(cat ../logs/backend.pid)"
+SCRIPT_DIR=\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)
+cd "\$SCRIPT_DIR/backend"
+nohup $PYTHON_CMD main.py > ../logs/backend.log 2>&1 &
+echo \$! > ../logs/backend.pid
+echo "Backend started with PID: \$(cat ../logs/backend.pid)"
+echo "Backend URL: http://localhost:8000"
+echo "Frontend URL: https://docscan.adilabs.id"
 EOF
 
 chmod +x start_backend.sh
+
+# Create stop script too
+cat > stop_backend.sh << 'EOF'
+#!/bin/bash
+if [ -f logs/backend.pid ]; then
+    PID=$(cat logs/backend.pid)
+    if ps -p $PID > /dev/null; then
+        kill $PID
+        echo "Backend stopped (PID: $PID)"
+        rm logs/backend.pid
+    else
+        echo "Backend not running"
+        rm logs/backend.pid
+    fi
+else
+    echo "No PID file found"
+fi
+EOF
+
+chmod +x stop_backend.sh
 
 echo ""
 echo "🎉 Deployment Complete!"
