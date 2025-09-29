@@ -16,11 +16,17 @@ import logging
 
 # Import our modules
 from ai_processor import process_document_ai, create_enhanced_excel_export, create_enhanced_pdf_export, RealOCRProcessor
-from models import BatchResponse, ScanResult, BatchStatus
+from models import BatchResponse, ScanResult, BatchStatus, DocumentFile as DocumentFileModel
 from database import SessionLocal, engine, Base, Batch, DocumentFile, ScanResult as DBScanResult, ProcessingLog, SystemMetrics
 from config import settings, get_upload_dir, get_results_dir, get_exports_dir
 from websocket_manager import manager
-from redis_cache import cache
+# Redis cache is optional - only for stats and health monitoring
+try:
+    from redis_cache import cache
+    REDIS_AVAILABLE = True
+except ImportError:
+    cache = None
+    REDIS_AVAILABLE = False
 # Temporarily comment out security validator for now
 # from utils import FileSecurityValidator
 
@@ -119,30 +125,45 @@ async def heartbeat():
 
 @app.get("/api/health")
 async def health_check():
-    """Enhanced health check with cache status"""
-    cache_stats = cache.get_cache_stats()
-    return {
+    """Enhanced health check with optional cache status"""
+    health_data = {
         "status": "healthy", 
         "service": "doc-scan-ai", 
         "timestamp": datetime.now().isoformat(),
-        "cache": {
-            "redis_connected": cache_stats.get("connected", False),
-            "total_cached_items": cache_stats.get("total_keys", 0)
-        }
+        "database": "connected"
     }
+    
+    if REDIS_AVAILABLE and cache:
+        try:
+            cache_stats = cache.get_cache_stats()
+            health_data["cache"] = {
+                "redis_connected": cache_stats.get("connected", False),
+                "total_cached_items": cache_stats.get("total_keys", 0)
+            }
+        except Exception:
+            health_data["cache"] = {"redis_connected": False, "error": "Cache unavailable"}
+    else:
+        health_data["cache"] = {"status": "disabled"}
+    
+    return health_data
 
 @app.get("/api/cache/stats")
 async def get_cache_statistics():
-    """Get comprehensive Redis cache statistics"""
+    """Get comprehensive Redis cache statistics (optional feature)"""
+    if not REDIS_AVAILABLE or not cache:
+        raise HTTPException(status_code=503, detail="Cache service not available")
     return cache.get_cache_stats()
 
 @app.post("/api/cache/clear")
 async def clear_cache():
-    """Clear all cache entries"""
+    """Clear all cache entries (optional feature)"""
+    if not REDIS_AVAILABLE or not cache:
+        raise HTTPException(status_code=503, detail="Cache service not available")
+    
     if cache.clear_all_cache():
         return {"message": "Cache cleared successfully"}
     else:
-        raise HTTPException(status_code=500, detail="Failed to clear cache")
+        return {"message": "Failed to clear cache", "status": "error"}
 
 @app.websocket("/ws")
 async def websocket_general(websocket: WebSocket):
@@ -289,7 +310,8 @@ async def upload_documents(
         for i, (file, doc_type) in enumerate(zip(files, document_types)):
             try:
                 # Validate document type
-                valid_types = ["invoice", "receipt", "id_card", "passport", "driver_license", "other"]
+                valid_types = ["invoice", "receipt", "id_card", "passport", "driver_license", "other", 
+                             "faktur_pajak", "pph21", "pph23", "rekening_koran", "spt", "npwp"]
                 if doc_type not in valid_types:
                     validation_result = {
                         "is_valid": False,
@@ -380,15 +402,14 @@ async def upload_documents(
                 # Create database file record with error handling
                 try:
                     db_file = DocumentFile(
+                        id=str(uuid.uuid4()),
                         batch_id=batch_id,
-                        filename=file.filename,
+                        name=file.filename,
                         file_path=str(file_path),
-                        document_type=doc_type,
+                        type=doc_type,
                         file_size=len(content),
                         mime_type=validation_result["file_info"].get("mime_type", "unknown"),
-                        checksum_md5=validation_result["file_info"].get("md5", ""),
-                        checksum_sha256=validation_result["file_info"].get("sha256", ""),
-                        security_validation=json.dumps(validation_result)
+                        file_hash=validation_result["file_info"].get("md5", "")
                     )
                     db.add(db_file)
                     
@@ -509,19 +530,26 @@ async def upload_documents(
         # Success response with comprehensive information
         success_rate = (len(file_paths) / len(files)) * 100 if files else 0
         
+        # Create file objects for response
+        file_objects = []
+        for file_path_info in file_paths:
+            file_objects.append(DocumentFileModel(
+                id=str(uuid.uuid4()),
+                name=file_path_info["filename"],
+                type=file_path_info["document_type"],
+                status="processing",
+                progress=0
+            ))
+        
         return BatchResponse(
-            batch_id=batch_id,
+            id=batch_id,
+            files=file_objects,
             status="processing",
-            message=f"Batch created successfully! {len(file_paths)} of {len(files)} files passed validation and are being processed.",
+            created_at=datetime.now().isoformat(),
             total_files=len(file_paths),
             processed_files=0,
-            validation_summary={
-                "total_submitted": len(files),
-                "passed_validation": len(file_paths),
-                "failed_validation": len(files) - len(file_paths),
-                "success_rate": success_rate,
-                "validation_details": validation_results
-            }
+            completed_at=None,
+            error=None
         )
         
     except HTTPException:
@@ -632,24 +660,24 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                 
                 # Update file status to processing
                 db_file.status = "processing"
-                db_file.processing_started_at = datetime.now()
+                db_file.processing_start = datetime.now()
                 db.commit()
                 
                 # Log processing start
                 log_entry = ProcessingLog(
                     batch_id=batch_id,
                     level="INFO",
-                    message=f"Starting AI processing for {db_file.filename}"
+                    message=f"Starting AI processing for {db_file.name}"
                 )
                 db.add(log_entry)
                 db.commit()
                 
                 # Send OCR processing notification
                 await manager.send_file_progress(batch_id, {
-                    "filename": db_file.filename,
+                    "filename": db_file.name,
                     "file_index": i + 1,
                     "status": "ocr_processing",
-                    "message": f"Running OCR and AI analysis on {db_file.filename}"
+                    "message": f"Running OCR and AI analysis on {db_file.name}"
                 })
                 
                 # Process with AI
@@ -658,29 +686,27 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                     file_info["document_type"]
                 )
                 
-                # Cache OCR results and processed document
-                cache.cache_ocr_result(file_info["path"], result.get("ocr_text", ""))
-                cache.cache_processed_document(file_info["path"], result)
+                # Data will be saved directly to database - no cache needed
                 
                 # Create scan result in database
                 scan_result = DBScanResult(
+                    id=str(uuid.uuid4()),
                     batch_id=batch_id,
-                    file_id=db_file.id,
-                    filename=db_file.filename,
-                    document_type=db_file.document_type,
-                    original_data=json.dumps(result.get("original_data", {})),
-                    extracted_data=json.dumps(result.get("extracted_data", {})),
-                    confidence_score=result.get("confidence_score", 0.0),
-                    processing_time=result.get("processing_time", 0.0),
-                    ocr_text=result.get("ocr_text", ""),
-                    processing_metadata=json.dumps(result.get("debug_info", {}))
+                    document_file_id=db_file.id,
+                    document_type=db_file.type,
+                    original_filename=db_file.name,
+                    extracted_text=result.get("raw_text", ""),
+                    extracted_data=result.get("extracted_data", {}),
+                    confidence=result.get("confidence_score", 0.0),
+                    ocr_engine_used="NextGen OCR",
+                    ocr_processing_time=result.get("processing_time", 0.0)
                 )
                 db.add(scan_result)
                 
                 # Update file status
                 db_file.status = "completed"
-                db_file.processing_completed_at = datetime.now()
-                db_file.scan_result_id = scan_result.id
+                db_file.processing_end = datetime.now()
+                db_file.result_id = scan_result.id
                 
                 processed_count += 1
                 
@@ -691,12 +717,12 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                 
                 # Send file completion notification
                 await manager.send_file_progress(batch_id, {
-                    "filename": db_file.filename,
+                    "filename": db_file.name,
                     "file_index": i + 1,
                     "status": "completed",
                     "confidence_score": result.get("confidence_score", 0.0),
                     "processing_time": result.get("processing_time", 0.0),
-                    "message": f"Successfully processed {db_file.filename}"
+                    "message": f"Successfully processed {db_file.name}"
                 })
                 
                 # Send overall batch progress update
@@ -704,7 +730,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                     "status": "processing",
                     "total_files": len(file_paths),
                     "processed_files": processed_count,
-                    "current_file": db_file.filename,
+                    "current_file": db_file.name,
                     "progress_percentage": (processed_count / len(file_paths)) * 100,
                     "message": f"Processed {processed_count} of {len(file_paths)} files"
                 })
@@ -713,12 +739,12 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                 log_entry = ProcessingLog(
                     batch_id=batch_id,
                     level="INFO",
-                    message=f"Successfully processed {db_file.filename}"
+                    message=f"Successfully processed {db_file.name}"
                 )
                 db.add(log_entry)
                 db.commit()
                 
-                logger.info(f"Successfully processed {db_file.filename} with confidence {result.get('confidence_score', 0.0):.2f}%")
+                logger.info(f"Successfully processed {db_file.name} with confidence {result.get('confidence_score', 0.0):.2f}%")
                 
             except Exception as e:
                 logger.error(f"Error processing file {file_info.get('filename', 'unknown')}: {e}")
@@ -735,8 +761,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                 # Update file status to failed
                 if 'db_file' in locals() and db_file:
                     db_file.status = "failed"
-                    db_file.error_message = str(e)
-                    db_file.processing_completed_at = datetime.now()
+                    db_file.processing_end = datetime.now()
                     
                 # Log error
                 log_entry = ProcessingLog(
@@ -752,7 +777,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
             batch.status = "completed"
             batch.completed_at = datetime.now()
             # Cache the completed batch status
-            cache.cache_batch_status(batch_id, "completed")
+            # Batch completed - status saved in database
             await manager.send_batch_complete(batch_id, {
                 "status": "completed",
                 "total_files": len(file_paths),
@@ -766,7 +791,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
             batch.completed_at = datetime.now()
             success_rate = (processed_count / len(file_paths)) * 100
             # Cache the partial batch status
-            cache.cache_batch_status(batch_id, "partial")
+            # Batch partially completed - status saved in database
             await manager.send_batch_complete(batch_id, {
                 "status": "partial",
                 "total_files": len(file_paths),
@@ -780,7 +805,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
             batch.error_message = "No files processed successfully"
             batch.completed_at = datetime.now()
             # Cache the failed batch status
-            cache.cache_batch_status(batch_id, "failed")
+            # Batch failed - status saved in database
             await manager.send_batch_error(batch_id, {
                 "error": "No files processed successfully",
                 "total_files": len(file_paths),
@@ -825,10 +850,7 @@ async def get_batch_status(batch_id: str, db: Session = Depends(get_db)):
                 }
             )
         
-        # Try to get status from cache first for completed batches
-        cached_status = cache.get_batch_status(batch_id)
-        
-        # Get batch from database
+        # Get batch from database directly - no cache needed
         try:
             batch = db.query(Batch).filter(Batch.id == batch_id).first()
         except Exception as e:
@@ -852,9 +874,7 @@ async def get_batch_status(batch_id: str, db: Session = Depends(get_db)):
                 }
             )
         
-        # If batch is completed and we have cached status, log cache hit
-        if cached_status and batch.status.value in ["completed", "failed", "partial"]:
-            logger.info(f"📊 Retrieved batch status from cache: {batch_id[:8]}... (status: {cached_status})")
+        # Status retrieved directly from database
         
         # Get files in batch with error handling
         try:
@@ -865,7 +885,7 @@ async def get_batch_status(batch_id: str, db: Session = Depends(get_db)):
             # Return basic batch info if detailed query fails
             return {
                 "id": batch.id,
-                "status": batch.status.value,
+                "status": batch.status,
                 "total_files": batch.total_files,
                 "processed_files": batch.processed_files,
                 "created_at": batch.created_at.isoformat(),
@@ -881,21 +901,21 @@ async def get_batch_status(batch_id: str, db: Session = Depends(get_db)):
             try:
                 file_data = {
                     "id": file.id,
-                    "filename": file.filename,
-                    "document_type": file.document_type,
+                    "filename": file.name,
+                    "document_type": file.type,
                     "status": file.status,
                     "file_size": file.file_size,
-                    "processing_started_at": file.processing_started_at.isoformat() if file.processing_started_at else None,
-                    "processing_completed_at": file.processing_completed_at.isoformat() if file.processing_completed_at else None,
-                    "error_message": file.error_message
+                    "processing_started_at": file.processing_start.isoformat() if file.processing_start else None,
+                    "processing_completed_at": file.processing_end.isoformat() if file.processing_end else None,
+                    "processing_time": file.processing_time
                 }
                 
                 # Add result if available
-                result = next((r for r in results if r.file_id == file.id), None)
+                result = next((r for r in results if r.document_file_id == file.id), None)
                 if result:
                     file_data["result_id"] = result.id
-                    file_data["confidence_score"] = result.confidence_score
-                    file_data["processing_time"] = result.processing_time
+                    file_data["confidence"] = result.confidence
+                    file_data["ocr_processing_time"] = result.ocr_processing_time
                 
                 file_info.append(file_data)
                 
@@ -904,7 +924,7 @@ async def get_batch_status(batch_id: str, db: Session = Depends(get_db)):
                 # Add basic file info even if there's an error
                 file_info.append({
                     "id": file.id,
-                    "filename": getattr(file, 'filename', 'unknown'),
+                    "filename": getattr(file, 'name', 'unknown'),
                     "status": "error",
                     "error_message": f"Error retrieving file information: {str(e)}"
                 })
@@ -916,7 +936,7 @@ async def get_batch_status(batch_id: str, db: Session = Depends(get_db)):
         
         return {
             "id": batch.id,
-            "status": batch.status.value,
+            "status": batch.status,
             "total_files": batch.total_files,
             "processed_files": batch.processed_files,
             "progress_percentage": round(progress_percentage, 1),
@@ -924,7 +944,7 @@ async def get_batch_status(batch_id: str, db: Session = Depends(get_db)):
             "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
             "error_message": batch.error_message,
             "files": file_info,
-            "cached_status": cached_status is not None
+            "source": "database"
         }
         
     except HTTPException:
@@ -944,18 +964,8 @@ async def get_batch_status(batch_id: str, db: Session = Depends(get_db)):
 
 @app.get("/api/batches/{batch_id}/results")
 async def get_batch_results(batch_id: str, db: Session = Depends(get_db)):
-    """Get scan results for a batch with Redis caching"""
+    """Get scan results for a batch directly from database"""
     try:
-        # Try to get results from cache first
-        cached_results = cache.get_batch_results(batch_id)
-        if cached_results:
-            logger.info(f"📊 Retrieved batch results from cache: {batch_id[:8]}...")
-            return {
-                "batch_id": batch_id,
-                "results": cached_results,
-                "cached": True,
-                "retrieved_at": datetime.now().isoformat()
-            }
         
         # Verify batch exists
         batch = db.query(Batch).filter(Batch.id == batch_id).first()
@@ -971,26 +981,25 @@ async def get_batch_results(batch_id: str, db: Session = Depends(get_db)):
             result_data = {
                 "id": result.id,
                 "batch_id": result.batch_id,
-                "filename": result.filename,
+                "filename": result.original_filename,
                 "document_type": result.document_type,
-                "original_data": json.loads(result.original_data) if result.original_data else {},
-                "extracted_data": json.loads(result.extracted_data) if result.extracted_data else {},
-                "confidence_score": result.confidence_score,
-                "processing_time": result.processing_time,
-                "ocr_text": result.ocr_text,
+                "extracted_text": result.extracted_text,
+                "extracted_data": result.extracted_data,
+                "confidence": result.confidence,
+                "ocr_engine_used": result.ocr_engine_used,
                 "created_at": result.created_at.isoformat(),
-                "processing_metadata": json.loads(result.processing_metadata) if result.processing_metadata else {}
+                "ocr_processing_time": result.ocr_processing_time
             }
             batch_results.append(result_data)
         
         # Cache the results for future requests
-        cache.cache_batch_results(batch_id, batch_results)
+        # Results saved directly in database - no cache needed
         
         logger.info(f"📊 Retrieved {len(batch_results)} results for batch {batch_id} from database and cached")
         return {
             "batch_id": batch_id,
             "results": batch_results,
-            "cached": False,
+            "source": "database",
             "retrieved_at": datetime.now().isoformat()
         }
         
@@ -1010,7 +1019,7 @@ async def get_all_batches(db: Session = Depends(get_db)):
         for batch in batches:
             batch_data = {
                 "id": batch.id,
-                "status": batch.status.value,
+                "status": batch.status,
                 "total_files": batch.total_files,
                 "processed_files": batch.processed_files,
                 "created_at": batch.created_at.isoformat(),
@@ -1036,12 +1045,12 @@ async def get_all_results(db: Session = Depends(get_db)):
             result_data = {
                 "id": result.id,
                 "batch_id": result.batch_id,
-                "filename": result.filename,
+                "filename": result.original_filename,
                 "document_type": result.document_type,
-                "confidence_score": result.confidence_score,
-                "processing_time": result.processing_time,
+                "confidence_score": result.confidence,
+                "processing_time": result.total_processing_time,
                 "created_at": result.created_at.isoformat(),
-                "extracted_data": json.loads(result.extracted_data) if result.extracted_data else {}
+                "extracted_data": result.extracted_data if isinstance(result.extracted_data, dict) else (json.loads(result.extracted_data) if result.extracted_data else {})
             }
             results_list.append(result_data)
         
@@ -1083,6 +1092,192 @@ async def clear_all_storage(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error clearing storage: {e}")
         raise HTTPException(status_code=500, detail=f"Error clearing storage: {str(e)}")
+
+@app.get("/api/results/{result_id}/export/{format}")
+async def export_result(result_id: str, format: str, db: Session = Depends(get_db)):
+    """Export single scan result to Excel or PDF"""
+    try:
+        # Validate format
+        if format not in ['excel', 'pdf']:
+            raise HTTPException(status_code=400, detail="Format must be 'excel' or 'pdf'")
+        
+        # Get scan result from database
+        result = db.query(DBScanResult).filter(DBScanResult.id == result_id).first()
+        if not result:
+            raise HTTPException(status_code=404, detail="Scan result not found")
+        
+        # Get associated file info
+        file_info = db.query(DocumentFile).filter(DocumentFile.id == result.document_file_id).first()
+        
+        # Prepare result data for export
+        result_data = {
+            'id': result.id,
+            'filename': file_info.name if file_info else 'Unknown',
+            'original_filename': file_info.name if file_info else 'Unknown',
+            'document_type': result.document_type or 'Unknown',
+            'confidence': result.confidence or 0,
+            'extracted_data': result.extracted_data or {},
+            'extracted_text': result.extracted_text or '',
+            'created_at': result.created_at.isoformat() if result.created_at else None
+        }
+        
+        # Create filename
+        safe_filename = "".join(c for c in (file_info.name if file_info else 'document') 
+                               if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        export_filename = f"{safe_filename}_scan_result.{format}"
+        export_path = EXPORTS_DIR / export_filename
+        
+        # Create export
+        if format == 'excel':
+            success = create_enhanced_excel_export(result_data, str(export_path))
+        else:  # PDF
+            success = create_enhanced_pdf_export(result_data, str(export_path))
+        
+        if not success:
+            raise HTTPException(status_code=500, detail=f"Failed to create {format.upper()} export")
+        
+        # Return file
+        return FileResponse(
+            path=str(export_path),
+            filename=export_filename,
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' if format == 'excel' else 'application/pdf'
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Export error: {e}")
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+@app.get("/api/batches/{batch_id}/export/{format}")
+async def export_batch(batch_id: str, format: str, db: Session = Depends(get_db)):
+    """Export all scan results in a batch to Excel or PDF"""
+    try:
+        # Validate format
+        if format not in ['excel', 'pdf']:
+            raise HTTPException(status_code=400, detail="Format must be 'excel' or 'pdf'")
+        
+        # Get batch info
+        batch = db.query(Batch).filter(Batch.id == batch_id).first()
+        if not batch:
+            raise HTTPException(status_code=404, detail="Batch not found")
+        
+        # Get all scan results for this batch
+        results = db.query(DBScanResult).filter(DBScanResult.batch_id == batch_id).all()
+        if not results:
+            raise HTTPException(status_code=404, detail="No scan results found for this batch")
+        
+        # For batch export, we'll create a combined file with all results
+        export_filename = f"batch_{batch_id[:8]}_results.{format}"
+        export_path = EXPORTS_DIR / export_filename
+        
+        if format == 'excel':
+            # Create Excel workbook with multiple sheets
+            from openpyxl import Workbook
+            wb = Workbook()
+            
+            # Remove default sheet
+            wb.remove(wb.active)
+            
+            # Create summary sheet
+            summary_ws = wb.create_sheet("Batch Summary")
+            summary_ws['A1'] = "Batch Export Summary"
+            summary_ws['A3'] = "Batch ID:"
+            summary_ws['B3'] = batch_id
+            summary_ws['A4'] = "Total Files:"
+            summary_ws['B4'] = len(results)
+            summary_ws['A5'] = "Export Date:"
+            summary_ws['B5'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Add sheet for each result
+            for i, result in enumerate(results):
+                file_info = db.query(DocumentFile).filter(DocumentFile.id == result.document_file_id).first()
+                sheet_name = f"File_{i+1}"[:31]  # Excel sheet name limit
+                
+                ws = wb.create_sheet(sheet_name)
+                
+                # Add file info
+                ws['A1'] = "Document Information"
+                ws['A3'] = "Filename:"
+                ws['B3'] = file_info.name if file_info else 'Unknown'
+                ws['A4'] = "Document Type:"
+                ws['B4'] = result.document_type or 'Unknown'
+                ws['A5'] = "Confidence:"
+                ws['B5'] = f"{(result.confidence or 0)*100:.1f}%"
+                
+                # Add raw text
+                extracted_data = result.extracted_data or {}
+                raw_text = extracted_data.get('raw_text', result.extracted_text or '')
+                
+                ws['A7'] = "Raw OCR Text:"
+                if raw_text:
+                    lines = raw_text.split('\n')
+                    for j, line in enumerate(lines[:100]):  # Limit lines
+                        if line.strip():
+                            ws[f'A{8+j}'] = line.strip()
+            
+            wb.save(str(export_path))
+            
+        else:  # PDF - combine all results
+            from reportlab.lib.pagesizes import A4
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+            from reportlab.lib.styles import getSampleStyleSheet
+            
+            doc = SimpleDocTemplate(str(export_path), pagesize=A4)
+            styles = getSampleStyleSheet()
+            story = []
+            
+            # Title page
+            story.append(Paragraph(f"Batch Scan Results", styles['Title']))
+            story.append(Spacer(1, 12))
+            story.append(Paragraph(f"Batch ID: {batch_id}", styles['Normal']))
+            story.append(Paragraph(f"Total Files: {len(results)}", styles['Normal']))
+            story.append(Paragraph(f"Export Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+            story.append(PageBreak())
+            
+            # Add each result
+            for i, result in enumerate(results):
+                file_info = db.query(DocumentFile).filter(DocumentFile.id == result.document_file_id).first()
+                
+                story.append(Paragraph(f"Document {i+1}: {file_info.name if file_info else 'Unknown'}", styles['Heading1']))
+                story.append(Spacer(1, 12))
+                
+                story.append(Paragraph(f"Document Type: {result.document_type or 'Unknown'}", styles['Normal']))
+                story.append(Paragraph(f"Confidence: {(result.confidence or 0)*100:.1f}%", styles['Normal']))
+                story.append(Spacer(1, 12))
+                
+                story.append(Paragraph("Raw OCR Text:", styles['Heading2']))
+                story.append(Spacer(1, 6))
+                
+                extracted_data = result.extracted_data or {}
+                raw_text = extracted_data.get('raw_text', result.extracted_text or '')
+                
+                if raw_text:
+                    lines = raw_text.split('\n')
+                    for line in lines[:50]:  # Limit lines per document
+                        if line.strip():
+                            safe_line = line.strip().replace('<', '&lt;').replace('>', '&gt;')
+                            story.append(Paragraph(safe_line, styles['Normal']))
+                else:
+                    story.append(Paragraph("No text extracted", styles['Normal']))
+                
+                if i < len(results) - 1:  # Add page break except for last document
+                    story.append(PageBreak())
+            
+            doc.build(story)
+        
+        # Return file
+        return FileResponse(
+            path=str(export_path),
+            filename=export_filename,
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' if format == 'excel' else 'application/pdf'
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Batch export error: {e}")
+        raise HTTPException(status_code=500, detail=f"Batch export failed: {str(e)}")
 
 if __name__ == "__main__":
     logger.info("Starting AI Document Scanner API with MySQL database")

@@ -142,7 +142,7 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       let filename: string;
       
       const result = scanResults.find(r => r.id === resultId);
-      const baseFilename = result?.original_filename.split('.')[0] || 'document';
+      const baseFilename = result?.original_filename?.split('.')[0] || result?.filename?.split('.')[0] || 'document';
       
       if (format === 'excel') {
         blob = await apiService.exportResultExcel(resultId);

@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     # Production Settings
     environment: str = "development"
     debug: bool = True
-    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"  # Changed to string
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"  # Changed to string
     
     # Monitoring
     enable_metrics: bool = True

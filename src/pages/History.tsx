@@ -68,38 +68,38 @@ const History = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white rounded-lg p-6 shadow-sm border">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Processing History</h1>
-            <p className="text-gray-600 mt-1">Track all your document processing batches</p>
+      <div className="bg-white rounded-lg p-4 md:p-6 shadow-sm border">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-gray-900">Processing History</h1>
+            <p className="text-sm md:text-base text-gray-600 mt-1">Track all your document processing batches</p>
           </div>
-          <div className="flex items-center space-x-4">
-            <span className="text-sm text-gray-600">{filteredBatches.length} batches</span>
+          <div className="flex items-center justify-end sm:justify-start">
+            <span className="text-xs md:text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded-full">{filteredBatches.length} batches</span>
           </div>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-lg p-6 shadow-sm border">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
-          <div className="flex items-center space-x-4">
-            <div className="relative">
-              <Search className="w-5 h-5 absolute left-3 top-3 text-gray-400" />
+      <div className="bg-white rounded-lg p-4 md:p-6 shadow-sm border">
+        <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 flex-1">
+            <div className="relative flex-1 sm:flex-initial sm:min-w-0 sm:w-64">
+              <Search className="w-4 h-4 md:w-5 md:h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search batch ID..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full pl-9 md:pl-10 pr-4 py-2 text-sm md:text-base border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
-            <div className="relative">
-              <Filter className="w-5 h-5 absolute left-3 top-3 text-gray-400" />
+            <div className="relative flex-1 sm:flex-initial sm:min-w-0 sm:w-48">
+              <Filter className="w-4 h-4 md:w-5 md:h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="pl-10 pr-8 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none bg-white"
+                className="w-full pl-9 md:pl-10 pr-8 py-2 text-sm md:text-base border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none bg-white"
               >
                 <option value="all">All Status</option>
                 <option value="completed">Completed</option>
@@ -121,25 +121,25 @@ const History = () => {
       ) : (
         <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full min-w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Batch
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">
                     Files
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
                     Created
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden xl:table-cell">
                     Processing Time
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
@@ -147,20 +147,21 @@ const History = () => {
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredBatches.map((batch) => (
                   <tr key={batch.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 md:px-6 py-4">
                       <div className="flex items-center">
-                        <FileText className="w-5 h-5 text-gray-400 mr-3" />
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">
+                        <FileText className="w-4 h-4 md:w-5 md:h-5 text-gray-400 mr-2 md:mr-3 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-gray-900 truncate">
                             #{batch.id.slice(-8)}
                           </div>
-                          <div className="text-sm text-gray-500">
-                            Batch ID
+                          <div className="text-xs md:text-sm text-gray-500">
+                            <span className="sm:hidden">{batch.processed_files}/{batch.total_files} files</span>
+                            <span className="hidden sm:inline">Batch ID</span>
                           </div>
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 md:px-6 py-4 hidden sm:table-cell">
                       <div className="text-sm text-gray-900">
                         {batch.processed_files}/{batch.total_files} files
                       </div>
@@ -171,15 +172,16 @@ const History = () => {
                         ></div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 md:px-6 py-4">
                       <div className="flex items-center">
                         {getStatusIcon(batch.status)}
-                        <span className={`ml-2 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(batch.status)}`}>
-                          {batch.status}
+                        <span className={`ml-1 md:ml-2 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(batch.status)}`}>
+                          <span className="sm:hidden">{batch.status.charAt(0).toUpperCase()}</span>
+                          <span className="hidden sm:inline">{batch.status}</span>
                         </span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 md:px-6 py-4 hidden lg:table-cell">
                       <div className="flex items-center text-sm text-gray-600">
                         <Calendar className="w-4 h-4 mr-2" />
                         {new Date(batch.created_at).toLocaleDateString()}
@@ -188,17 +190,18 @@ const History = () => {
                         {new Date(batch.created_at).toLocaleTimeString()}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    <td className="px-3 md:px-6 py-4 text-sm text-gray-600 hidden xl:table-cell">
                       {calculateProcessingTime(batch)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <td className="px-3 md:px-6 py-4 text-right">
                       <button
                         onClick={() => navigate(`/scan-results/${batch.id}`)}
-                        className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-blue-600 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                        className="inline-flex items-center px-2 md:px-3 py-2 border border-transparent text-xs md:text-sm leading-4 font-medium rounded-md text-blue-600 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
                       >
-                        <Eye className="w-4 h-4 mr-1" />
-                        View Results
-                        <ArrowRight className="w-4 h-4 ml-1" />
+                        <Eye className="w-3 h-3 md:w-4 md:h-4 mr-1" />
+                        <span className="hidden sm:inline">View Results</span>
+                        <span className="sm:hidden">View</span>
+                        <ArrowRight className="w-3 h-3 md:w-4 md:h-4 ml-1" />
                       </button>
                     </td>
                   </tr>

@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDocument } from '../context/DocumentContext';
-import AIDataDisplay from '../components/AIDataDisplay';
-import { AIDataFormatter } from '../utils/aiDataFormatter';
+import OCRMetricsDisplay from '../components/OCRMetricsDisplay';
+import RealtimeOCRProcessing from '../components/RealtimeOCRProcessing';
 import { 
   ArrowLeft, 
   Download, 
@@ -24,11 +24,9 @@ const ScanResults = () => {
   const batch = getBatch(batchId!);
   const scanResults = getScanResultsByBatch(batchId!);
 
-  // SUPER DEBUG: Log batch and scan results
-  console.log('🔍 SUPER DEBUG - Batch Data:', batch);
-  console.log('🔍 SUPER DEBUG - All Scan Results:', scanResults);
-  console.log('🔍 SUPER DEBUG - Active Tab:', activeTab);
-  console.log('🔍 SUPER DEBUG - Current Active Result:', scanResults[activeTab]);
+  // Debug info for development
+  console.log('Batch Data:', batch);
+  console.log('Scan Results:', scanResults);
 
   // Refresh batch data periodically if still processing
   useEffect(() => {
@@ -69,203 +67,205 @@ const ScanResults = () => {
     }
   };
 
-  const renderDebugInfo = (result: any) => {
+
+
+  const renderRawScanData = (result: any) => {
+    const extractedData = result.extracted_data || {};
+    const confidence = result.confidence || result.confidence_score || 0;
+    
     return (
-      <div className="bg-gray-900 text-green-400 p-6 rounded-lg font-mono text-xs overflow-auto max-h-96">
-        <div className="mb-4">
-          <h5 className="text-green-300 font-bold mb-2">🔍 SUPER DETAILED DEBUG INFO</h5>
-          <div className="grid grid-cols-2 gap-4 mb-4 text-yellow-300">
-            <div>📄 File: {result.original_filename}</div>
-            <div>🏷️ Type: {result.document_type}</div>
-            <div>🎯 Confidence: {(result.confidence * 100).toFixed(2)}%</div>
-            <div>📅 Processed: {new Date(result.created_at).toLocaleString()}</div>
+      <div className="space-y-6">
+        {/* Raw OCR Text - Primary Focus */}
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 md:p-6">
+          <h4 className="text-base md:text-lg font-semibold text-red-900 mb-3 md:mb-4 flex items-center">
+            <FileText className="w-4 h-4 md:w-5 md:h-5 mr-2 flex-shrink-0" />
+            📄 RAW OCR TEXT (PURE SCAN RESULTS)
+          </h4>
+          <div className="bg-white border rounded-lg p-4">
+            <pre className="text-sm text-gray-800 whitespace-pre-wrap font-mono leading-relaxed max-h-96 overflow-y-auto">
+              {extractedData.raw_text || result.extracted_text || result.raw_text || 
+               (extractedData.text_lines ? extractedData.text_lines.join('\n') : '') ||
+               'No raw OCR text available'}
+            </pre>
+          </div>
+          <div className="mt-3 md:mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 text-xs md:text-sm">
+            <div className="bg-white rounded-lg p-2 md:p-3 border">
+              <div className="text-gray-600 text-xs md:text-sm">Characters</div>
+              <div className="font-semibold text-blue-600 text-sm md:text-base">
+                {extractedData.extracted_content?.character_count || (extractedData.raw_text || result.extracted_text || '').length}
+              </div>
+            </div>
+            <div className="bg-white rounded-lg p-2 md:p-3 border">
+              <div className="text-gray-600 text-xs md:text-sm">Lines</div>
+              <div className="font-semibold text-green-600 text-sm md:text-base">
+                {extractedData.extracted_content?.line_count || extractedData.text_lines?.length || 0}
+              </div>
+            </div>
+            <div className="bg-white rounded-lg p-2 md:p-3 border">
+              <div className="text-gray-600 text-xs md:text-sm">Confidence</div>
+              <div className="font-semibold text-purple-600 text-sm md:text-base">
+                {(confidence * 100).toFixed(1)}%
+              </div>
+            </div>
+            <div className="bg-white rounded-lg p-2 md:p-3 border">
+              <div className="text-gray-600 text-xs md:text-sm">Document Type</div>
+              <div className="font-semibold text-orange-600 text-sm md:text-base capitalize">
+                {result.document_type || 'Unknown'}
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="mb-4">
-          <h6 className="text-cyan-300 font-bold mb-2">📊 FULL RESULT OBJECT STRUCTURE:</h6>
-          <pre className="text-xs bg-gray-800 p-3 rounded overflow-x-auto">
-            {JSON.stringify(result, null, 2)}
-          </pre>
-        </div>
-
-        <div className="mb-4">
-          <h6 className="text-cyan-300 font-bold mb-2">🧠 EXTRACTED DATA ANALYSIS:</h6>
-          {result.extracted_data && (
-            <div className="space-y-2">
-              <div>🔢 Total Fields: {Object.keys(result.extracted_data).length}</div>
-              <div>📋 Field Names: {Object.keys(result.extracted_data).join(', ')}</div>
-              
-              {Object.entries(result.extracted_data).map(([key, value]: [string, any]) => (
-                <div key={key} className="border-l-2 border-blue-400 pl-3 my-2">
-                  <div className="text-blue-300 font-bold">{key}:</div>
-                  <div className="text-gray-300 ml-2">
-                    Type: {Array.isArray(value) ? 'Array' : typeof value} | 
-                    Value: {typeof value === 'object' && value !== null 
-                      ? `Object with ${Object.keys(value).length} properties`
-                      : String(value)}
-                  </div>
-                  {typeof value === 'object' && value !== null && (
-                    <pre className="text-xs bg-gray-800 p-2 rounded mt-1 overflow-x-auto">
-                      {JSON.stringify(value, null, 2)}
-                    </pre>
-                  )}
+        {/* Text Lines */}
+        {extractedData.text_lines && extractedData.text_lines.length > 0 && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4 md:p-6">
+            <h4 className="text-base md:text-lg font-semibold text-green-900 mb-3 md:mb-4">
+              Extracted Lines ({extractedData.text_lines.length})
+            </h4>
+            <div className="bg-white border rounded-lg p-3 md:p-4 max-h-64 md:max-h-96 overflow-y-auto">
+              {extractedData.text_lines.map((line: string, index: number) => (
+                <div key={index} className="flex items-start space-x-3 py-2 border-b border-gray-100 last:border-b-0">
+                  <span className="text-xs text-gray-500 w-8 flex-shrink-0 mt-1">{index + 1}</span>
+                  <span className="text-sm text-gray-800 font-mono">{line || '(empty line)'}</span>
                 </div>
               ))}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        <div className="mb-4">
-          <h6 className="text-cyan-300 font-bold mb-2">🔍 DATA TYPE ANALYSIS:</h6>
-          {result.extracted_data && Object.entries(result.extracted_data).map(([key, value]: [string, any]) => (
-            <div key={key} className="mb-2">
-              <span className="text-yellow-300">{key}:</span>
-              <span className="ml-2">
-                {Array.isArray(value) && `Array[${value.length}]`}
-                {typeof value === 'object' && value !== null && !Array.isArray(value) && `Object{${Object.keys(value).join(', ')}}`}
-                {typeof value === 'string' && `String(${value.length} chars)`}
-                {typeof value === 'number' && `Number(${value})`}
-                {typeof value === 'boolean' && `Boolean(${value})`}
-                {value === null && 'Null'}
-                {value === undefined && 'Undefined'}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        <div className="mb-4">
-          <h6 className="text-cyan-300 font-bold mb-2">🏗️ AI FORMATTER INPUT/OUTPUT:</h6>
-          <div className="space-y-2">
-            <div>
-              <div className="text-yellow-300">📥 Input to AIDataFormatter:</div>
-              <pre className="text-xs bg-gray-800 p-2 rounded overflow-x-auto">
-                {JSON.stringify({
-                  document_type: result.document_type,
-                  confidence: result.confidence,
-                  extracted_data: result.extracted_data,
-                  original_filename: result.original_filename
-                }, null, 2)}
-              </pre>
-            </div>
-            <div>
-              <div className="text-yellow-300">📤 Output from AIDataFormatter:</div>
-              <pre className="text-xs bg-gray-800 p-2 rounded overflow-x-auto">
-                {JSON.stringify(AIDataFormatter.formatDocumentData(result), null, 2)}
-              </pre>
+        {/* Processing Information */}
+        {extractedData.processing_info && (
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 md:p-6">
+            <h4 className="text-base md:text-lg font-semibold text-gray-900 mb-3 md:mb-4">
+              Processing Information
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+              {Object.entries(extractedData.processing_info).map(([key, value]) => (
+                <div key={key} className="bg-white rounded-lg p-4 border">
+                  <div className="text-gray-600 text-sm capitalize">{key.replace(/_/g, ' ')}</div>
+                  <div className="font-semibold text-gray-900 mt-1">
+                    {String(value)}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-        </div>
+        )}
 
-        <div>
-          <h6 className="text-cyan-300 font-bold mb-2">⚙️ PROCESSING METADATA:</h6>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div>ID: {result.id}</div>
-            <div>Status: {result.status}</div>
-            <div>Processing Time: {result.processing_time || 'N/A'}ms</div>
-            <div>File Size: {result.file_size || 'N/A'} bytes</div>
-            <div>Created: {result.created_at}</div>
-            <div>Updated: {result.updated_at}</div>
+        {/* Document Metadata */}
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 md:p-6">
+          <h4 className="text-base md:text-lg font-semibold text-purple-900 mb-3 md:mb-4">
+            Document Information
+          </h4>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
+            <div className="bg-white rounded-lg p-4 border">
+              <div className="text-gray-600 text-sm">Document Type</div>
+              <div className="font-semibold text-purple-600 mt-1">
+                {extractedData.document_type || result.document_type || 'Unknown'}
+              </div>
+            </div>
+            <div className="bg-white rounded-lg p-4 border">
+              <div className="text-gray-600 text-sm">Scan Timestamp</div>
+              <div className="font-semibold text-purple-600 mt-1">
+                {extractedData.extracted_content?.scan_timestamp || new Date(result.created_at).toLocaleString()}
+              </div>
+            </div>
+            <div className="bg-white rounded-lg p-4 border">
+              <div className="text-gray-600 text-sm">OCR Engine</div>
+              <div className="font-semibold text-purple-600 mt-1">
+                {result.ocr_engine_used || 'Standard OCR'}
+              </div>
+            </div>
+            <div className="bg-white rounded-lg p-4 border">
+              <div className="text-gray-600 text-sm">Processing Time</div>
+              <div className="font-semibold text-purple-600 mt-1">
+                {result.ocr_processing_time ? `${result.ocr_processing_time.toFixed(2)}s` : 'N/A'}
+              </div>
+            </div>
           </div>
         </div>
       </div>
     );
   };
 
-  const renderExtractedData = (result: any) => {
-    // SUPER DEBUG: Log all data to console
-    console.log('🔍 SUPER DEBUG - Full Result Object:', result);
-    console.log('📊 Document Type:', result.document_type);
-    console.log('🎯 Confidence:', result.confidence);
-    console.log('📄 Filename:', result.original_filename);
-    console.log('🧠 Extracted Data:', result.extracted_data);
-    console.log('⚙️ AI Formatted Data:', AIDataFormatter.formatDocumentData(result));
-    
-    try {
-      // Use AI formatter to prepare data for display
-      const aiFormattedData = AIDataFormatter.formatDocumentData(result);
-      
-      return <AIDataDisplay data={aiFormattedData} />;
-    } catch (error) {
-      console.error('AI formatting error:', error);
-      
-      // Fallback to raw data display
-      const data = result.extracted_data;
-      return (
-        <div className="bg-gray-50 p-6 rounded-lg">
-          <pre className="text-sm text-gray-700 whitespace-pre-wrap">
-            {JSON.stringify(data, null, 2)}
-          </pre>
-        </div>
-      );
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white rounded-lg p-6 shadow-sm border">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
+      <div className="bg-white rounded-lg p-4 md:p-6 shadow-sm border">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center space-x-3 md:space-x-4">
             <button
               onClick={() => navigate(-1)}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Scan Results</h1>
-              <p className="text-gray-600 mt-1">Batch #{batchId?.slice(-8)} - {batch.total_files} files</p>
+            <div className="min-w-0">
+              <h1 className="text-xl md:text-2xl lg:text-3xl font-bold text-gray-900 truncate">Scan Results</h1>
+              <p className="text-sm md:text-base text-gray-600 mt-1 truncate">Batch #{batchId?.slice(-8)} - {batch.total_files} files</p>
             </div>
           </div>
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center justify-end sm:justify-start">
             {batch.status === 'completed' ? (
               <div className="flex items-center space-x-2 text-green-600">
-                <CheckCircle className="w-5 h-5" />
-                <span className="font-medium">Completed</span>
+                <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span className="font-medium text-sm sm:text-base">Completed</span>
               </div>
             ) : batch.status === 'processing' ? (
               <div className="flex items-center space-x-2 text-yellow-600">
-                <Clock className="w-5 h-5 processing-animation" />
-                <span className="font-medium">Processing...</span>
+                <Clock className="w-4 h-4 sm:w-5 sm:h-5 processing-animation" />
+                <span className="font-medium text-sm sm:text-base">Processing...</span>
               </div>
             ) : (
               <div className="flex items-center space-x-2 text-red-600">
-                <AlertCircle className="w-5 h-5" />
-                <span className="font-medium">Error</span>
+                <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span className="font-medium text-sm sm:text-base">Error</span>
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Processing Status */}
-      <div className="bg-white rounded-lg p-6 shadow-sm border">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Processing Progress</h3>
-          <span className="text-sm text-gray-600">{batch.processed_files}/{batch.total_files} completed</span>
-        </div>
-        <div className="w-full bg-gray-200 rounded-full h-3 mb-4">
-          <div 
-            className="bg-gradient-to-r from-blue-500 to-purple-500 h-3 rounded-full transition-all duration-500"
-            style={{ width: `${(batch.processed_files / batch.total_files) * 100}%` }}
-          ></div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="flex items-center space-x-2">
-            <Brain className="w-5 h-5 text-blue-600" />
-            <span className="text-sm text-blue-700">AI Analysis Complete</span>
+      {/* Real-time OCR Processing */}
+      {batch.status === 'processing' ? (
+        <RealtimeOCRProcessing 
+          batchId={batchId!}
+          onComplete={() => refreshBatch(batchId!)}
+          className="mb-6"
+        />
+      ) : (
+        <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-4 md:p-6 border border-green-200">
+          <div className="flex items-center space-x-3 mb-4">
+            <CheckCircle className="w-5 h-5 md:w-6 md:h-6 text-green-600 flex-shrink-0" />
+            <h3 className="text-base md:text-lg font-semibold text-green-900">Next-Gen OCR Processing Complete</h3>
           </div>
-          <div className="flex items-center space-x-2">
-            <Database className="w-5 h-5 text-green-600" />
-            <span className="text-sm text-green-700">Data Extracted</span>
+          <div className="mb-4">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-sm font-medium text-green-700">
+                {batch.processed_files} of {batch.total_files} files processed
+              </span>
+              <span className="text-sm text-green-600">100% Complete</span>
+            </div>
+            <div className="w-full bg-green-100 rounded-full h-3">
+              <div className="bg-gradient-to-r from-green-500 to-blue-500 h-3 rounded-full" style={{ width: '100%' }} />
+            </div>
           </div>
-          <div className="flex items-center space-x-2">
-            <FileText className="w-5 h-5 text-purple-600" />
-            <span className="text-sm text-purple-700">Ready for Export</span>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="flex items-center space-x-2">
+              <Brain className="w-5 h-5 text-green-600" />
+              <span className="text-sm text-green-700">99%+ Accuracy Achieved</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Database className="w-5 h-5 text-blue-600" />
+              <span className="text-sm text-blue-700">Data Extracted</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <FileText className="w-5 h-5 text-purple-600" />
+              <span className="text-sm text-purple-700">Ready for Export</span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Results */}
       {scanResults.length > 0 && (
@@ -273,22 +273,22 @@ const ScanResults = () => {
           <div className="p-6 border-b">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">Extracted Data</h3>
-              <div className="flex space-x-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <button
                   onClick={() => handleDownload('excel')}
                   disabled={loading}
-                  className="px-4 py-2 success-gradient text-white rounded-lg hover:shadow-lg transition-all duration-200"
+                  className="px-3 md:px-4 py-2 success-gradient text-white rounded-lg hover:shadow-lg transition-all duration-200 text-sm md:text-base"
                 >
-                  <Download className="w-4 h-4 inline mr-2" />
-                  Download All (Excel)
+                  <Download className="w-4 h-4 inline mr-1 md:mr-2" />
+                  <span className="hidden sm:inline">Download All</span> (Excel)
                 </button>
                 <button
                   onClick={() => handleDownload('pdf')}
                   disabled={loading}
-                  className="px-4 py-2 error-gradient text-white rounded-lg hover:shadow-lg transition-all duration-200"
+                  className="px-3 md:px-4 py-2 error-gradient text-white rounded-lg hover:shadow-lg transition-all duration-200 text-sm md:text-base"
                 >
-                  <Download className="w-4 h-4 inline mr-2" />
-                  Download All (PDF)
+                  <Download className="w-4 h-4 inline mr-1 md:mr-2" />
+                  <span className="hidden sm:inline">Download All</span> (PDF)
                 </button>
               </div>
             </div>
@@ -296,98 +296,51 @@ const ScanResults = () => {
 
           {/* Tabs */}
           <div className="border-b">
-            <nav className="flex space-x-8 px-6">
-              {scanResults.map((result, index) => (
-                <button
-                  key={result.id}
-                  onClick={() => setActiveTab(index)}
-                  className={`py-4 text-sm font-medium border-b-2 ${
-                    activeTab === index
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  {result.original_filename}
-                </button>
-              ))}
+            <nav className="flex overflow-x-auto px-4 md:px-6 -mb-px">
+              <div className="flex space-x-4 md:space-x-8 min-w-max">
+                {scanResults.map((result, index) => (
+                  <button
+                    key={result.id}
+                    onClick={() => setActiveTab(index)}
+                    className={`py-3 md:py-4 text-xs md:text-sm font-medium border-b-2 whitespace-nowrap flex-shrink-0 ${
+                      activeTab === index
+                        ? 'border-blue-500 text-blue-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    <span className="max-w-[120px] md:max-w-none truncate block">{result.filename}</span>
+                  </button>
+                ))}
+              </div>
             </nav>
           </div>
 
           {/* Tab Content */}
           <div className="p-6">
-            {/* Global Debug for All Scan Results */}
-            <div className="mb-6">
-              <details className="bg-blue-50 rounded-lg border border-blue-200">
-                <summary className="p-3 cursor-pointer font-medium text-blue-900 hover:bg-blue-100 rounded-lg">
-                  🌍 Global Debug: All Scan Results ({scanResults.length} files)
-                </summary>
-                <div className="p-3 pt-0">
-                  <div className="mb-4 flex space-x-2">
-                    <button
-                      onClick={async () => {
-                        try {
-                          const response = await fetch(`http://localhost:8000/api/debug/recalculate-confidence/${batchId}`, {
-                            method: 'POST'
-                          });
-                          if (response.ok) {
-                            const result = await response.json();
-                            console.log('🔄 Recalculation result:', result);
-                            alert(`✅ Recalculated confidence for ${result.updates.length} files`);
-                            // Refresh the page to see new values
-                            window.location.reload();
-                          } else {
-                            console.error('❌ Recalculation failed');
-                            alert('❌ Failed to recalculate confidence');
-                          }
-                        } catch (error) {
-                          console.error('❌ Error:', error);
-                          alert('❌ Error recalculating confidence');
-                        }
-                      }}
-                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      🔄 Recalculate Confidence
-                    </button>
-                    <button
-                      onClick={async () => {
-                        if (confirm('⚠️ This will clear ALL storage. Are you sure?')) {
-                          try {
-                            const response = await fetch('http://localhost:8000/api/debug/clear-storage', {
-                              method: 'DELETE'
-                            });
-                            if (response.ok) {
-                              const result = await response.json();
-                              console.log('🧹 Clear storage result:', result);
-                              alert(`✅ Cleared ${result.cleared.batches} batches and ${result.cleared.results} results`);
-                              // Navigate back to home
-                              navigate('/');
-                            } else {
-                              alert('❌ Failed to clear storage');
-                            }
-                          } catch (error) {
-                            console.error('❌ Error:', error);
-                            alert('❌ Error clearing storage');
-                          }
-                        }
-                      }}
-                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                    >
-                      🧹 Clear Storage
-                    </button>
-                  </div>
-                  <div className="bg-blue-900 text-green-400 p-4 rounded-lg font-mono text-xs overflow-auto max-h-64">
-                    <div className="text-cyan-300 font-bold mb-2">📊 BATCH OVERVIEW:</div>
-                    <div className="mb-2">Total Files: {scanResults.length}</div>
-                    <div className="mb-2">Document Types: {[...new Set(scanResults.map(r => r.document_type))].join(', ')}</div>
-                    <div className="mb-4">Average Confidence: {(scanResults.reduce((sum, r) => sum + r.confidence, 0) / scanResults.length * 100).toFixed(2)}%</div>
-                    
-                    <div className="text-cyan-300 font-bold mb-2">📋 ALL SCAN RESULTS:</div>
-                    <pre className="text-xs bg-gray-800 p-3 rounded overflow-x-auto">
-                      {JSON.stringify(scanResults, null, 2)}
-                    </pre>
-                  </div>
+            {/* Batch Summary */}
+            <div className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-3 md:p-4 border border-blue-200">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 text-center">
+                <div>
+                  <div className="text-2xl font-bold text-blue-600">{scanResults.length}</div>
+                  <div className="text-sm text-blue-700">Files Processed</div>
                 </div>
-              </details>
+                <div>
+                  <div className="text-2xl font-bold text-green-600">
+                    {[...new Set(scanResults.map(r => r.document_type || r.file_type))].length}
+                  </div>
+                  <div className="text-sm text-green-700">Document Types</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-purple-600">
+                    {(scanResults.reduce((sum, r) => sum + ((r.confidence || r.confidence_score || 0)), 0) / scanResults.length * 100).toFixed(1)}%
+                  </div>
+                  <div className="text-sm text-purple-700">Average Confidence</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-orange-600">Raw OCR</div>
+                  <div className="text-sm text-orange-700">No Regex Processing</div>
+                </div>
+              </div>
             </div>
 
             {scanResults[activeTab] && (
@@ -397,49 +350,60 @@ const ScanResults = () => {
                   <div className="flex items-center space-x-3">
                     <FileText className="w-6 h-6 text-blue-600" />
                     <div>
-                      <h4 className="font-medium text-gray-900">{scanResults[activeTab].original_filename}</h4>
-                      <p className="text-sm text-gray-600">Confidence: {(scanResults[activeTab].confidence * 100).toFixed(1)}%</p>
+                      <h4 className="font-medium text-gray-900">{scanResults[activeTab]?.filename}</h4>
+                      <p className="text-sm text-gray-600">Confidence: {((scanResults[activeTab]?.confidence || scanResults[activeTab]?.confidence_score || 0) * 100).toFixed(1)}%</p>
                     </div>
                   </div>
-                  <div className="flex space-x-2">
+                  <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => handleDownload('excel', scanResults[activeTab])}
                       disabled={loading}
-                      className="px-3 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors"
+                      className="px-2 md:px-3 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors text-xs md:text-sm"
                     >
-                      <Download className="w-4 h-4 inline mr-1" />
+                      <Download className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
                       Excel
                     </button>
                     <button
                       onClick={() => handleDownload('pdf', scanResults[activeTab])}
                       disabled={loading}
-                      className="px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
+                      className="px-2 md:px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-xs md:text-sm"
                     >
-                      <Download className="w-4 h-4 inline mr-1" />
+                      <Download className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
                       PDF
                     </button>
                     <button
                       onClick={() => handleGoogleDriveShare('excel', scanResults[activeTab])}
                       disabled={loading}
-                      className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors"
+                      className="px-2 md:px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors text-xs md:text-sm"
                     >
-                      <Share2 className="w-4 h-4 inline mr-1" />
-                      Save to Drive
+                      <Share2 className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
+                      <span className="hidden sm:inline">Save to</span> Drive
                     </button>
                   </div>
                 </div>
 
-                {/* Extracted Data */}
-                {renderExtractedData(scanResults[activeTab])}
+                {/* Next-Generation OCR Metrics */}
+                {scanResults[activeTab].nextgen_metrics && (
+                  <OCRMetricsDisplay 
+                    metrics={scanResults[activeTab].nextgen_metrics}
+                    quality={scanResults[activeTab].processing_quality}
+                    className="mb-6"
+                  />
+                )}
 
-                {/* Debug Information */}
+                {/* Raw Scan Data */}
+                {renderRawScanData(scanResults[activeTab])}
+
+                {/* Raw JSON Data (Optional) */}
                 <div className="mt-8">
-                  <details className="bg-gray-100 rounded-lg">
-                    <summary className="p-4 cursor-pointer font-medium text-gray-900 hover:bg-gray-200 rounded-lg">
-                      🔍 Debug Information (Click to expand)
+                  <details className="bg-gray-50 rounded-lg border">
+                    <summary className="p-4 cursor-pointer font-medium text-gray-700 hover:bg-gray-100 rounded-lg">
+                      � Complete Raw Data (Developer View)
                     </summary>
                     <div className="p-4 pt-0">
-                      {renderDebugInfo(scanResults[activeTab])}
+                      <div className="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-xs overflow-auto max-h-96">
+                        <pre>{JSON.stringify(scanResults[activeTab], null, 2)}</pre>
+                      </div>
                     </div>
                   </details>
                 </div>

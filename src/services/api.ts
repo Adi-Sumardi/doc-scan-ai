@@ -40,6 +40,29 @@ export interface DocumentFile {
   result_id?: string;
 }
 
+export interface NextGenOCRMetrics {
+  confidence: number;
+  layout_confidence: number;
+  semantic_confidence: number;
+  quality_score: number;
+  processing_time: number;
+  engine_used: string;
+}
+
+export interface ProcessingQuality {
+  overall_score: number;
+  text_clarity: number;
+  structure_preservation: number;
+  accuracy_rating: 'excellent' | 'good' | 'fair' | 'poor';
+}
+
+export interface AIData {
+  extracted_data: any;
+  entities: any[];
+  document_type: string;
+  confidence: number;
+}
+
 export interface Batch {
   id: string;
   files: DocumentFile[];
@@ -54,11 +77,27 @@ export interface Batch {
 export interface ScanResult {
   id: string;
   batch_id: string;
+  filename: string;
   document_type: string;
-  original_filename: string;
+  extracted_text?: string;
   extracted_data: any;
-  confidence: number;
+  confidence?: number;
+  confidence_score?: number; // Legacy support
+  ocr_engine_used?: string;
   created_at: string;
+  ocr_processing_time?: number;
+  processing_time?: number; // Legacy support
+  // Legacy support
+  original_filename?: string;
+  file_type?: string;
+  status?: string;
+  ai_data?: AIData;
+  export_formats?: string[];
+  // Next-Generation OCR enhancements
+  nextgen_metrics?: NextGenOCRMetrics;
+  processing_quality?: ProcessingQuality;
+  document_structure?: any;
+  extracted_entities?: any;
 }
 
 export const apiService = {
@@ -92,7 +131,7 @@ export const apiService = {
   // Get batch results
   async getBatchResults(batchId: string): Promise<ScanResult[]> {
     const response = await api.get(`/api/batches/${batchId}/results`);
-    return response.data;
+    return response.data.results || [];
   },
 
   // Get all batches
@@ -109,7 +148,7 @@ export const apiService = {
 
   // Export single result to Excel
   async exportResultExcel(resultId: string): Promise<Blob> {
-    const response = await api.post(`/api/export/${resultId}/excel`, {}, {
+    const response = await api.get(`/api/results/${resultId}/export/excel`, {
       responseType: 'blob',
     });
     return response.data;
@@ -117,7 +156,7 @@ export const apiService = {
 
   // Export single result to PDF
   async exportResultPdf(resultId: string): Promise<Blob> {
-    const response = await api.post(`/api/export/${resultId}/pdf`, {}, {
+    const response = await api.get(`/api/results/${resultId}/export/pdf`, {
       responseType: 'blob',
     });
     return response.data;
@@ -125,10 +164,34 @@ export const apiService = {
 
   // Export batch to Excel
   async exportBatchExcel(batchId: string): Promise<Blob> {
-    const response = await api.post(`/api/export/batch/${batchId}/excel`, {}, {
+    const response = await api.get(`/api/batches/${batchId}/export/excel`, {
       responseType: 'blob',
     });
     return response.data;
+  },
+
+  // Next-Generation OCR specific endpoints
+  async getProcessingQuality(resultId: string): Promise<ProcessingQuality> {
+    const response = await api.get(`/api/results/${resultId}/quality`);
+    return response.data;
+  },
+
+  // Get OCR engine performance metrics
+  async getOCRMetrics(resultId: string): Promise<NextGenOCRMetrics> {
+    const response = await api.get(`/api/results/${resultId}/metrics`);
+    return response.data;
+  },
+
+  // Get system health status
+  async getSystemHealth(): Promise<any> {
+    const response = await api.get('/api/health');
+    return response.data;
+  },
+
+  // Real-time processing status via WebSocket
+  createWebSocketConnection(batchId: string): WebSocket {
+    const wsUrl = `ws://localhost:8000/ws/batch/${batchId}`;
+    return new WebSocket(wsUrl);
   },
 
   // Download file helper

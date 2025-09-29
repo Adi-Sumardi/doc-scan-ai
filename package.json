@@ -1,13 +1,19 @@
 {
-  "name": "vite-react-typescript-starter",
-  "private": true,
-  "version": "0.0.0",
+  "name": "doc-scan-ai",
+  "private": false,
+  "version": "1.0.0",
+  "description": "Professional document scanning and OCR processing application with AI-powered text extraction",
+  "author": "Adi Sumardi",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "vite preview --port 3000",
+    "build:prod": "NODE_ENV=production npm run build",
+    "serve": "serve -s dist -l 3000"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
@@ -29,6 +35,7 @@
     "eslint-plugin-react-refresh": "^0.4.11",
     "globals": "^15.9.0",
     "postcss": "^8.4.35",
+    "serve": "^14.2.3",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.3.0",

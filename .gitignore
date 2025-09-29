@@ -1,22 +1,87 @@
+# Dependencies
+node_modules/
+backend/doc_scan_env/
+backend/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+
+# Build outputs
+dist/
+build/
+.vite/
+
+# Environment files
+.env
+.env.local
+.env.production
+backend/.env
+
 # Logs
 logs
 *.log
+backend/server.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
 
-# Editor directories and files
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# Uploads and exports (keep structure but ignore content)
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/exports/*
+!backend/exports/.gitkeep
+backend/results/*
+!backend/results/.gitkeep
+
+# IDE files
 .vscode/*
 !.vscode/extensions.json
 .idea
+*.swp
+*.swo
+*~
+
+# OS files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Test files (production ready)
+test_*.py
+test_*.html
+test_*.pdf
+test_*.xlsx
+*_test.py
+*.test.js
+*.test.ts
+*.test.tsx
+
+# Development documentation
+EXPORT_FUNCTIONALITY_FIXED.md
+FIX_SUMMARY_DATA_DISPLAY.md
+test_data_display.html
+
+# Temporary files
+*.tmp
+*.temp
+*.local
 *.suo
 *.ntvs*
 *.njsproj
