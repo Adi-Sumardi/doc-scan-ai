@@ -10,6 +10,7 @@ const getApiBaseUrl = () => {
     return '';
   }
   
+  
   // Development environment
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
     console.log('Development mode: Using localhost:8000');
