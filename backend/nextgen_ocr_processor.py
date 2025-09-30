@@ -60,23 +60,51 @@ class NextGenerationOCRProcessor:
         start_time = datetime.now()
         
         try:
+            # Validate file exists
+            if not os.path.exists(file_path):
+                logger.error(f"❌ File not found: {file_path}")
+                raise FileNotFoundError(f"File not found: {file_path}")
+
+            # Check file permissions
+            if not os.access(file_path, os.R_OK):
+                logger.error(f"❌ No read permission for file: {file_path}")
+                raise PermissionError(f"Cannot read file: {file_path}")
+
+            # Log processing start
+            logger.info(f"🔄 Processing document: {file_path} (Type: {doc_type})")
+            
             processed_image = self._preprocess_image(file_path, doc_type)
+            if processed_image is None or processed_image.size == 0:
+                raise ValueError("Image preprocessing failed")
+
             results = self._run_ensemble_ocr(processed_image)
+            if not results or 'text' not in results:
+                raise ValueError("OCR processing failed - no results")
+
             quality_score = self._calculate_quality(results)
             
             processing_time = (datetime.now() - start_time).total_seconds()
             
-            return NextGenOCRResult(
-                text=results['text'],
-                confidence=results['confidence'],
-                engine_used=results['engine'],
+            # Log successful processing
+            logger.info(f"✅ Successfully processed {file_path} in {processing_time:.2f}s")
+            
+            result = NextGenOCRResult(
+                text=results.get('text', ''),
+                confidence=results.get('confidence', 0.0),
+                engine_used=results.get('engine', 'unknown'),
                 processing_time=processing_time,
                 quality_score=quality_score
             )
+
+            # Validate result
+            if not result.text.strip():
+                logger.warning(f"⚠️ No text extracted from {file_path}")
+            
+            return result
             
         except Exception as e:
-            logger.error(f"❌ Processing failed: {e}")
-            return NextGenOCRResult("", 0.0, "Error", 0.0, 0.0)
+            logger.error(f"❌ Processing failed for {file_path}: {str(e)}", exc_info=True)
+            return NextGenOCRResult("", 0.0, f"Error: {str(e)}", 0.0, 0.0)
     
     def _preprocess_image(self, file_path: str, doc_type: str):
         try:

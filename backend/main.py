@@ -59,13 +59,57 @@ def get_db():
     finally:
         db.close()
 
+# Environment validation
+def validate_environment():
+    # Check storage directories
+    storage_dirs = {
+        'uploads': Path(get_upload_dir()),
+        'results': Path(get_results_dir()),
+        'exports': Path(get_exports_dir())
+    }
+    
+    for name, dir_path in storage_dirs.items():
+        try:
+            dir_path.mkdir(exist_ok=True)
+            # Test write permissions
+            test_file = dir_path / '.test_write'
+            test_file.touch()
+            test_file.unlink()
+            logger.info(f"✅ {name} directory OK: {dir_path}")
+        except Exception as e:
+            logger.error(f"❌ {name} directory error: {e}")
+            raise RuntimeError(f"Storage directory {name} not accessible: {e}")
+    
+    # Check database
+    try:
+        with SessionLocal() as db:
+            db.execute("SELECT 1")
+        logger.info("✅ Database connection OK")
+    except Exception as e:
+        logger.error(f"❌ Database connection failed: {e}")
+        raise
+
+    # Check OCR system
+    try:
+        ocr = RealOCRProcessor()
+        if not ocr.initialized:
+            raise RuntimeError("No OCR engines available")
+        logger.info("✅ OCR system OK")
+    except Exception as e:
+        logger.error(f"❌ OCR system error: {e}")
+        raise
+
+# Run environment validation
+try:
+    validate_environment()
+except Exception as e:
+    logger.critical(f"❌ Environment validation failed: {e}")
+    raise
+
 # Storage directories
 UPLOAD_DIR = Path(get_upload_dir())
 RESULTS_DIR = Path(get_results_dir())
 EXPORTS_DIR = Path(get_exports_dir())
-
-for dir_path in [UPLOAD_DIR, RESULTS_DIR, EXPORTS_DIR]:
-    dir_path.mkdir(exist_ok=True)
 
 # Simple file validation function
 def validate_file(content: bytes, filename: str) -> dict:

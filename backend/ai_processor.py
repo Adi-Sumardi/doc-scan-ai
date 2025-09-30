@@ -61,30 +61,61 @@ class RealOCRProcessor:
     """Next-Generation OCR processor with 99%+ accuracy using latest AI technology"""
     
     def __init__(self):
+        self.initialized = False
+        self._check_dependencies()
+        
         # Initialize Next-Gen processor (highest priority - 99%+ accuracy)
         try:
             from nextgen_ocr_processor import NextGenerationOCRProcessor
             self.nextgen_processor = NextGenerationOCRProcessor()
             logger.info("🚀 Next-Generation OCR Processor initialized - 99%+ accuracy expected")
             self.use_nextgen = True
+            self.initialized = True
         except Exception as e:
-            logger.error(f"❌ Failed to initialize Next-Gen OCR: {e}")
+            logger.error(f"❌ Failed to initialize Next-Gen OCR: {e}", exc_info=True)
             self.use_nextgen = False
-        
-        # Legacy processors disabled - using only Next-Gen OCR
+
+        # Fallback setup
         self.use_production = False
         self.use_enhanced = False
-        
-        # Fallback to basic processors
         self.readers = {}
-        self._last_ocr_result = None  # Store last OCR result metadata
+        self._last_ocr_result = None
+
+        # Initialize fallback processors if needed
+        if not self.use_nextgen:
+            if HAS_EASYOCR:
+                try:
+                    self.readers['easyocr'] = easyocr.Reader(['en', 'id'])
+                    logger.info("✅ EasyOCR reader initialized as fallback")
+                    self.initialized = True
+                except Exception as e:
+                    logger.error(f"❌ Failed to initialize EasyOCR: {e}", exc_info=True)
+            
+        if not self.initialized:
+            logger.critical("❌ No OCR engines available - system will not function!")
+
+    def _check_dependencies(self):
+        """Verify all required dependencies are available"""
+        missing_deps = []
         
-        if HAS_EASYOCR and not (self.use_production or self.use_enhanced):
-            try:
-                self.readers['easyocr'] = easyocr.Reader(['en', 'id'])
-                logger.info("✅ EasyOCR reader initialized as fallback")
-            except Exception as e:
-                logger.error(f"❌ Failed to initialize EasyOCR: {e}")
+        # Check core dependencies
+        try:
+            import cv2
+            import numpy as np
+            from PIL import Image
+        except ImportError as e:
+            missing_deps.append(f"Core OCR: {str(e)}")
+
+        # Check PDF support
+        try:
+            from pdf2image import convert_from_path
+        except ImportError:
+            missing_deps.append("PDF support (pdf2image)")
+            
+        # Log missing dependencies
+        if missing_deps:
+            logger.error("Missing dependencies: " + ", ".join(missing_deps))
+            logger.error("Install with: pip install opencv-python-headless numpy Pillow pdf2image pytesseract easyocr")
     
     def _detect_document_type_from_filename(self, file_path: str) -> str:
         """Detect document type from filename"""
