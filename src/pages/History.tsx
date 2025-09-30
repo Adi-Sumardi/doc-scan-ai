@@ -19,7 +19,9 @@ const History = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  const filteredBatches = batches.filter(batch => {
+  const safeBatches = Array.isArray(batches) ? batches : [];
+
+  const filteredBatches = safeBatches.filter(batch => {
     const matchesSearch = batch.id.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || batch.status === statusFilter;
     

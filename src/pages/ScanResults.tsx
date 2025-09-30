@@ -22,7 +22,8 @@ const ScanResults = () => {
   const [activeTab, setActiveTab] = useState(0);
 
   const batch = getBatch(batchId!);
-  const scanResults = getScanResultsByBatch(batchId!);
+  const resultsForBatch = getScanResultsByBatch(batchId!);
+  const scanResults = Array.isArray(resultsForBatch) ? resultsForBatch : [];
 
   // Debug info for development
   console.log('Batch Data:', batch);

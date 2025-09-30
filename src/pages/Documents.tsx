@@ -206,7 +206,9 @@ const Documents = () => {
     batch: 'Batch Export'
   };
 
-  const filteredResults = scanResults.filter(result => {
+  const safeScanResults = Array.isArray(scanResults) ? scanResults : [];
+
+  const filteredResults = safeScanResults.filter(result => {
     const filename = result.filename || result.original_filename || '';
     const docType = result.document_type || result.file_type || '';
     const matchesSearch = filename.toLowerCase().includes(searchTerm.toLowerCase()) ||
