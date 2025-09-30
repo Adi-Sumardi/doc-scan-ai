@@ -7,7 +7,7 @@ const getApiBaseUrl = () => {
   // Production environment detection (domain-based)
   if (hostname === 'docscan.adilabs.id' || hostname.includes('adilabs.id')) {
     console.log('Production mode: Using /api');
-    return '/api';
+    return '';
   }
   
   // Development environment
@@ -18,7 +18,7 @@ const getApiBaseUrl = () => {
   
   // Default to production for any other domain
   console.log('Unknown domain, defaulting to production: /api');
-  return '/api';
+  return '';
 };
 
 const API_BASE_URL = getApiBaseUrl();
