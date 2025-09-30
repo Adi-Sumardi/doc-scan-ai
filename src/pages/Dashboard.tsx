@@ -13,10 +13,12 @@ import {
 const Dashboard = () => {
   const { batches, scanResults } = useDocument();
 
-  const totalDocuments = scanResults.length;
+  // Ensure scanResults is always an array to prevent runtime errors
+  const safeResults = Array.isArray(scanResults) ? scanResults : [];
+  const totalDocuments = safeResults.length;
 
-  // Calculate Next-Gen OCR metrics
-  const nextGenResults = scanResults.filter(r => r.nextgen_metrics);
+  // Calculate Next-Gen OCR metrics on the safe array
+  const nextGenResults = safeResults.filter(r => r && r.nextgen_metrics);
   const averageAccuracy = nextGenResults.length > 0 
     ? nextGenResults.reduce((sum, r) => sum + (r.nextgen_metrics?.confidence || 0), 0) / nextGenResults.length 
     : 0;
@@ -62,7 +64,7 @@ const Dashboard = () => {
     }
   ];
 
-  const recentBatches = batches.slice(0, 5);
+  const recentBatches = Array.isArray(batches) ? batches.slice(0, 5) : [];
 
   return (
     <div className="space-y-6">
