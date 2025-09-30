@@ -201,7 +201,18 @@ export const apiService = {
 
   // Real-time processing status via WebSocket
   createWebSocketConnection(batchId: string): WebSocket {
-    const wsUrl = `ws://localhost:8000/ws/batch/${batchId}`;
+    // Determine WebSocket URL based on environment
+    const getWsUrl = () => {
+      if (import.meta.env.PROD) {
+        // In production, use wss:// with domain
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${protocol}//${window.location.host}/ws/batch/${batchId}`;
+      }
+      // In development, use localhost
+      return `ws://localhost:8000/ws/batch/${batchId}`;
+    };
+    
+    const wsUrl = getWsUrl();
     return new WebSocket(wsUrl);
   },
 
