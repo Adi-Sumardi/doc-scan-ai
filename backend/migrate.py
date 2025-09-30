@@ -18,12 +18,14 @@ def run_migrations():
         
         # Verify tables
         with SessionLocal() as session:
-            # Get list of all tables
-            tables = engine.table_names()
+            # Get list of all tables using inspector
+            from sqlalchemy import inspect, text
+            inspector = inspect(engine)
+            tables = inspector.get_table_names()
             logger.info(f"📋 Created tables: {', '.join(tables)}")
             
-            # Test connection
-            session.execute("SELECT 1")
+            # Test connection with MySQL
+            session.execute(text("SELECT 1"))
             logger.info("✅ Database connection verified")
             
     except Exception as e:

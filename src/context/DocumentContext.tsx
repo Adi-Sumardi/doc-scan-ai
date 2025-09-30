@@ -68,7 +68,9 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
           
           // Load results
           const results = await apiService.getBatchResults(batchId);
-          setScanResults(prev => [...results, ...prev.filter(r => r.batch_id !== batchId)]);
+          if (Array.isArray(results)) {
+            setScanResults(prev => [...results, ...prev.filter(r => r.batch_id !== batchId)]);
+          }
           
           toast.success('All documents have been processed successfully!');
         } else if (updatedBatch.status === 'error') {
@@ -110,8 +112,8 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
         apiService.getAllResults()
       ]);
       
-      setBatches(batchesData);
-      setScanResults(resultsData);
+      setBatches(Array.isArray(batchesData) ? batchesData : []);
+      setScanResults(Array.isArray(resultsData) ? resultsData : []);
     } catch (error) {
       console.error('Refresh all data error:', error);
       // Handle network errors gracefully
@@ -127,12 +129,14 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const getBatch = (batchId: string) => {
+  const getBatch = (batchId: string): Batch | undefined => {
+    if (!Array.isArray(batches)) return undefined;
     return batches.find(batch => batch.id === batchId);
   };
 
-  const getScanResultsByBatch = (batchId: string) => {
-    return scanResults.filter(result => result.batch_id === batchId);
+  const getScanResultsByBatch = (batchId: string): ScanResult[] => {
+    if (!Array.isArray(scanResults)) return [];
+    return scanResults.filter(result => result.batch_id === batchId) || [];
   };
 
   const exportResult = async (resultId: string, format: 'excel' | 'pdf') => {

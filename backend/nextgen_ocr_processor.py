@@ -70,26 +70,49 @@ class NextGenerationOCRProcessor:
                 logger.error(f"❌ No read permission for file: {file_path}")
                 raise PermissionError(f"Cannot read file: {file_path}")
 
-            # Log processing start
-            logger.info(f"🔄 Processing document: {file_path} (Type: {doc_type})")
-            
-            processed_image = self._preprocess_image(file_path, doc_type)
-            if processed_image is None or processed_image.size == 0:
-                raise ValueError("Image preprocessing failed")
+            # Check file type
+            import magic
+            file_type = magic.from_file(file_path)
+            logger.info(f"📄 File type detected: {file_type}")
 
+            # Log processing start with detailed info
+            logger.info(f"🔄 Processing document: {file_path}")
+            logger.info(f"📋 Document type: {doc_type}")
+            logger.info(f"📊 File size: {os.path.getsize(file_path)} bytes")
+            
+            # Detailed preprocessing logging
+            logger.info("🔍 Starting image preprocessing...")
+            processed_image = self._preprocess_image(file_path, doc_type)
+            if processed_image is None:
+                raise ValueError("Image preprocessing returned None")
+            if not hasattr(processed_image, 'size') or processed_image.size == 0:
+                raise ValueError(f"Invalid processed image: {type(processed_image)}")
+            logger.info("✅ Preprocessing completed successfully")
+
+            # Detailed OCR logging
+            logger.info("🔍 Starting OCR processing...")
             results = self._run_ensemble_ocr(processed_image)
-            if not results or 'text' not in results:
-                raise ValueError("OCR processing failed - no results")
+            if not results:
+                raise ValueError("OCR returned no results dictionary")
+            if 'text' not in results:
+                raise ValueError(f"OCR results missing 'text' key. Keys found: {list(results.keys())}")
+            if not results['text'].strip():
+                raise ValueError("OCR returned empty text")
+            logger.info(f"📝 OCR extracted {len(results['text'].split())} words")
 
             quality_score = self._calculate_quality(results)
+            logger.info(f"📊 Quality score: {quality_score}")
             
             processing_time = (datetime.now() - start_time).total_seconds()
+            logger.info(f"⏱️ Processing time: {processing_time:.2f}s")
             
-            # Log successful processing
-            logger.info(f"✅ Successfully processed {file_path} in {processing_time:.2f}s")
+            # Log successful processing with details
+            logger.info(f"✅ Successfully processed {file_path}")
+            logger.info(f"📊 Confidence: {results.get('confidence', 0.0)}")
+            logger.info(f"🔧 Engine used: {results.get('engine', 'unknown')}")
             
             result = NextGenOCRResult(
-                text=results.get('text', ''),
+                text=results['text'],
                 confidence=results.get('confidence', 0.0),
                 engine_used=results.get('engine', 'unknown'),
                 processing_time=processing_time,
