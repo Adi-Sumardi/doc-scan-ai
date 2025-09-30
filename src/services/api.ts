@@ -134,7 +134,7 @@ export const apiService = {
       formData.append('document_types', type);
     });
     
-    const response = await api.post('/api/upload', formData, {
+    const response = await api.post('/upload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -145,31 +145,31 @@ export const apiService = {
 
   // Get batch status
   async getBatchStatus(batchId: string): Promise<Batch> {
-    const response = await api.get(`/api/batches/${batchId}`);
+    const response = await api.get(`/batches/${batchId}`);
     return response.data;
   },
 
   // Get batch results
   async getBatchResults(batchId: string): Promise<ScanResult[]> {
-    const response = await api.get(`/api/batches/${batchId}/results`);
+    const response = await api.get(`/batches/${batchId}/results`);
     return response.data.results || [];
   },
 
   // Get all batches
   async getAllBatches(): Promise<Batch[]> {
-    const response = await api.get('/api/batches');
+    const response = await api.get('/batches');
     return response.data;
   },
 
   // Get all results
   async getAllResults(): Promise<ScanResult[]> {
-    const response = await api.get('/api/results');
+    const response = await api.get('/results');
     return response.data;
   },
 
   // Export single result to Excel
   async exportResultExcel(resultId: string): Promise<Blob> {
-    const response = await api.get(`/api/results/${resultId}/export/excel`, {
+    const response = await api.get(`/results/${resultId}/export/excel`, {
       responseType: 'blob',
     });
     return response.data;
@@ -177,7 +177,7 @@ export const apiService = {
 
   // Export single result to PDF
   async exportResultPdf(resultId: string): Promise<Blob> {
-    const response = await api.get(`/api/results/${resultId}/export/pdf`, {
+    const response = await api.get(`/results/${resultId}/export/pdf`, {
       responseType: 'blob',
     });
     return response.data;
@@ -185,7 +185,7 @@ export const apiService = {
 
   // Export batch to Excel
   async exportBatchExcel(batchId: string): Promise<Blob> {
-    const response = await api.get(`/api/batches/${batchId}/export/excel`, {
+    const response = await api.get(`/batches/${batchId}/export/excel`, {
       responseType: 'blob',
     });
     return response.data;
@@ -193,19 +193,19 @@ export const apiService = {
 
   // Next-Generation OCR specific endpoints
   async getProcessingQuality(resultId: string): Promise<ProcessingQuality> {
-    const response = await api.get(`/api/results/${resultId}/quality`);
+    const response = await api.get(`/results/${resultId}/quality`);
     return response.data;
   },
 
   // Get OCR engine performance metrics
   async getOCRMetrics(resultId: string): Promise<NextGenOCRMetrics> {
-    const response = await api.get(`/api/results/${resultId}/metrics`);
+    const response = await api.get(`/results/${resultId}/metrics`);
     return response.data;
   },
 
   // Get system health status
   async getSystemHealth(): Promise<any> {
-    const response = await api.get('/api/health');
+    const response = await api.get('/health');
     return response.data;
   },
 
