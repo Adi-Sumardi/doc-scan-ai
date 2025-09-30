@@ -16,6 +16,13 @@ import asyncio
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Try to import fitz (PyMuPDF) for direct PDF text extraction
+try:
+    import fitz  # PyMuPDF
+    HAS_FITZ = True
+except ImportError:
+    HAS_FITZ = False
+
 @dataclass
 class NextGenOCRResult:
     text: str
@@ -57,6 +64,26 @@ class NextGenerationOCRProcessor:
             logger.warning(f"⚠️ Advanced Preprocessor not available: {e}")
     
     def process_document_nextgen(self, file_path: str, doc_type: str = "unknown"):
+        # --- SMART PDF HANDLING ---
+        if file_path.lower().endswith('.pdf') and HAS_FITZ:
+            logger.info("📄 PDF detected. Attempting direct text extraction first...")
+            try:
+                direct_text = self._extract_text_directly_from_pdf(file_path)
+                # If we get a substantial amount of text, we can skip OCR.
+                if direct_text and len(direct_text) > 200: # Threshold for meaningful text
+                    logger.info("✅ Direct text extraction successful. Skipping image-based OCR.")
+                    processing_time = (datetime.now() - datetime.now()).total_seconds() # Placeholder, as it's very fast
+                    return NextGenOCRResult(
+                        text=direct_text,
+                        confidence=99.9, # Confidence is very high for direct extraction
+                        engine_used="PyMuPDF (Direct)",
+                        processing_time=processing_time,
+                        quality_score=99.0
+                    )
+            except Exception as e:
+                logger.warning(f"⚠️ Direct PDF text extraction failed: {e}. Falling back to image-based OCR.")
+        # --- END SMART PDF HANDLING ---
+
         start_time = datetime.now()
         
         try:
@@ -129,14 +156,33 @@ class NextGenerationOCRProcessor:
             logger.error(f"❌ Processing failed for {file_path}: {str(e)}", exc_info=True)
             return NextGenOCRResult("", 0.0, f"Error: {str(e)}", 0.0, 0.0)
     
+    def _extract_text_directly_from_pdf(self, file_path: str) -> str:
+        """Extracts text directly from a text-based PDF using PyMuPDF."""
+        if not HAS_FITZ:
+            return ""
+        
+        doc = fitz.open(file_path)
+        full_text = ""
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            full_text += page.get_text("text")
+            full_text += "\n" # Add a separator between pages
+        doc.close()
+        return full_text.strip()
+
     def _preprocess_image(self, file_path: str, doc_type: str):
         try:
             if file_path.lower().endswith('.pdf'):
                 try:
                     from pdf2image import convert_from_path
-                    images = convert_from_path(file_path, dpi=300, first_page=1, last_page=1)
-                    image = np.array(images[0])
-                    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+                    # Process ALL pages of the PDF, not just the first one.
+                    images = convert_from_path(file_path, dpi=300)
+                    if not images:
+                        raise ValueError("pdf2image returned no images.")
+                    
+                    # Stitch images vertically to process multi-page PDFs as a single long image.
+                    stitched_image = cv2.vconcat([np.array(img) for img in images])
+                    image = cv2.cvtColor(stitched_image, cv2.COLOR_RGB2BGR)
                 except Exception as e:
                     logger.error(f"PDF conversion failed: {e}")
                     return np.ones((800, 600), dtype=np.uint8) * 255
@@ -148,9 +194,32 @@ class NextGenerationOCRProcessor:
             if self.preprocessor:
                 return self.preprocessor.preprocess_super_advanced(image, doc_type)
             else:
-                if len(image.shape) == 3:
-                    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-                return image
+                # Fallback to basic but essential preprocessing if advanced preprocessor is not available
+                logger.warning("⚠️ SuperAdvancedPreprocessor not found. Using basic preprocessing.")
+                
+                # 1. Convert to grayscale
+                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
+                
+                # 2. Basic Denoising
+                denoised = cv2.fastNlMeansDenoising(gray, h=10)
+                
+                # 3. Basic Deskewing
+                try:
+                    coords = np.column_stack(np.where(denoised < 200)) # Find dark pixels
+                    angle = cv2.minAreaRect(coords)[-1]
+                    if angle < -45:
+                        angle = -(90 + angle)
+                    else:
+                        angle = -angle
+                    (h, w) = denoised.shape[:2]
+                    center = (w // 2, h // 2)
+                    M = cv2.getRotationMatrix2D(center, angle, 1.0)
+                    rotated = cv2.warpAffine(denoised, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+                    logger.info(f"🔄 Basic deskew applied: {angle:.2f} degrees")
+                    return rotated
+                except Exception as deskew_error:
+                    logger.error(f"❌ Basic deskewing failed: {deskew_error}")
+                    return denoised # Return denoised image if deskew fails
                 
         except Exception as e:
             logger.error(f"❌ Preprocessing failed: {e}")
@@ -176,26 +245,99 @@ class NextGenerationOCRProcessor:
     def _run_single_engine(self, engine_name: str, image):
         if engine_name == 'rapid':
             result = self.engines['rapid'](image)
-            if result and result[0]:
-                text = ' '.join([item[1] for item in result[0] if item[1]])
-                avg_conf = np.mean([item[2] for item in result[0] if item[2]])
-                return {'text': text, 'confidence': avg_conf * 100, 'engine': 'rapid'}
+            if not result or not result[0]:
+                return {'text': '', 'confidence': 0.0, 'engine': 'rapid'}
+            
+            # result[0] is a list of (bbox, text, confidence)
+            # Filter out low-confidence results before processing
+            filtered_results = [item for item in result[0] if item[2] > 0.5]
+            if not filtered_results:
+                return {'text': '', 'confidence': 0.0, 'engine': 'rapid'}
+
+            boxes = [item[0] for item in filtered_results]
+            texts = [item[1] for item in filtered_results]
+            confidences = [item[2] for item in filtered_results]
+            
+            reconstructed_text = self._reconstruct_text_layout(boxes, texts)
+            avg_conf = np.mean(confidences) if confidences else 0.0
+            return {'text': reconstructed_text, 'confidence': avg_conf * 100, 'engine': 'rapid'}
         
         elif engine_name == 'easy':
             result = self.engines['easy'].readtext(image)
-            if result:
-                text = ' '.join([item[1] for item in result if item[1]])
-                avg_conf = np.mean([item[2] for item in result if item[2]])
-                return {'text': text, 'confidence': avg_conf * 100, 'engine': 'easy'}
+            if not result:
+                return {'text': '', 'confidence': 0.0, 'engine': 'easy'}
+
+            # result is a list of (bbox, text, confidence)
+            # Filter out low-confidence results
+            filtered_results = [item for item in result if item[2] > 0.5]
+            if not filtered_results:
+                return {'text': '', 'confidence': 0.0, 'engine': 'easy'}
+
+            boxes = [item[0] for item in filtered_results]
+            texts = [item[1] for item in filtered_results]
+            confidences = [item[2] for item in filtered_results]
+
+            reconstructed_text = self._reconstruct_text_layout(boxes, texts)
+            avg_conf = np.mean(confidences) if confidences else 0.0
+            return {'text': reconstructed_text, 'confidence': avg_conf * 100, 'engine': 'easy'}
         
         return {'text': '', 'confidence': 0.0, 'engine': engine_name}
     
+    def _reconstruct_text_layout(self, boxes: list, texts: list) -> str:
+        """Reconstruct text layout from bounding boxes and texts, preserving lines and table structures."""
+        if not boxes:
+            return ""
+
+        # Combine boxes and texts, then sort primarily by vertical position (y), then horizontal (x)
+        items = sorted(zip(boxes, texts), key=lambda item: (item[0][0][1], item[0][0][0]))
+
+        lines = []
+        current_line = []
+        if not items:
+            return ""
+
+        # A much more robust line reconstruction logic.
+        # Calculate the average height of all text boxes to get a more reliable line height.
+        if len(items) > 1:
+            box_heights = [item[0][3][1] - item[0][0][1] for item in items]
+            # Use median to be robust against outliers (very large or small text)
+            avg_box_height = np.median(box_heights)
+            line_height_threshold = avg_box_height * 0.7  # 70% of the median height of a line
+        elif len(items) == 1:
+            # Fallback for single-item case
+            line_height_threshold = (items[0][0][3][1] - items[0][0][0][1]) * 0.7
+        else:
+            return "" # No items, no text
+
+        last_y_center = (items[0][0][0][1] + items[0][0][3][1]) / 2
+
+        for i in range(len(items)):
+            box, text = items[i]
+            y_center = (box[0][1] + box[2][1]) / 2
+
+            # If the vertical distance between the current box and the last one is significant,
+            # it's a new line.
+            if i > 0 and abs(y_center - last_y_center) > line_height_threshold:
+                lines.append(" ".join(current_line))
+                current_line = [text]
+            else:
+                current_line.append(text)
+            last_y_center = y_center
+        
+        lines.append(" ".join(current_line))
+        # Join with newline characters to preserve document structure.
+        return "\n".join(filter(None, lines))
+
     def _select_best_result(self, results):
         if not results:
             return {'text': '', 'confidence': 0.0, 'engine': 'None'}
         
-        # Simple selection: highest confidence
-        best_result = max(results, key=lambda x: x['confidence'])
+        # More intelligent selection: prioritize a combination of confidence and text length.
+        # This avoids picking a result with high confidence but very little text.
+        for r in results:
+            r['score'] = (r['confidence'] * 0.7) + (min(len(r['text']), 3000) / 3000 * 30) # Weighted score
+
+        best_result = max(results, key=lambda x: x['score'])
         return best_result
     
     def _calculate_quality(self, results):

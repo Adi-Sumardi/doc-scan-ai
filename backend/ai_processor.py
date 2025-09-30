@@ -39,6 +39,15 @@ except ImportError:
     HAS_EASYOCR = False
     logger.warning("⚠️ EasyOCR not available")
 
+# Try to import Cloud AI Processor
+try:
+    from cloud_ai_processor import CloudAIProcessor
+    HAS_CLOUD_AI = True
+    logger.info("✅ Cloud AI Processor loaded successfully")
+except ImportError:
+    HAS_CLOUD_AI = False
+    logger.warning("⚠️ Cloud AI Processor not available")
+
 # Legacy processors removed - using Next-Gen OCR only
 HAS_ENHANCED_OCR = False
 HAS_PRODUCTION_OCR = False
@@ -50,7 +59,7 @@ try:
     from reportlab.lib.units import inch
     from reportlab.lib import colors
     from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
     HAS_EXPORT = True
     logger.info("✅ Export libraries loaded successfully")
 except ImportError as e:
@@ -63,27 +72,40 @@ class RealOCRProcessor:
     def __init__(self):
         self.initialized = False
         self._check_dependencies()
-        
-        # Initialize Next-Gen processor (highest priority - 99%+ accuracy)
-        try:
-            from nextgen_ocr_processor import NextGenerationOCRProcessor
-            self.nextgen_processor = NextGenerationOCRProcessor()
-            logger.info("🚀 Next-Generation OCR Processor initialized - 99%+ accuracy expected")
-            self.use_nextgen = True
-            self.initialized = True
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize Next-Gen OCR: {e}", exc_info=True)
-            self.use_nextgen = False
+
+        # Determine which processor to use based on availability and configuration
+        self.use_cloud_ai = HAS_CLOUD_AI and os.getenv('ENABLE_CLOUD_OCR', 'true').lower() == 'true'
+        self.use_nextgen = False
+
+        if self.use_cloud_ai:
+            try:
+                self.cloud_processor = CloudAIProcessor()
+                logger.info("🚀 Using CLOUD AI Processor (Google Document AI) as primary.")
+                self.initialized = True
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize Cloud AI Processor: {e}. Will attempt to fall back.", exc_info=True)
+                self.use_cloud_ai = False
+
+        if not self.initialized:
+            # Fallback to Next-Gen local OCR if Cloud AI fails or is disabled
+            try:
+                from nextgen_ocr_processor import NextGenerationOCRProcessor
+                self.nextgen_processor = NextGenerationOCRProcessor()
+                logger.info("🚀 Using Next-Generation (Local OCR) Processor as fallback.")
+                self.use_nextgen = True
+                self.initialized = True
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize Next-Gen OCR: {e}", exc_info=True)
+                self.use_nextgen = False
 
         # Fallback setup
         self.use_production = False
         self.use_enhanced = False
         self.readers = {}
         self._last_ocr_result = None
-
-        # Initialize fallback processors if needed
-        if not self.use_nextgen:
-            if HAS_EASYOCR:
+        
+        if not self.initialized:
+            if HAS_EASYOCR: # Final fallback to basic easyocr
                 try:
                     self.readers['easyocr'] = easyocr.Reader(['en', 'id'])
                     logger.info("✅ EasyOCR reader initialized as fallback")
@@ -134,7 +156,7 @@ class RealOCRProcessor:
         else:
             return 'general_document'
     
-    def extract_text(self, file_path: str) -> str:
+    async def extract_text(self, file_path: str) -> str:
         """Extract text using best available method with production-grade quality"""
         if not os.path.exists(file_path):
             logger.error(f"❌ File not found: {file_path}")
@@ -143,72 +165,45 @@ class RealOCRProcessor:
         file_ext = Path(file_path).suffix.lower()
         logger.info(f"🔍 Processing {file_ext} file: {file_path}")
         
-        # Use Next-Gen processor if available (highest priority - 99%+ accuracy)
-        if self.use_nextgen:
+        # --- PRIMARY: Use Cloud AI Processor (Google Document AI) ---
+        if self.use_cloud_ai:
+            logger.info("🚀 Using Cloud AI Processor (Google Document AI).")
+            # We need to run the async function from this sync context
+            result = None
             try:
-                logger.info("🚀 Using Next-Generation OCR System (99%+ accuracy)")
-                
-                # Detect document type from filename
-                doc_type = self._detect_document_type_from_filename(file_path)
-                
-                # Process with Next-Gen AI
-                result = self.nextgen_processor.process_document_nextgen(file_path, doc_type)
-                
-                if result.text and result.confidence > 50:
-                    logger.info(f"✅ Next-Gen OCR success: {len(result.text)} chars, "
-                              f"{result.confidence:.1f}% OCR confidence, "
-                              f"{result.quality_score:.1f}% quality, "
-                              f"engine: {result.engine_used}")
-                    
-                    # Store comprehensive metadata
-                    self._last_ocr_result = {
-                        'text': result.text,
-                        'confidence': result.confidence,
-                        'layout_confidence': getattr(result, 'layout_confidence', result.confidence),
-                        'semantic_confidence': getattr(result, 'semantic_confidence', result.confidence),
-                        'engine_used': result.engine_used,
-                        'quality_score': result.quality_score,
-                        'document_structure': getattr(result, 'document_structure', {}),
-                        'extracted_entities': getattr(result, 'extracted_entities', []),
-                        'processing_time': result.processing_time
-                    }
-                    
-                    return result.text
-                else:
-                    logger.warning(f"⚠️ Next-Gen OCR low confidence ({result.confidence:.1f}%), falling back")
-                    
+                result = await self.cloud_processor.process_with_google(file_path)
             except Exception as e:
-                logger.error(f"❌ Next-Gen OCR failed: {e}, falling back to production methods")
-        
-        # Legacy processors removed - Next-Gen OCR is primary
-        
-        # Fallback to existing methods
-        logger.info("📎 Using fallback OCR methods")
-        
-        # Handle PDF files
-        if file_ext == '.pdf':
-            text = self.extract_text_from_pdf(file_path)
-            if text:
-                return text
-            logger.warning(f"⚠️ PDF extraction failed, trying as image...")
-        
-        # Handle image files (including failed PDF conversion)
-        if file_ext in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.pdf']:
-            # Try EasyOCR first (usually better for Indonesian)
-            if HAS_EASYOCR:
-                text = self.extract_text_easyocr(file_path)
-                if text:
-                    logger.info(f"✅ EasyOCR extracted {len(text)} characters")
-                    return text
-            
-            # Fallback to Tesseract
-            if HAS_OCR:
-                text = self.extract_text_tesseract(file_path)
-                if text:
-                    logger.info(f"✅ Tesseract extracted {len(text)} characters")
-                    return text
-        
-        logger.error(f"❌ No text could be extracted from {file_path}")
+                self.use_cloud_ai = False
+
+            if result and result.raw_text:
+                logger.info(f"✅ Google AI success: {len(result.raw_text)} chars, {result.confidence:.1f}% confidence.")
+                self._last_ocr_result = {
+                    'text': result.raw_text,
+                    'extracted_fields': result.extracted_fields, # Store structured data
+                    'confidence': result.confidence,
+                    'engine_used': result.service_used,
+                    'quality_score': result.confidence, # Use confidence as quality score
+                    'processing_time': result.processing_time,
+                    'raw_response': result.raw_response # Store full response for debugging
+                }
+                return result.raw_text
+            else:
+                logger.error("❌ Google Document AI returned no text. Check processor logs in GCP.")
+                # If Google AI fails, disable it for this run and try the fallback.
+                self.use_cloud_ai = False
+
+        # --- FALLBACK: Use Next-Gen Local OCR Processor ---
+        if self.use_nextgen:
+            logger.warning("⚠️ Cloud AI failed or disabled. Falling back to Next-Generation Local OCR.")
+            doc_type = self._detect_document_type_from_filename(file_path)
+            result = self.nextgen_processor.process_document_nextgen(file_path, doc_type)
+
+            if result and result.text:
+                logger.info(f"✅ Next-Gen Local OCR success: {len(result.text)} chars, {result.confidence:.1f}% confidence.")
+                self._last_ocr_result = result.__dict__
+                return result.text
+
+        logger.critical("❌ All OCR processors failed or are unavailable. Cannot process document.")
         return ""
     
     def get_last_ocr_metadata(self) -> Optional[Dict[str, Any]]:
@@ -326,9 +321,9 @@ class RealOCRProcessor:
             try:
                 from pdf2image import convert_from_path
                 logger.info("📄 Converting PDF to images for OCR...")
-                
+
                 # Convert PDF pages to images
-                images = convert_from_path(pdf_path, dpi=300, first_page=1, last_page=5)  # Limit to first 5 pages
+                images = convert_from_path(pdf_path, dpi=300) # Process ALL pages
                 all_text = ""
                 
                 for i, image in enumerate(images):
@@ -361,7 +356,7 @@ class RealOCRProcessor:
         except Exception as e:
             logger.error(f"❌ PDF processing failed: {e}")
             return ""
-    
+
 class IndonesianTaxDocumentParser:
     """Parser for Indonesian tax documents"""
     
@@ -373,7 +368,7 @@ class IndonesianTaxDocumentParser:
         try:
             lines = [line.strip() for line in text.split('\n') if line.strip()]
             
-            # Simple structure with raw OCR results
+            # Simple structure with raw OCR results, as requested.
             result = {
                 "document_type": "Faktur Pajak",
                 "raw_text": text,
@@ -386,8 +381,7 @@ class IndonesianTaxDocumentParser:
                 },
                 "processing_info": {
                     "parsing_method": "raw_ocr_output",
-                    "regex_parsing": "disabled",
-                    "field_extraction": "disabled"
+                    "status": "Structured parsing disabled by user request. Displaying full OCR text."
                 }
             }
             
@@ -397,21 +391,35 @@ class IndonesianTaxDocumentParser:
             logger.error(f"❌ Raw OCR processing failed: {e}")
             return {
                 "document_type": "Faktur Pajak",
-                "raw_text": text if text else "",
-                "text_lines": [],
-                "extracted_content": {
-                    "full_text": text if text else "",
-                    "line_count": 0,
-                    "character_count": len(text) if text else 0,
-                    "scan_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "error": str(e)
-                },
+                "raw_text": text,
                 "processing_info": {
                     "parsing_method": "raw_ocr_output",
-                    "regex_parsing": "disabled",
                     "error": str(e)
                 }
             }
+
+    def _create_raw_text_response(self, text: str, doc_type_name: str) -> Dict[str, Any]:
+        """Helper function to create a standardized raw text response."""
+        try:
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
+            return {
+                "document_type": doc_type_name,
+                "raw_text": text,
+                "text_lines": lines,
+                "extracted_content": {
+                    "full_text": text,
+                    "line_count": len(lines),
+                    "character_count": len(text),
+                    "scan_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                },
+                "processing_info": {
+                    "parsing_method": "raw_ocr_output",
+                    "status": "Structured parsing disabled. Displaying full OCR text."
+                }
+            }
+        except Exception as e:
+            logger.error(f"❌ Raw text response creation failed for {doc_type_name}: {e}")
+            return {"raw_text": text, "error": str(e)}
 
     def _clean_company_name_advanced(self, raw_name: str) -> str:
         """Advanced AI-powered company name cleaning"""
@@ -512,28 +520,9 @@ class IndonesianTaxDocumentParser:
         return False  # Default to buyer if uncertain
 
     def parse_pph21(self, text: str) -> Dict[str, Any]:
-        """Return raw OCR text for PPh21 without complex parsing"""
+        """Return raw OCR text for PPh21 without complex parsing."""
         try:
-            lines = [line.strip() for line in text.split('\n') if line.strip()]
-            
-            result = {
-                "document_type": "PPh21",
-                "raw_text": text,
-                "text_lines": lines,
-                "extracted_content": {
-                    "full_text": text,
-                    "line_count": len(lines),
-                    "character_count": len(text),
-                    "scan_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                },
-                "processing_info": {
-                    "parsing_method": "raw_ocr_output",
-                    "regex_parsing": "disabled",
-                    "field_extraction": "disabled"
-                }
-            }
-            
-            return result
+            return self._create_raw_text_response(text, "PPh 21")
         except Exception as e:
             logger.error(f"❌ Error parsing PPh 21: {e}")
             return self._get_empty_pph21_result()
@@ -543,9 +532,9 @@ class IndonesianTaxDocumentParser:
         
         # 🔍 ADVANCED NOMOR DETECTION
         nomor_patterns = [
-            r'(?:Nomor\s*:?\s*)([A-Z0-9/-]+)',
-            r'(?:No\.?\s*Bukti\s*:?\s*)([A-Z0-9/-]+)',
-            r'(?:No\.?\s*)([A-Z0-9/-]{5,})'
+            r'(?:Nomor\s*:?\s*)([A-Z0-9./-]+)',
+            r'(?:No\.?\s*Bukti\s*:?\s*)([A-Z0-9./-]+)',
+            r'(\d{1,3}[./]\w+[./]\w+[./]\d{2,4})' # Pattern like 1.3-08.23/0001
         ]
         
         for pattern in nomor_patterns:
@@ -558,7 +547,7 @@ class IndonesianTaxDocumentParser:
         masa_patterns = [
             r'(?:Masa\s+Pajak\s*:?\s*)([A-Za-z0-9\s/-]+)',
             r'(?:Periode\s*:?\s*)([A-Za-z0-9\s/-]+)',
-            r'(?:Bulan\s*:?\s*)([A-Za-z0-9\s/-]+)'
+            r'(\d{2}\s*-\s*\d{4})' # Pattern like 08 - 2023
         ]
         
         for pattern in masa_patterns:
@@ -571,7 +560,6 @@ class IndonesianTaxDocumentParser:
         nama_patterns = [
             r'(?:Nama\s+Penerima\s*:?\s*)([A-Z\s.,]+?)(?:\s*(?:NPWP|NIK|Alamat)|\n|$)',
             r'(?:Nama\s+Wajib\s+Pajak\s*:?\s*)([A-Z\s.,]+?)(?:\s*(?:NPWP|NIK)|\n|$)',
-            r'(?:Nama\s*:?\s*)([A-Z\s.,]{5,}?)(?:\s*(?:NPWP|NIK|Alamat)|\n|$)'
         ]
         
         for pattern in nama_patterns:
@@ -584,9 +572,8 @@ class IndonesianTaxDocumentParser:
         
         # 🔍 ADVANCED NPWP/NIK DETECTION
         npwp_nik_patterns = [
-            r'(?:NPWP\s*:?\s*)(\d{2}\.?\d{3}\.?\d{3}\.?\d{1}-?\d{3}\.?\d{3}|\d{15,16})',
+            r'(?:NPWP\s*:?\s*)(\d{2}\.?\d{3}\.?\d{3}\.?\d-\d{3}\.\d{3})',
             r'(?:NIK\s*:?\s*)(\d{16})',
-            r'(?:No\.?\s*Identitas\s*:?\s*)(\d{15,16})'
         ]
         
         for pattern in npwp_nik_patterns:
@@ -603,10 +590,9 @@ class IndonesianTaxDocumentParser:
         
         # Penghasilan Bruto
         bruto_patterns = [
-            r'(?:Penghasilan\s+Bruto\s*:?\s*)(?:Rp\.?\s*)?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)',
-            r'(?:Bruto\s*:?\s*)(?:Rp\.?\s*)?(\d{1,3}(?:[.,]\d{3})*)'
+            r'(?:Penghasilan\s+Bruto\s*\(Rp\)\s*:?\s*)(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)',
+            r'Bruto\s*\(Rp\)\s*([\d,.-]+)'
         ]
-        
         for pattern in bruto_patterns:
             match = re.search(pattern, full_text, re.IGNORECASE)
             if match and not result['penghasilan_bruto']:
@@ -615,10 +601,9 @@ class IndonesianTaxDocumentParser:
         
         # PPh amount
         pph_patterns = [
-            r'(?:PPh\s*21\s*:?\s*)(?:Rp\.?\s*)?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)',
-            r'(?:Pajak\s*:?\s*)(?:Rp\.?\s*)?(\d{1,3}(?:[.,]\d{3})*)'
+            r'(?:PPh\s*DIPOTONG\s*\(Rp\)\s*:?\s*)(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)',
+            r'DIPOTONG\s*\(Rp\)\s*([\d,.-]+)'
         ]
-        
         for pattern in pph_patterns:
             match = re.search(pattern, full_text, re.IGNORECASE)
             if match and not result['pph']:
@@ -639,134 +624,10 @@ class IndonesianTaxDocumentParser:
     def parse_pph23(self, text: str) -> Dict[str, Any]:
         """Return raw OCR text for PPh23 without complex parsing"""
         try:
-            lines = [line.strip() for line in text.split('\n') if line.strip()]
-            
-            result = {
-                "document_type": "PPh23",
-                "raw_text": text,
-                "text_lines": lines,
-                "extracted_content": {
-                    "full_text": text,
-                    "line_count": len(lines),
-                    "character_count": len(text),
-                    "scan_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                },
-                "processing_info": {
-                    "parsing_method": "raw_ocr_output",
-                    "regex_parsing": "disabled",
-                    "field_extraction": "disabled"
-                }
-            }
-            
-            return result
+            return self._create_raw_text_response(text, "PPh 23")
         except Exception as e:
             logger.error(f"❌ Error parsing PPh 23: {e}")
-            return {
-                "document_type": "PPh23",
-                "raw_text": text if text else "",
-                "text_lines": [],
-                "extracted_content": {
-                    "full_text": text if text else "",
-                    "line_count": 0,
-                    "character_count": len(text) if text else 0,
-                    "scan_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "error": str(e)
-                },
-                "processing_info": {
-                    "parsing_method": "raw_ocr_output",
-                    "regex_parsing": "disabled",
-                    "error": str(e)
-                }
-            }
-    
-    def _extract_pph23_data_ai(self, full_text: str, lines: list, result: dict):
-        """AI-powered PPh 23 data extraction with contextual analysis"""
-        
-        # 🔍 ADVANCED NOMOR DETECTION (same as PPh 21 but with PPh 23 context)
-        nomor_patterns = [
-            r'(?:Nomor\s*(?:PPh\s*23)?\s*:?\s*)([A-Z0-9/-]+)',
-            r'(?:No\.?\s*Bukti\s*:?\s*)([A-Z0-9/-]+)',
-            r'(?:No\.?\s*)([A-Z0-9/-]{5,})'
-        ]
-        
-        for pattern in nomor_patterns:
-            match = re.search(pattern, full_text, re.IGNORECASE)
-            if match and not result['nomor']:
-                result['nomor'] = self._clean_document_number(match.group(1))
-                break
-        
-        # 🔍 ADVANCED MASA PAJAK DETECTION
-        masa_patterns = [
-            r'(?:Masa\s+Pajak\s*:?\s*)([A-Za-z0-9\s/-]+)',
-            r'(?:Periode\s*:?\s*)([A-Za-z0-9\s/-]+)',
-            r'(?:Bulan\s*:?\s*)([A-Za-z0-9\s/-]+)'
-        ]
-        
-        for pattern in masa_patterns:
-            match = re.search(pattern, full_text, re.IGNORECASE)
-            if match and not result['masa_pajak']:
-                result['masa_pajak'] = self._clean_period_text(match.group(1))
-                break
-        
-        # 🔍 INTELLIGENT NAMA DETECTION for PPh 23 (service provider context)
-        nama_patterns = [
-            r'(?:Nama\s+Penerima\s+Jasa\s*:?\s*)([A-Z\s.,]+?)(?:\s*(?:NPWP|NIK|Alamat)|\n|$)',
-            r'(?:Nama\s+Vendor\s*:?\s*)([A-Z\s.,]+?)(?:\s*(?:NPWP|NIK)|\n|$)',
-            r'(?:Nama\s+Penyedia\s+Jasa\s*:?\s*)([A-Z\s.,]+?)(?:\s*(?:NPWP|NIK)|\n|$)',
-            r'(?:Nama\s*:?\s*)([A-Z\s.,]{5,}?)(?:\s*(?:NPWP|NIK|Alamat)|\n|$)'
-        ]
-        
-        for pattern in nama_patterns:
-            match = re.search(pattern, full_text, re.IGNORECASE)
-            if match and not result['identitas_penerima_penghasilan']['nama']:
-                nama = self._clean_person_name(match.group(1))
-                if self._is_valid_person_name(nama):
-                    result['identitas_penerima_penghasilan']['nama'] = nama
-                    break
-        
-        # 🔍 ADVANCED NPWP/NIK DETECTION
-        npwp_nik_patterns = [
-            r'(?:NPWP\s*:?\s*)(\d{2}\.?\d{3}\.?\d{3}\.?\d{1}-?\d{3}\.?\d{3}|\d{15,16})',
-            r'(?:NIK\s*:?\s*)(\d{16})',
-            r'(?:No\.?\s*Identitas\s*:?\s*)(\d{15,16})'
-        ]
-        
-        for pattern in npwp_nik_patterns:
-            match = re.search(pattern, full_text, re.IGNORECASE)
-            if match and not result['identitas_penerima_penghasilan']['npwp_nik']:
-                result['identitas_penerima_penghasilan']['npwp_nik'] = self._clean_id_number(match.group(1))
-                break
-        
-        # 🔍 FINANCIAL DATA EXTRACTION for PPh 23
-        self._extract_pph23_financial_data(full_text, result)
-
-    def _extract_pph23_financial_data(self, full_text: str, result: dict):
-        """Extract financial data for PPh 23 with AI patterns"""
-        
-        # Penghasilan Bruto (jasa context)
-        bruto_patterns = [
-            r'(?:Nilai\s+Jasa\s*:?\s*)(?:Rp\.?\s*)?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)',
-            r'(?:Penghasilan\s+Bruto\s*:?\s*)(?:Rp\.?\s*)?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)',
-            r'(?:Bruto\s*:?\s*)(?:Rp\.?\s*)?(\d{1,3}(?:[.,]\d{3})*)'
-        ]
-        
-        for pattern in bruto_patterns:
-            match = re.search(pattern, full_text, re.IGNORECASE)
-            if match and not result['penghasilan_bruto']:
-                result['penghasilan_bruto'] = self._clean_amount(match.group(1))
-                break
-        
-        # PPh 23 amount
-        pph_patterns = [
-            r'(?:PPh\s*23\s*:?\s*)(?:Rp\.?\s*)?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)',
-            r'(?:Pajak\s+Dipotong\s*:?\s*)(?:Rp\.?\s*)?(\d{1,3}(?:[.,]\d{3})*)'
-        ]
-        
-        for pattern in pph_patterns:
-            match = re.search(pattern, full_text, re.IGNORECASE)
-            if match and not result['pph']:
-                result['pph'] = self._clean_amount(match.group(1))
-                break
+            return self._get_empty_pph23_result()
 
     def _get_empty_pph23_result(self):
         """Return empty PPh 23 result structure"""
@@ -780,30 +641,9 @@ class IndonesianTaxDocumentParser:
         }
 
     def parse_rekening_koran(self, text: str) -> Dict[str, Any]:
-        """Parse Rekening Koran from OCR text - ADVANCED AI-POWERED with transaction analysis"""
+        """Return raw OCR text for Rekening Koran without complex parsing."""
         try:
-            lines = [line.strip() for line in text.split('\n') if line.strip()]
-            
-            result = {
-                "raw_text": text,  # Store original OCR text
-                "tanggal": "",
-                "nilai_uang_masuk": 0,
-                "nilai_uang_keluar": 0,
-                "saldo": 0,
-                "sumber_uang_masuk": "",
-                "tujuan_uang_keluar": "",
-                "keterangan": "",
-                "transactions": []  # Array of individual transactions
-            }
-            
-            # 🧠 AI-POWERED REKENING KORAN ANALYSIS
-            full_text = ' '.join(lines)
-            
-            # 🤖 INTELLIGENT TRANSACTION EXTRACTION
-            self._extract_rekening_data_ai(full_text, lines, result)
-            
-            return result
-            
+            return self._create_raw_text_response(text, "Rekening Koran")
         except Exception as e:
             logger.error(f"❌ Error parsing Rekening Koran: {e}")
             return self._get_empty_rekening_result()
@@ -930,31 +770,9 @@ class IndonesianTaxDocumentParser:
         }
 
     def parse_invoice(self, text: str) -> Dict[str, Any]:
-        """Parse Invoice from OCR text - ADVANCED AI-POWERED with business logic intelligence"""
+        """Return raw OCR text for Invoice without complex parsing."""
         try:
-            lines = [line.strip() for line in text.split('\n') if line.strip()]
-            
-            result = {
-                "raw_text": text,  # Store original OCR text
-                "po": "",
-                "tanggal_po": "",
-                "tanggal_invoice": "",
-                "keterangan": "",
-                "nilai": 0,
-                "tanggal": "",
-                "vendor": "",
-                "customer": "",
-                "items": []  # Array of invoice items
-            }
-            
-            # 🧠 AI-POWERED INVOICE ANALYSIS
-            full_text = ' '.join(lines)
-            
-            # 🤖 INTELLIGENT FIELD EXTRACTION for Invoice
-            self._extract_invoice_data_ai(full_text, lines, result)
-            
-            return result
-            
+            return self._create_raw_text_response(text, "Invoice")
         except Exception as e:
             logger.error(f"❌ Error parsing Invoice: {e}")
             return self._get_empty_invoice_result()
@@ -1143,6 +961,7 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
     """
     Process document with real AI OCR - PRODUCTION VERSION - NO DUMMY DATA
     """
+    start_time = asyncio.get_event_loop().time()
     try:
         logger.info(f"🔍 Processing {document_type} document: {file_path}")
         
@@ -1157,7 +976,7 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
             document_type = detected_type
         
         # Extract text using OCR
-        extracted_text = parser.ocr_processor.extract_text(file_path)
+        extracted_text = await parser.ocr_processor.extract_text(file_path)
         
         if not extracted_text:
             raise Exception("OCR failed - no text could be extracted from the document")
@@ -1168,6 +987,13 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
         # Parse based on document type
         if document_type == 'faktur_pajak':
             extracted_data = parser.parse_faktur_pajak(extracted_text)
+            # If using cloud AI, merge the extracted fields
+            if parser.ocr_processor.use_cloud_ai and parser.ocr_processor.get_last_ocr_metadata():
+                cloud_fields = parser.ocr_processor.get_last_ocr_metadata().get('extracted_fields', {})
+                if cloud_fields:
+                    logger.info("Merging structured data from Google Document AI.")
+                    extracted_data['extracted_content']['structured_fields'] = cloud_fields
+
         elif document_type == 'pph21':
             extracted_data = parser.parse_pph21(extracted_text)
         elif document_type == 'pph23':
@@ -1204,34 +1030,20 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
                         logger.info(f"     • {k}: '{str(v)[:50]}{'...' if len(str(v)) > 50 else ''}'")
                 else:
                     logger.info(f"   - {section_key}: {section_data}")
-        
-        # Calculate confidence based on data completeness
-        confidence = calculate_confidence(extracted_data, document_type)
-        
-        # Get Next-Gen OCR metrics and add them to the result
-        nextgen_metrics = parser.ocr_processor.get_last_ocr_metadata()
-        if nextgen_metrics:
-            extracted_data['nextgen_metrics'] = nextgen_metrics
-        
-        # DEBUG: Log confidence calculation details
-        logger.info(f"🎯 CONFIDENCE CALCULATION for {document_type}:")
-        if document_type == 'faktur_pajak':
-            masukan_data = extracted_data.get('masukan', {})
-            keluaran_data = extracted_data.get('keluaran', {})
-            logger.info(f"   - Masukan fields: {list(masukan_data.keys())}")
-            logger.info(f"   - Keluaran fields: {list(keluaran_data.keys())}")
-            logger.info(f"   - Masukan non-empty: {[k for k,v in masukan_data.items() if v and str(v).strip()]}")
-            logger.info(f"   - Keluaran non-empty: {[k for k,v in keluaran_data.items() if v and str(v).strip()]}")
-        logger.info(f"   - Final confidence: {confidence:.4f} ({confidence:.2%})")
+
+        confidence = calculate_confidence(extracted_text, document_type)
+        logger.info(f"🎯 Final confidence for {document_type}: {confidence:.2%}")
         
         # Lower the confidence threshold to be more permissive
         if confidence < 0.05:  # Very low confidence threshold
             logger.warning(f"⚠️ Low OCR parsing confidence ({confidence:.2%}) but proceeding")
         
+        processing_time = asyncio.get_event_loop().time() - start_time
         result = {
             "extracted_data": extracted_data,
             "confidence": confidence,
-            "raw_text": extracted_text  # Full raw text, not truncated
+            "raw_text": extracted_text,  # Full raw text, not truncated
+            "processing_time": processing_time
         }
         
         logger.info(f"✅ Successfully processed {document_type} with {confidence:.2%} confidence")
@@ -1243,21 +1055,21 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
         # DO NOT return dummy data - let the error propagate
         raise Exception(f"Real OCR processing failed: {e}")
 
-def calculate_confidence(data: Dict[str, Any], document_type: str) -> float:
-    """Calculate confidence score based on raw OCR text quality"""
+def calculate_confidence(raw_text: str, document_type: str) -> float:
+    """
+    Calculate confidence score based on raw OCR text quality.
+    """
     try:
-        # For raw OCR format, confidence is based on text quality and length
-        extracted_content = data.get('extracted_content', {})
-        raw_text = extracted_content.get('full_text', '')
-        character_count = extracted_content.get('character_count', 0)
-        line_count = extracted_content.get('line_count', 0)
+        if not raw_text: return 0.0
+        character_count = len(raw_text)
+        line_count = len(raw_text.split('\n'))
         
         # Base confidence on text length and structure
         if character_count == 0:
             return 0.1
         
         # Text length factor
-        if character_count >= 2000:
+        if character_count >= 1500:
             length_confidence = 0.9
         elif character_count >= 1000:
             length_confidence = 0.8
@@ -1265,7 +1077,7 @@ def calculate_confidence(data: Dict[str, Any], document_type: str) -> float:
             length_confidence = 0.7
         elif character_count >= 200:
             length_confidence = 0.6
-        elif character_count >= 50:
+        elif character_count >= 100:
             length_confidence = 0.4
         else:
             length_confidence = 0.2
@@ -1288,11 +1100,11 @@ def calculate_confidence(data: Dict[str, Any], document_type: str) -> float:
         
         if document_type == 'faktur_pajak':
             faktur_keywords = ['faktur', 'pajak', 'npwp', 'ppn', 'dpp']
-            found_keywords = sum(1 for keyword in faktur_keywords if keyword in text_lower)
+            found_keywords = sum(1 for keyword in faktur_keywords if keyword in text_lower[:1000]) # Check first 1000 chars
             keyword_bonus = min(found_keywords * 0.05, 0.15)
         elif document_type in ['pph21', 'pph23']:
             pph_keywords = ['pph', 'bukti', 'potong', 'npwp', 'masa']
-            found_keywords = sum(1 for keyword in pph_keywords if keyword in text_lower)
+            found_keywords = sum(1 for keyword in pph_keywords if keyword in text_lower[:1000])
             keyword_bonus = min(found_keywords * 0.05, 0.15)
         
         # Combine factors
@@ -1305,21 +1117,9 @@ def calculate_confidence(data: Dict[str, Any], document_type: str) -> float:
         logger.error(f"❌ Confidence calculation failed: {e}")
         return 0.3  # Default confidence if calculation fails
 
-def create_enhanced_excel_export(result: Dict[str, Any], output_path: str) -> bool:
-    """Create enhanced Excel export with proper formatting"""
+def _populate_excel_sheet(ws, result: Dict[str, Any]):
+    """Helper function to populate an Excel worksheet with a single result."""
     try:
-        if not HAS_EXPORT:
-            logger.error("❌ Export libraries not available")
-            return False
-        
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Document Data"
-        
-        # Header styling
-        header_font = Font(bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
-        
         # Document info
         ws['A1'] = "Document Information"
         ws['A1'].font = Font(bold=True, size=14)
@@ -1337,53 +1137,67 @@ def create_enhanced_excel_export(result: Dict[str, Any], output_path: str) -> bo
         ws[f'B{row}'] = f"{result.get('confidence', 0)*100:.1f}%"
         row += 2
         
-        # Extracted Data Section
+        # Raw OCR Text
         ws[f'A{row}'] = "OCR Results"
         ws[f'A{row}'].font = Font(bold=True, size=14)
         row += 2
         
         extracted_data = result.get('extracted_data', {})
         
-        # Document Type
-        # Generic key-value pair rendering for any data structure
-        def render_dict_to_excel(data_dict, start_row, indent=0):
-            current_row = start_row
-            for key, value in data_dict.items():
-                key_cell = ws[f'A{current_row}']
-                key_cell.value = '  ' * indent + str(key).replace('_', ' ').capitalize()
-                key_cell.font = Font(bold=(indent==0))
-                
-                if isinstance(value, dict):
-                    current_row += 1
-                    current_row = render_dict_to_excel(value, current_row, indent + 1)
-                elif isinstance(value, list):
-                    current_row += 1
-                    for i, item in enumerate(value):
-                        ws[f'A{current_row}'] = '  ' * (indent + 1) + f"Item {i+1}"
-                        current_row += 1
-                        if isinstance(item, dict):
-                            current_row = render_dict_to_excel(item, currentrow, indent + 2)
-                        else:
-                            ws[f'B{current_row-1}'] = str(item)
-                else:
-                    ws[f'B{current_row}'] = str(value)
-                    current_row += 1
-            return current_row
-
-        render_dict_to_excel(extracted_data, row)
+        # Content Info
+        content_info = extracted_data.get('extracted_content', {})
+        if content_info:
+            ws[f'A{row}'] = "Character Count:"
+            ws[f'B{row}'] = content_info.get('character_count', 0)
+            row += 1
+            
+            ws[f'A{row}'] = "Line Count:"
+            ws[f'B{row}'] = content_info.get('line_count', 0)
+            row += 1
+            
+            ws[f'A{row}'] = "Scan Timestamp:"
+            ws[f'B{row}'] = content_info.get('scan_timestamp', 'Unknown')
+            row += 2
+        
+        # Raw Text Content
+        ws[f'A{row}'] = "RAW OCR TEXT (PURE SCAN RESULTS)"
+        ws[f'A{row}'].font = Font(bold=True, size=14, color="FF0000")  # Red color for emphasis
+        row += 2
+        
+        raw_text = extracted_data.get('raw_text', '')
+        if raw_text:
+            lines = raw_text.split('\n')
+            for line in lines:
+                ws[f'A{row}'] = line if line.strip() else ""
+                row += 1
+        else:
+            ws[f'A{row}'] = "No raw OCR text available"
         
         # Auto-adjust column widths
         for column in ws.columns:
             max_length = 0
             column_letter = column[0].column_letter
             for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
             adjusted_width = min(max_length + 2, 50)
             ws.column_dimensions[column_letter].width = adjusted_width
+    except Exception as e:
+        logger.error(f"❌ Failed to populate Excel sheet: {e}")
+
+def create_enhanced_excel_export(result: Dict[str, Any], output_path: str) -> bool:
+    """Create enhanced Excel export with proper formatting"""
+    try:
+        if not HAS_EXPORT:
+            logger.error("❌ Export libraries not available")
+            return False
+        
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Document Data"
+        
+        # Use the new helper function to populate the sheet
+        _populate_excel_sheet(ws, result)
         
         wb.save(output_path)
         logger.info(f"✅ Excel export created: {output_path}")
@@ -1433,30 +1247,48 @@ def create_enhanced_pdf_export(result: Dict[str, Any], output_path: str) -> bool
         story.append(Paragraph("Extracted Data", styles['Heading2']))
         story.append(Spacer(1, 12))
         
-        # Generic key-value pair rendering for any data structure
-        def render_dict_to_pdf(data_dict, indent=0):
-            for key, value in data_dict.items():
-                key_text = ' ' * (indent * 4) + f"<b>{str(key).replace('_', ' ').capitalize()}:</b>"
-                
-                if isinstance(value, dict):
-                    story.append(Paragraph(key_text, styles['Normal']))
-                    render_dict_to_pdf(value, indent + 1)
-                elif isinstance(value, list):
-                    story.append(Paragraph(key_text, styles['Normal']))
-                    for i, item in enumerate(value):
-                        story.append(Paragraph(' ' * ((indent + 1) * 4) + f"<i>Item {i+1}</i>", styles['Normal']))
-                        if isinstance(item, dict):
-                            render_dict_to_pdf(item, indent + 2)
-                        else:
-                            story.append(Paragraph(' ' * ((indent + 2) * 4) + str(item), styles['Normal']))
-                else:
-                    story.append(Paragraph(f"{key_text} {str(value)}", styles['Normal']))
-
         extracted_data = result.get('extracted_data', {})
-        if extracted_data:
-            render_dict_to_pdf(extracted_data)
+        
+        # Document Type
+        if 'document_type' in extracted_data:
+            story.append(Paragraph(f"<b>Document Type:</b> {extracted_data['document_type']}", styles['Normal']))
+            story.append(Spacer(1, 6))
+        
+        # Processing Info
+        processing_info = extracted_data.get('processing_info', {})
+        if processing_info:
+            story.append(Paragraph("<b>Processing Information</b>", styles['Heading3']))
+            story.append(Paragraph(f"Method: {processing_info.get('parsing_method', 'Unknown')}", styles['Normal']))
+            story.append(Paragraph(f"Regex Parsing: {processing_info.get('regex_parsing', 'Unknown')}", styles['Normal']))
+            story.append(Spacer(1, 12))
+        
+        # Content Info
+        content_info = extracted_data.get('extracted_content', {})
+        if content_info:
+            story.append(Paragraph("<b>Content Statistics</b>", styles['Heading3']))
+            story.append(Paragraph(f"Character Count: {content_info.get('character_count', 0)}", styles['Normal']))
+            story.append(Paragraph(f"Line Count: {content_info.get('line_count', 0)}", styles['Normal']))
+            story.append(Paragraph(f"Scan Timestamp: {content_info.get('scan_timestamp', 'Unknown')}", styles['Normal']))
+            story.append(Spacer(1, 12))
+        
+        # Focus on Raw OCR Text - No structured data parsing
+        # Show pure scan results as intended by user
+        
+        # Raw OCR Text - Primary Focus
+        story.append(Paragraph("<b><font color='red' size='14'>RAW OCR TEXT (PURE SCAN RESULTS)</font></b>", styles['Heading2']))
+        story.append(Spacer(1, 12))
+        
+        raw_text = extracted_data.get('raw_text', '')
+        if raw_text:
+            # Split text into paragraphs for better PDF formatting - show full content
+            lines = raw_text.split('\n')
+            for line in lines:
+                if line.strip():
+                    # Escape special characters for PDF
+                    safe_line = line.strip().replace('<', '&lt;').replace('>', '&gt;')
+                    story.append(Paragraph(safe_line, styles['Normal']))
         else:
-            story.append(Paragraph("No structured data available.", styles['Normal']))
+            story.append(Paragraph("No text extracted", styles['Normal']))
         
         doc.build(story)
         logger.info(f"✅ PDF export created: {output_path}")
@@ -1464,4 +1296,148 @@ def create_enhanced_pdf_export(result: Dict[str, Any], output_path: str) -> bool
         
     except Exception as e:
         logger.error(f"❌ PDF export failed: {e}")
+        return False
+
+def _populate_pdf_story(story: list, styles: dict, result: Dict[str, Any]):
+    """Helper function to populate the story list for a single PDF result."""
+    try:
+        # Document info
+        info_data = [
+            ["Filename:", result.get('original_filename', 'Unknown')],
+            ["Document Type:", result.get('document_type', 'Unknown')],
+            ["Confidence:", f"{result.get('confidence', 0)*100:.1f}%"],
+            ["Processed:", datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
+        ]
+        
+        info_table = Table(info_data, colWidths=[2*inch, 4*inch])
+        info_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        
+        story.append(info_table)
+        story.append(Spacer(1, 20))
+        
+        # Extracted data
+        story.append(Paragraph("Extracted Data", styles['Heading2']))
+        story.append(Spacer(1, 12))
+        
+        extracted_data = result.get('extracted_data', {})
+        
+        # Raw OCR Text - Primary Focus
+        story.append(Paragraph("<b><font color='red' size='14'>RAW OCR TEXT (PURE SCAN RESULTS)</font></b>", styles['Heading2']))
+        story.append(Spacer(1, 12))
+        
+        raw_text = extracted_data.get('raw_text', '')
+        if raw_text:
+            lines = raw_text.split('\n')
+            for line in lines:
+                if line.strip():
+                    safe_line = line.strip().replace('<', '&lt;').replace('>', '&gt;')
+                    story.append(Paragraph(safe_line, styles['Normal']))
+        else:
+            story.append(Paragraph("No text extracted", styles['Normal']))
+    except Exception as e:
+        logger.error(f"❌ Failed to populate PDF story: {e}")
+
+def create_batch_excel_export(batch_id: str, results: list, output_path: str) -> bool:
+    """Create a single Excel file for a batch with multiple sheets."""
+    try:
+        if not HAS_EXPORT:
+            logger.error("❌ Export libraries not available for batch excel export")
+            return False
+
+        wb = Workbook()
+        # Remove default sheet created by openpyxl
+        if "Sheet" in wb.sheetnames:
+            wb.remove(wb["Sheet"])
+
+        # Create a summary sheet
+        summary_ws = wb.create_sheet("Batch Summary")
+        summary_ws['A1'] = "Batch Export Summary"
+        summary_ws['A1'].font = Font(bold=True, size=16)
+        summary_ws['A3'] = "Batch ID:"
+        summary_ws['B3'] = batch_id
+        summary_ws['A4'] = "Total Files:"
+        summary_ws['B4'] = len(results)
+        summary_ws['A5'] = "Export Date:"
+        summary_ws['B5'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Create a sheet for each result
+        for i, result_dict in enumerate(results):
+            # Convert dict to a simple object-like structure for compatibility
+            class ResultObject:
+                def __init__(self, **entries):
+                    self.__dict__.update(entries)
+            result = ResultObject(**result_dict)
+
+            sheet_name = f"File_{i+1}_{result.original_filename[:20]}"
+            sheet_name = re.sub(r'[\\/*?:\[\]]', '_', sheet_name) # Sanitize sheet name
+            ws = wb.create_sheet(sheet_name)
+            
+            result_data_for_export = {
+                'original_filename': result.original_filename,
+                'document_type': result.document_type,
+                'confidence': result.confidence,
+                'extracted_data': result.extracted_data,
+            }
+            # Re-use the single-file export logic for the sheet content
+            _populate_excel_sheet(ws, result_data_for_export)
+
+        wb.save(output_path)
+        logger.info(f"✅ Batch Excel export created: {output_path}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Batch Excel export failed: {e}", exc_info=True)
+        return False
+
+def create_batch_pdf_export(batch_id: str, results: list, output_path: str) -> bool:
+    """Create a single PDF file for a batch with all results."""
+    try:
+        if not HAS_EXPORT:
+            logger.error("❌ Export libraries not available for batch PDF export")
+            return False
+
+        doc = SimpleDocTemplate(output_path, pagesize=A4)
+        styles = getSampleStyleSheet()
+        story = []
+
+        # Title page
+        story.append(Paragraph("Batch Scan Results", styles['Title']))
+        story.append(Spacer(1, 12))
+        story.append(Paragraph(f"<b>Batch ID:</b> {batch_id}", styles['Normal']))
+        story.append(Paragraph(f"<b>Total Files:</b> {len(results)}", styles['Normal']))
+        story.append(Paragraph(f"<b>Export Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+        story.append(PageBreak())
+
+        for i, result_dict in enumerate(results):
+            class ResultObject:
+                def __init__(self, **entries):
+                    self.__dict__.update(entries)
+            result = ResultObject(**result_dict)
+
+            story.append(Paragraph(f"Document {i+1}: {result.original_filename}", styles['h2']))
+            
+            result_data_for_export = {
+                'original_filename': result.original_filename,
+                'document_type': result.document_type,
+                'confidence': result.confidence,
+                'extracted_data': result.extracted_data,
+                'created_at': result.created_at.isoformat() if result.created_at else datetime.now().isoformat()
+            }
+            # Re-use the single-file export logic for the content
+            _populate_pdf_story(story, styles, result_data_for_export)
+
+            if i < len(results) - 1:
+                story.append(PageBreak())
+
+        doc.build(story)
+        logger.info(f"✅ Batch PDF export created: {output_path}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Batch PDF export failed: {e}", exc_info=True)
         return False

@@ -1,6 +1,10 @@
 import os
-from typing import List
-from pydantic_settings import BaseSettings
+from typing import List, Optional
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import load_dotenv
+
+# Load environment variables from .env file at the very beginning
+load_dotenv()
 
 class Settings(BaseSettings):
     
@@ -9,7 +13,7 @@ class Settings(BaseSettings):
     upload_folder: str
     export_folder: str
     default_ocr_engine: str
-    enable_cloud_ocr: bool
+    enable_cloud_ocr: bool = False
     
     # Database Configuration
     database_url: str = "mysql+pymysql://docuser:docpass123@localhost:3306/docscan_db"
@@ -51,6 +55,12 @@ class Settings(BaseSettings):
     enable_metrics: bool = True
     metrics_port: int = 9090
     
+    # Google Cloud AI Configuration (added to fix validation error)
+    google_application_credentials: Optional[str] = None
+    google_cloud_project_id: Optional[str] = None
+    google_processor_location: Optional[str] = None
+    google_processor_id: Optional[str] = None
+    
     # Computed properties
     @property
     def allowed_extensions_list(self) -> List[str]:
@@ -62,9 +72,8 @@ class Settings(BaseSettings):
         """Get CORS origins as a list"""
         return [origin.strip() for origin in self.cors_origins.split(",")]
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    # Use SettingsConfigDict for Pydantic v2
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra='ignore')
 
 # Global settings instance
 settings = Settings()

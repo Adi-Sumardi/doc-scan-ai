@@ -12,13 +12,13 @@ import aiofiles
 from pathlib import Path
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_, text
-import logging
 
-# Import our modules
-from ai_processor import process_document_ai, create_enhanced_excel_export, create_enhanced_pdf_export, RealOCRProcessor
-from models import BatchResponse, ScanResult, BatchStatus, DocumentFile as DocumentFileModel
-from database import SessionLocal, engine, Base, Batch, DocumentFile, ScanResult as DBScanResult, ProcessingLog, SystemMetrics
+# Import config first to load environment variables
 from config import settings, get_upload_dir, get_results_dir, get_exports_dir
+# Import our modules
+from ai_processor import process_document_ai, create_enhanced_excel_export, create_enhanced_pdf_export, RealOCRProcessor, create_batch_excel_export, create_batch_pdf_export
+from models import BatchResponse, ScanResult, BatchStatus, DocumentFile as DocumentFileModel
+from database import SessionLocal, engine, Base, Batch, DocumentFile, ScanResult as DBScanResult, ProcessingLog, SystemMetrics, get_db
 from websocket_manager import manager
 # Redis cache is optional - only for stats and health monitoring
 try:
@@ -29,6 +29,11 @@ except ImportError:
     REDIS_AVAILABLE = False
 # Temporarily comment out security validator for now
 # from utils import FileSecurityValidator
+import logging
+
+# Apply nest_asyncio patch to allow nested event loops (for gRPC compatibility)
+import nest_asyncio
+nest_asyncio.apply()
 
 # Configure logging
 logging.basicConfig(
@@ -50,14 +55,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Dependency to get database session
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 # Environment validation
 def validate_environment():
@@ -745,12 +742,12 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                     batch_id=batch_id,
                     document_file_id=db_file.id,
                     document_type=db_file.type,
-                    original_filename=db_file.name, # Use original filename
-                    extracted_text=result.get("raw_text", ""),
+                    original_filename=db_file.name,
+                    extracted_text=result.get("raw_text", ""), # Use raw_text from the result
                     extracted_data=extracted_data,
-                    confidence=result.get("confidence_score", 0.0),
-                    ocr_engine_used="NextGen OCR",
-                    ocr_processing_time=result.get("processing_time", 0.0)
+                    confidence=result.get("confidence", 0.0),
+                    ocr_engine_used=result.get("extracted_data", {}).get("processing_info", {}).get("parsing_method", "Google Document AI"),
+                    total_processing_time=result.get("processing_time", 0.0) # Use total_processing_time
                 )
                 db.add(scan_result)
                 
@@ -771,7 +768,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                     "filename": db_file.name,
                     "file_index": i + 1,
                     "status": "completed",
-                    "confidence_score": result.get("confidence_score", 0.0),
+                    "confidence": result.get("confidence", 0.0) * 100, # Send as percentage
                     "processing_time": result.get("processing_time", 0.0),
                     "message": f"Successfully processed {db_file.name}"
                 })
@@ -795,7 +792,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                 db.add(log_entry)
                 db.commit()
                 
-                logger.info(f"Successfully processed {db_file.name} with confidence {result.get('confidence_score', 0.0):.2f}%")
+                logger.info(f"Successfully processed {db_file.name} with confidence {result.get('confidence', 0.0)*100:.2f}%")
                 
             except Exception as e:
                 logger.error(f"Error processing file {file_info.get('filename', 'unknown')}: {e}")
@@ -1157,6 +1154,11 @@ async def export_batch(batch_id: str, format: str, db: Session = Depends(get_db)
         if not results:
             raise HTTPException(status_code=404, detail="No scan results found for this batch")
         
+        # Optimization: Fetch all file info in one query to avoid N+1 problem
+        file_ids = [r.document_file_id for r in results]
+        file_infos = db.query(DocumentFile).filter(DocumentFile.id.in_(file_ids)).all()
+        file_info_map = {f.id: f for f in file_infos}
+
         # For batch export, we'll create a combined file with all results
         export_filename = f"batch_{batch_id[:8]}_results.{format}"
         export_path = EXPORTS_DIR / export_filename
@@ -1164,97 +1166,24 @@ async def export_batch(batch_id: str, format: str, db: Session = Depends(get_db)
         if format == 'excel':
             # Create Excel workbook with multiple sheets
             from openpyxl import Workbook
-            wb = Workbook()
-            
-            # Remove default sheet
-            wb.remove(wb.active)
-            
-            # Create summary sheet
-            summary_ws = wb.create_sheet("Batch Summary")
-            summary_ws['A1'] = "Batch Export Summary"
-            summary_ws['A3'] = "Batch ID:"
-            summary_ws['B3'] = batch_id
-            summary_ws['A4'] = "Total Files:"
-            summary_ws['B4'] = len(results)
-            summary_ws['A5'] = "Export Date:"
-            summary_ws['B5'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            # Add sheet for each result
-            for i, result in enumerate(results):
-                file_info = db.query(DocumentFile).filter(DocumentFile.id == result.document_file_id).first()
-                sheet_name = f"File_{i+1}"[:31]  # Excel sheet name limit
-                
-                ws = wb.create_sheet(sheet_name)
-                
-                # Add file info
-                ws['A1'] = "Document Information"
-                ws['A3'] = "Filename:"
-                ws['B3'] = file_info.name if file_info else 'Unknown'
-                ws['A4'] = "Document Type:"
-                ws['B4'] = result.document_type or 'Unknown'
-                ws['A5'] = "Confidence:"
-                ws['B5'] = f"{(result.confidence or 0)*100:.1f}%"
-                
-                # Add raw text
-                extracted_data = result.extracted_data or {}
-                raw_text = extracted_data.get('raw_text', result.extracted_text or '')
-                
-                ws['A7'] = "Raw OCR Text:"
-                if raw_text:
-                    lines = raw_text.split('\n')
-                    for j, line in enumerate(lines[:100]):  # Limit lines
-                        if line.strip():
-                            ws[f'A{8+j}'] = line.strip()
-            
-            wb.save(str(export_path))
+            results_data = [
+                {**r.__dict__, 'original_filename': file_info_map.get(r.document_file_id).name if file_info_map.get(r.document_file_id) else 'Unknown'}
+                for r in results
+            ]
+            success = create_batch_excel_export(batch_id, results_data, str(export_path))
             
         else:  # PDF - combine all results
             from reportlab.lib.pagesizes import A4
             from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
             from reportlab.lib.styles import getSampleStyleSheet
-            
-            doc = SimpleDocTemplate(str(export_path), pagesize=A4)
-            styles = getSampleStyleSheet()
-            story = []
-            
-            # Title page
-            story.append(Paragraph(f"Batch Scan Results", styles['Title']))
-            story.append(Spacer(1, 12))
-            story.append(Paragraph(f"Batch ID: {batch_id}", styles['Normal']))
-            story.append(Paragraph(f"Total Files: {len(results)}", styles['Normal']))
-            story.append(Paragraph(f"Export Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
-            story.append(PageBreak())
-            
-            # Add each result
-            for i, result in enumerate(results):
-                file_info = db.query(DocumentFile).filter(DocumentFile.id == result.document_file_id).first()
-                
-                story.append(Paragraph(f"Document {i+1}: {file_info.name if file_info else 'Unknown'}", styles['Heading1']))
-                story.append(Spacer(1, 12))
-                
-                story.append(Paragraph(f"Document Type: {result.document_type or 'Unknown'}", styles['Normal']))
-                story.append(Paragraph(f"Confidence: {(result.confidence or 0)*100:.1f}%", styles['Normal']))
-                story.append(Spacer(1, 12))
-                
-                story.append(Paragraph("Raw OCR Text:", styles['Heading2']))
-                story.append(Spacer(1, 6))
-                
-                extracted_data = result.extracted_data or {}
-                raw_text = extracted_data.get('raw_text', result.extracted_text or '')
-                
-                if raw_text:
-                    lines = raw_text.split('\n')
-                    for line in lines[:50]:  # Limit lines per document
-                        if line.strip():
-                            safe_line = line.strip().replace('<', '&lt;').replace('>', '&gt;')
-                            story.append(Paragraph(safe_line, styles['Normal']))
-                else:
-                    story.append(Paragraph("No text extracted", styles['Normal']))
-                
-                if i < len(results) - 1:  # Add page break except for last document
-                    story.append(PageBreak())
-            
-            doc.build(story)
+            results_data = [
+                {**r.__dict__, 'original_filename': file_info_map.get(r.document_file_id).name if file_info_map.get(r.document_file_id) else 'Unknown'}
+                for r in results
+            ]
+            success = create_batch_pdf_export(batch_id, results_data, str(export_path))
+
+        if not success:
+            raise HTTPException(status_code=500, detail=f"Failed to create batch {format.upper()} export")
         
         # Return file
         return FileResponse(

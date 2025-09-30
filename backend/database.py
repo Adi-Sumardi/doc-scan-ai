@@ -7,15 +7,10 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy import Column, String, Integer, Text, DateTime, JSON, Float, Boolean
 from sqlalchemy.dialects.mysql import LONGTEXT
-import sqlalchemy
 import os
 from datetime import datetime
 from typing import Generator
-from dotenv import load_dotenv
 import logging
-
-# Load environment variables
-load_dotenv()
 
 # Helper function for database compatibility
 def get_text_column():

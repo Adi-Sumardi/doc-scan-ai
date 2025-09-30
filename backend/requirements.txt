@@ -27,6 +27,7 @@ structlog==24.4.0
 # ===== ADVANCED OCR ENGINES =====
 paddleocr==2.7.3            # Stable version compatible with macOS
 easyocr==1.7.1              # Stable version
+nest-asyncio==1.6.0         # For running asyncio loops inside other loops (gRPC compatibility)
 pytesseract==0.3.10         # Stable version
 rapidocr-onnxruntime==1.3.18  # Stable version
 # surya-ocr==0.4.15           # Commented out, can be heavy for local dev

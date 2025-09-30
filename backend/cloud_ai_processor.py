@@ -11,6 +11,7 @@ import logging
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 import json
+import mimetypes
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -19,12 +20,12 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CloudOCRResult:
     """Cloud OCR result with metadata"""
-    text: str
+    raw_text: str
     confidence: float
     service_used: str
     processing_time: float
     extracted_fields: Dict[str, Any]
-    bounding_boxes: List[Dict]
+    raw_response: Dict[str, Any] # Store the full raw response for debugging
     document_type: str
     language_detected: str
 
@@ -33,7 +34,7 @@ class CloudAIProcessor:
     
     def __init__(self):
         """Initialize cloud AI services"""
-        self.services = {}
+        self.services: Dict[str, Any] = {}
         self._init_cloud_services()
         logger.info("☁️ Cloud AI Processor initialized")
     
@@ -61,12 +62,18 @@ class CloudAIProcessor:
             
             # 2. Google Document AI
             try:
-                from google.cloud import documentai
+                from google.cloud import documentai_v1 as documentai
                 
-                # Initialize with service account
+                # GOOGLE_APPLICATION_CREDENTIALS env var is used automatically
                 project_id = os.getenv('GOOGLE_CLOUD_PROJECT_ID')
-                if project_id:
-                    self.services['google'] = documentai.DocumentProcessorServiceClient()
+                location = os.getenv('GOOGLE_PROCESSOR_LOCATION')
+                
+                if project_id and location:
+                    # The client options are important for specifying the regional endpoint
+                    client_options = {"api_endpoint": f"{location}-documentai.googleapis.com"}
+                    self.services['google'] = {
+                        'client': documentai.DocumentProcessorServiceAsyncClient(client_options=client_options)
+                    }
                     logger.info("✅ Google Document AI initialized")
                 else:
                     logger.warning("⚠️ Google Cloud credentials not found")
@@ -155,19 +162,21 @@ class CloudAIProcessor:
                 
         except Exception as e:
             logger.error(f"❌ Azure processing failed: {e}")
-            return CloudOCRResult("", 0.0, "Azure (Failed)", 0.0, {}, [], "unknown", "unknown")
+            return CloudOCRResult("", 0.0, "Azure (Failed)", 0.0, {}, {}, "unknown", "unknown") # type: ignore
     
     async def process_with_google(self, file_path: str) -> CloudOCRResult:
         """Process document with Google Document AI"""
         try:
+            from google.cloud import documentai_v1 as documentai
+
             if 'google' not in self.services:
                 raise Exception("Google service not available")
             
             start_time = asyncio.get_event_loop().time()
             
             project_id = os.getenv('GOOGLE_CLOUD_PROJECT_ID')
-            location = 'us'  # Format is 'us' or 'eu'
-            processor_id = os.getenv('GOOGLE_PROCESSOR_ID', 'general')  # Replace with your processor ID
+            location = os.getenv('GOOGLE_PROCESSOR_LOCATION', 'us')
+            processor_id = os.getenv('GOOGLE_PROCESSOR_ID')
             
             # The full resource name of the processor
             name = f"projects/{project_id}/locations/{location}/processors/{processor_id}"
@@ -176,44 +185,65 @@ class CloudAIProcessor:
             with open(file_path, "rb") as document:
                 document_content = document.read()
                 
+            # Infer the MIME type
+            mime_type, _ = mimetypes.guess_type(file_path)
+            if not mime_type:
+                mime_type = 'application/pdf' if file_path.lower().endswith('.pdf') else 'image/jpeg'
+
             # Configure the process request
             request = {
                 "name": name,
                 "raw_document": {
-                    "content": document_content,
-                    "mime_type": "application/pdf" if file_path.endswith('.pdf') else "image/jpeg"
+                    "content": document_content, "mime_type": mime_type
                 }
             }
             
             # Process document
-            result = self.services['google'].process_document(request=request)
+            result = await self.services['google']['client'].process_document(request=request)
             document = result.document
             
             # Extract text and confidence
-            full_text = document.text
-            avg_confidence = 0.9  # Google typically has high confidence
+            raw_text = document.text
+            
+            # Calculate average confidence from pages
+            # The 'Page' object does not have a confidence attribute.
+            # We will calculate the average confidence from all the tokens in the document.
+            all_token_confidences = []
+            for page in document.pages:
+                for token in page.tokens:
+                    if token.layout and token.layout.confidence > 0:
+                        all_token_confidences.append(token.layout.confidence)
+            avg_confidence = (sum(all_token_confidences) / len(all_token_confidences)) if all_token_confidences else 0.9 # Default high confidence
             
             # Extract fields
             extracted_fields = {}
             for entity in document.entities:
-                extracted_fields[entity.type_] = entity.text_anchor.content
+                # Clean up key
+                key = entity.type_.replace('/', '_')
+                value = entity.mention_text
+                confidence = entity.confidence
+                
+                extracted_fields[key] = {
+                    "value": value,
+                    "confidence": round(confidence, 4)
+                }
             
             processing_time = asyncio.get_event_loop().time() - start_time
             
             return CloudOCRResult(
-                text=full_text,
+                raw_text=raw_text,
                 confidence=avg_confidence * 100,
                 service_used="Google Document AI",
                 processing_time=processing_time,
                 extracted_fields=extracted_fields,
-                bounding_boxes=[],
-                document_type="tax_document",
-                language_detected="id"
+                raw_response=documentai.Document.to_dict(document), # type: ignore
+                document_type=result.document.entities[0].type_ if result.document.entities else "unknown",
+                language_detected=document.pages[0].detected_languages[0].language_code if document.pages and document.pages[0].detected_languages else "id"
             )
             
         except Exception as e:
             logger.error(f"❌ Google processing failed: {e}")
-            return CloudOCRResult("", 0.0, "Google (Failed)", 0.0, {}, [], "unknown", "unknown")
+            raise Exception(f"Google Document AI processing failed: {e}")
     
     async def process_with_aws(self, file_path: str) -> CloudOCRResult:
         """Process document with AWS Textract"""
@@ -262,19 +292,19 @@ class CloudAIProcessor:
                         extracted_fields[key_text] = value_text
             
             return CloudOCRResult(
-                text=full_text,
+                raw_text=full_text,
                 confidence=avg_confidence * 100,
                 service_used="AWS Textract",
                 processing_time=processing_time,
                 extracted_fields=extracted_fields,
-                bounding_boxes=bounding_boxes,
+                raw_response=response,
                 document_type="tax_document",
                 language_detected="id"
             )
             
         except Exception as e:
             logger.error(f"❌ AWS processing failed: {e}")
-            return CloudOCRResult("", 0.0, "AWS (Failed)", 0.0, {}, [], "unknown", "unknown")
+            return CloudOCRResult("", 0.0, "AWS (Failed)", 0.0, {}, {}, "unknown", "unknown") # type: ignore
     
     async def process_ensemble_cloud(self, file_path: str) -> CloudOCRResult:
         """Ensemble processing with multiple cloud services"""
@@ -291,7 +321,7 @@ class CloudAIProcessor:
             
             if not tasks:
                 logger.error("❌ No cloud services available")
-                return CloudOCRResult("", 0.0, "None", 0.0, {}, [], "unknown", "unknown")
+                return CloudOCRResult("", 0.0, "None", 0.0, {}, {}, "unknown", "unknown") # type: ignore
             
             # Wait for all results
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -301,7 +331,7 @@ class CloudAIProcessor:
             
             if not successful_results:
                 logger.error("❌ All cloud services failed")
-                return CloudOCRResult("", 0.0, "All Failed", 0.0, {}, [], "unknown", "unknown")
+                return CloudOCRResult("", 0.0, "All Failed", 0.0, {}, {}, "unknown", "unknown") # type: ignore
             
             # Select best result based on confidence
             best_result = max(successful_results, key=lambda x: x.confidence)
@@ -311,7 +341,7 @@ class CloudAIProcessor:
             
         except Exception as e:
             logger.error(f"❌ Ensemble cloud processing failed: {e}")
-            return CloudOCRResult("", 0.0, "Ensemble Failed", 0.0, {}, [], "unknown", "unknown")
+            return CloudOCRResult("", 0.0, "Ensemble Failed", 0.0, {}, {}, "unknown", "unknown") # type: ignore
     
     def _extract_tax_fields_azure(self, text: str) -> Dict[str, Any]:
         """Extract Indonesian tax document fields from Azure result"""
