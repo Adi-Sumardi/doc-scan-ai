@@ -17,41 +17,41 @@ const Dashboard = () => {
   const safeResults = Array.isArray(scanResults) ? scanResults : [];
   const totalDocuments = safeResults.length;
 
-  // Calculate Next-Gen OCR metrics on the safe array
-  const nextGenResults = safeResults.filter(r => r && r.nextgen_metrics);
-  const averageAccuracy = nextGenResults.length > 0 
-    ? nextGenResults.reduce((sum, r) => sum + (r.nextgen_metrics?.confidence || 0), 0) / nextGenResults.length 
+  // Calculate metrics from the actual scanResults data
+  const averageAccuracy = safeResults.length > 0
+    ? (safeResults.reduce((sum, r) => sum + (r.confidence_score || r.confidence || 0), 0) / safeResults.length) * 100
     : 0;
-  const averageQuality = nextGenResults.length > 0
-    ? nextGenResults.reduce((sum, r) => sum + (r.nextgen_metrics?.quality_score || 0), 0) / nextGenResults.length
+  const averageProcessingTime = safeResults.length > 0
+    ? safeResults.reduce((sum, r) => sum + (r.processing_time || r.ocr_processing_time || 0), 0) / safeResults.length
     : 0;
-  const averageProcessingTime = nextGenResults.length > 0
-    ? nextGenResults.reduce((sum, r) => sum + (r.nextgen_metrics?.processing_time || 0), 0) / nextGenResults.length
+  const resultsWithQuality = safeResults.filter(r => r.nextgen_metrics?.quality_score);
+  const averageQuality = resultsWithQuality.length > 0
+    ? resultsWithQuality.reduce((sum, r) => sum + (r.nextgen_metrics?.quality_score || 0), 0) / resultsWithQuality.length
     : 0;
 
   const stats = [
     {
       label: 'Next-Gen OCR Accuracy',
-      value: `${averageAccuracy.toFixed(1)}%`,
+      value: `${averageAccuracy.toFixed(2)}%`,
       icon: Brain,
       color: 'bg-gradient-to-r from-purple-500 to-blue-500',
-      change: nextGenResults.length > 0 ? '99%+ Target' : 'N/A',
+      change: safeResults.length > 0 ? 'High Confidence' : 'N/A',
       subtitle: 'Average confidence score'
     },
     {
       label: 'Quality Score',
-      value: `${averageQuality.toFixed(1)}%`,
+      value: `${(averageQuality * 100).toFixed(1)}%`,
       icon: TrendingUp,
       color: 'bg-gradient-to-r from-green-500 to-blue-500',
-      change: nextGenResults.length > 0 ? 'Excellent' : 'N/A',
+      change: safeResults.length > 0 ? 'Excellent' : 'N/A',
       subtitle: 'Document processing quality'
     },
     {
       label: 'Processing Speed',
-      value: `${averageProcessingTime.toFixed(1)}s`,
+      value: `${averageProcessingTime.toFixed(2)}s`,
       icon: Zap,
       color: 'bg-gradient-to-r from-orange-500 to-red-500',
-      change: nextGenResults.length > 0 ? 'Ultra-fast' : 'N/A',
+      change: safeResults.length > 0 ? 'Ultra-fast' : 'N/A',
       subtitle: 'Average per document'
     },
     {
@@ -59,7 +59,7 @@ const Dashboard = () => {
       value: totalDocuments,
       icon: FileText,
       color: 'bg-gradient-to-r from-indigo-500 to-purple-500',
-      change: `${nextGenResults.length} with Next-Gen`,
+      change: `${totalDocuments} total`,
       subtitle: 'Total scanned documents'
     }
   ];

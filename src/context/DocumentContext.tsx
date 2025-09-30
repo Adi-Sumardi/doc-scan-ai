@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useRef } from 'react';
 import { apiService, Batch as ApiBatch, ScanResult as ApiScanResult } from '../services/api';
 import toast from 'react-hot-toast';
 
@@ -16,7 +16,7 @@ interface DocumentContextType {
   getBatch: (batchId: string) => Batch | undefined;
   getScanResultsByBatch: (batchId: string) => ScanResult[];
   exportResult: (resultId: string, format: 'excel' | 'pdf') => Promise<void>;
-  exportBatch: (batchId: string, format: 'excel') => Promise<void>;
+  exportBatch: (batchId: string, format: 'excel' | 'pdf') => Promise<void>;
   saveToGoogleDrive: (resultId: string, format: 'excel' | 'pdf') => Promise<void>;
   loading: boolean;
 }
@@ -27,11 +27,20 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [scanResults, setScanResults] = useState<ScanResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const notifiedBatchesRef = useRef<Set<string>>(new Set());
 
   // Load initial data
   React.useEffect(() => {
     refreshAllData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleBatchCompletion = (batchId: string) => {
+    if (!notifiedBatchesRef.current.has(batchId)) {
+      toast.success(`Batch #${batchId.slice(-8)} processed successfully!`);
+      notifiedBatchesRef.current.add(batchId);
+    }
+  };
 
   const uploadDocuments = async (files: File[], documentTypes: string[]): Promise<Batch> => {
     try {
@@ -66,16 +75,33 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
         if (updatedBatch.status === 'completed') {
           clearInterval(pollInterval);
           
-          // Load results
-          const results = await apiService.getBatchResults(batchId);
-          if (Array.isArray(results)) {
-            setScanResults(prev => [...results, ...prev.filter(r => r.batch_id !== batchId)]);
+          // Retry mechanism to ensure all results are loaded
+          let attempts = 0;
+          const maxAttempts = 5;
+          const attemptLoad = async () => {
+            const results = await apiService.getBatchResults(batchId);
+            if (Array.isArray(results) && results.length >= updatedBatch.total_files) {
+              setScanResults(prev => [...results, ...prev.filter(r => r.batch_id !== batchId)]);
+              handleBatchCompletion(batchId);
+            } else if (attempts < maxAttempts) {
+              attempts++;
+              setTimeout(attemptLoad, 2000); // Wait 2 seconds and retry
+            } else {
+              toast.error(`Polling failed for batch ${batchId.slice(-8)}. Please refresh the page.`, {
+                duration: 6000,
+              });
+              // Stop polling if it fails repeatedly
+              clearInterval(pollInterval);
+            }
+          };
+
+          await attemptLoad();
+
           }
-          
-          toast.success('All documents have been processed successfully!');
-        } else if (updatedBatch.status === 'error') {
+         else if (updatedBatch.status === 'error' || updatedBatch.status === 'failed') {
           clearInterval(pollInterval);
-         setScanResults([]);
+         // Fix: Only remove results for the failed batch, not all results.
+         setScanResults(prev => prev.filter(r => r.batch_id !== batchId));
         }
       } catch (error) {
         console.error('Polling error:', error);
@@ -97,6 +123,7 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       if (updatedBatch.status === 'completed') {
         const results = await apiService.getBatchResults(batchId);
         setScanResults(prev => [...results, ...prev.filter(r => r.batch_id !== batchId)]);
+        handleBatchCompletion(batchId);
       }
     } catch (error) {
       console.error('Refresh batch error:', error);
@@ -107,13 +134,19 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   const refreshAllData = async () => {
     try {
       setLoading(true);
-      const [batchesData, resultsData] = await Promise.all([
+      // Use Promise.allSettled to handle partial failures gracefully
+      const [batchesPromise, resultsPromise] = await Promise.allSettled([
         apiService.getAllBatches(),
         apiService.getAllResults()
       ]);
       
-      setBatches(Array.isArray(batchesData) ? batchesData : []);
-      setScanResults(Array.isArray(resultsData) ? resultsData : []);
+      if (batchesPromise.status === 'fulfilled' && Array.isArray(batchesPromise.value)) {
+        setBatches(batchesPromise.value);
+      }
+
+      if (resultsPromise.status === 'fulfilled' && Array.isArray(resultsPromise.value)) {
+        setScanResults(resultsPromise.value);
+      }
     } catch (error) {
       console.error('Refresh all data error:', error);
       // Handle network errors gracefully
@@ -166,14 +199,14 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const exportBatch = async (batchId: string, format: 'excel') => {
+  const exportBatch = async (batchId: string, format: 'excel' | 'pdf') => {
     try {
       setLoading(true);
-      const blob = await apiService.exportBatchExcel(batchId);
+      const blob = await apiService.exportBatch(batchId, format);
       const filename = `batch_${batchId.slice(-8)}_results.${format === 'excel' ? 'xlsx' : 'pdf'}`;
       
       apiService.downloadFile(blob, filename);
-      toast.success('Batch Excel download started');
+      toast.success(`Batch ${format.toUpperCase()} download started`);
     } catch (error) {
       console.error('Batch export error:', error);
       toast.error('Failed to export batch');

@@ -11,6 +11,7 @@ import {
   AlertCircle,
   X
 } from 'lucide-react';
+import StructuredDataViewer from '../components/StructuredDataViewer';
 
 interface ViewModalProps {
   result: any;
@@ -33,134 +34,21 @@ const ViewModal: React.FC<ViewModalProps> = ({ result, isOpen, onClose }) => {
   const renderExtractedData = () => {
     const data = result.extracted_data;
     
-    // Check if this is a processing failure
-    if (!data || Object.keys(data).length === 0) {
+    // Simplified and robust data rendering
+    if (!data || typeof data !== 'object' || Object.keys(data).length === 0) {
       return (
         <div className="bg-red-50 p-4 rounded-lg border border-red-200 text-center">
           <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
-          <h4 className="text-lg font-semibold text-red-900 mb-2">Processing Failed</h4>
+          <h4 className="text-lg font-semibold text-red-900 mb-2">No Data Extracted</h4>
           <p className="text-red-700">
-            No data could be extracted from this document
+            The AI could not extract structured data from this document. You can view the raw OCR text in the export files.
           </p>
         </div>
       );
     }
     
-    // Check if this is a fallback result
-    const isProcessingFailed = (
-        (typeof data === 'object' && data !== null) &&
-        (
-            (data.masukan && data.masukan.nomor_faktur === 'Processing failed') ||
-            (data.masa_pajak === 'Processing failed') ||
-            (data.nomor_rekening === 'Processing failed') ||
-            (data.nomor_invoice === 'Processing failed') ||
-            data.error
-        )
-    );
-    
-    if (isProcessingFailed) {
-        return (
-            <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
-                <div className="flex items-center mb-3">
-                    <AlertCircle className="w-6 h-6 text-yellow-600 mr-2" />
-                    <h4 className="text-lg font-semibold text-yellow-900">Processing Issue</h4>
-                </div>
-                <p className="text-yellow-800 mb-3">
-                    The document was processed but some data extraction failed. This could be due to:
-                </p>
-                <ul className="text-yellow-700 text-sm list-disc list-inside space-y-1">
-                    <li>Poor image quality or resolution</li>
-                    <li>Handwritten or unclear text</li>
-                    <li>Non-standard document format</li>
-                    <li>OCR library limitations</li>
-                </ul>
-                <div className="mt-4 p-3 bg-yellow-100 rounded border">
-                    <p className="text-sm text-yellow-800">
-                        <strong>Suggestion:</strong> Try uploading a clearer image or PDF version of the document.
-                    </p>
-                </div>
-            </div>
-        );
-    }
-    
-    if (result.document_type === 'faktur_pajak') {
-      const rawText = data.raw_text || result.raw_text || result.extracted_text || '';
-      return (
-        <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-          <h4 className="text-lg font-semibold text-red-900 mb-3">📄 RAW OCR TEXT (FAKTUR PAJAK)</h4>
-          <div className="bg-white p-3 rounded border">
-            <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono max-h-96 overflow-y-auto">
-              {rawText || 'No OCR text available'}
-            </pre>
-          </div>
-        </div>
-      );
-    }
-
-    if (result.document_type === 'pph21') {
-      const rawText = data.raw_text || result.raw_text || result.extracted_text || '';
-      return (
-        <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-          <h4 className="text-lg font-semibold text-red-900 mb-3">📄 RAW OCR TEXT (PPh 21)</h4>
-          <div className="bg-white p-3 rounded border">
-            <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono max-h-96 overflow-y-auto">
-              {rawText || 'No OCR text available'}
-            </pre>
-          </div>
-        </div>
-      );
-    }
-
-    if (result.document_type === 'pph23') {
-      const rawText = data.raw_text || result.raw_text || result.extracted_text || '';
-      return (
-        <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-          <h4 className="text-lg font-semibold text-red-900 mb-3">📄 RAW OCR TEXT (PPh 23)</h4>
-          <div className="bg-white p-3 rounded border">
-            <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono max-h-96 overflow-y-auto">
-              {rawText || 'No OCR text available'}
-            </pre>
-          </div>
-        </div>
-      );
-    }
-
-    if (result.document_type === 'rekening_koran') {
-      const rawText = data.raw_text || result.raw_text || result.extracted_text || '';
-      return (
-        <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-          <h4 className="text-lg font-semibold text-red-900 mb-3">📄 RAW OCR TEXT (REKENING KORAN)</h4>
-          <div className="bg-white p-3 rounded border">
-            <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono max-h-96 overflow-y-auto">
-              {rawText || 'No OCR text available'}
-            </pre>
-          </div>
-        </div>
-      );
-    }
-
-    if (result.document_type === 'invoice') {
-      const rawText = data.raw_text || result.raw_text || result.extracted_text || '';
-      return (
-        <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-          <h4 className="text-lg font-semibold text-red-900 mb-3">📄 RAW OCR TEXT (INVOICE)</h4>
-          <div className="bg-white p-3 rounded border">
-            <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono max-h-96 overflow-y-auto">
-              {rawText || 'No OCR text available'}
-            </pre>
-          </div>
-        </div>
-      );
-    }
-
-    // Default rendering for other document types or unrecognized structure
-    return (
-      <div className="bg-gray-50 p-4 rounded-lg">
-        <pre className="text-sm text-gray-700 whitespace-pre-wrap overflow-auto max-h-96">
-          {JSON.stringify(data, null, 2)}
-        </pre>
-      </div>
-    );
+    // Universal pretty-JSON renderer
+    return <StructuredDataViewer data={data} />;
   };
 
   return (

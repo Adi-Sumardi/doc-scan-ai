@@ -11,7 +11,7 @@ from typing import List, Optional
 import aiofiles
 from pathlib import Path
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_
+from sqlalchemy import desc, and_, text
 import logging
 
 # Import our modules
@@ -83,7 +83,7 @@ def validate_environment():
     # Check database
     try:
         with SessionLocal() as db:
-            db.execute("SELECT 1")
+            db.execute(text("SELECT 1"))
         logger.info("✅ Database connection OK")
     except Exception as e:
         logger.error(f"❌ Database connection failed: {e}")
@@ -726,11 +726,18 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                 
                 # Process with AI
                 result = await process_document_ai(
-                    file_info["path"], 
+                    file_info["path"],
                     file_info["document_type"]
                 )
-                
-                # Data will be saved directly to database - no cache needed
+
+                # Ensure extracted_data is a dictionary, not a JSON string
+                extracted_data = result.get("extracted_data", {})
+                if isinstance(extracted_data, str):
+                    try:
+                        extracted_data = json.loads(extracted_data)
+                    except json.JSONDecodeError:
+                        logger.warning(f"Could not decode extracted_data string for {db_file.name}. Storing as raw text.")
+                        extracted_data = {"raw_text": extracted_data}
                 
                 # Create scan result in database
                 scan_result = DBScanResult(
@@ -738,9 +745,9 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                     batch_id=batch_id,
                     document_file_id=db_file.id,
                     document_type=db_file.type,
-                    original_filename=db_file.name,
+                    original_filename=db_file.name, # Use original filename
                     extracted_text=result.get("raw_text", ""),
-                    extracted_data=result.get("extracted_data", {}),
+                    extracted_data=extracted_data,
                     confidence=result.get("confidence_score", 0.0),
                     ocr_engine_used="NextGen OCR",
                     ocr_processing_time=result.get("processing_time", 0.0)
@@ -918,61 +925,6 @@ async def get_batch_status(batch_id: str, db: Session = Depends(get_db)):
                 }
             )
         
-        # Status retrieved directly from database
-        
-        # Get files in batch with error handling
-        try:
-            files = db.query(DocumentFile).filter(DocumentFile.batch_id == batch_id).all()
-            results = db.query(DBScanResult).filter(DBScanResult.batch_id == batch_id).all()
-        except Exception as e:
-            logger.error(f"Database error retrieving batch details for {batch_id}: {e}")
-            # Return basic batch info if detailed query fails
-            return {
-                "id": batch.id,
-                "status": batch.status,
-                "total_files": batch.total_files,
-                "processed_files": batch.processed_files,
-                "created_at": batch.created_at.isoformat(),
-                "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
-                "error_message": batch.error_message,
-                "files": [],
-                "warning": "Detailed file information unavailable due to database error"
-            }
-        
-        # Format file information with error handling
-        file_info = []
-        for file in files:
-            try:
-                file_data = {
-                    "id": file.id,
-                    "filename": file.name,
-                    "document_type": file.type,
-                    "status": file.status,
-                    "file_size": file.file_size,
-                    "processing_started_at": file.processing_start.isoformat() if file.processing_start else None,
-                    "processing_completed_at": file.processing_end.isoformat() if file.processing_end else None,
-                    "processing_time": file.processing_time
-                }
-                
-                # Add result if available
-                result = next((r for r in results if r.document_file_id == file.id), None)
-                if result:
-                    file_data["result_id"] = result.id
-                    file_data["confidence"] = result.confidence
-                    file_data["ocr_processing_time"] = result.ocr_processing_time
-                
-                file_info.append(file_data)
-                
-            except Exception as e:
-                logger.error(f"Error processing file info for file {file.id}: {e}")
-                # Add basic file info even if there's an error
-                file_info.append({
-                    "id": file.id,
-                    "filename": getattr(file, 'name', 'unknown'),
-                    "status": "error",
-                    "error_message": f"Error retrieving file information: {str(e)}"
-                })
-        
         # Calculate processing progress
         progress_percentage = 0
         if batch.total_files > 0:
@@ -987,7 +939,6 @@ async def get_batch_status(batch_id: str, db: Session = Depends(get_db)):
             "created_at": batch.created_at.isoformat(),
             "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
             "error_message": batch.error_message,
-            "files": file_info,
             "source": "database"
         }
         
@@ -1040,12 +991,7 @@ async def get_batch_results(batch_id: str, db: Session = Depends(get_db)):
         # Results saved directly in database - no cache needed
         
         logger.info(f"📊 Retrieved {len(batch_results)} results for batch {batch_id} from database and cached")
-        return {
-            "batch_id": batch_id,
-            "results": batch_results,
-            "source": "database",
-            "retrieved_at": datetime.now().isoformat()
-        }
+        return batch_results
         
     except HTTPException:
         raise
@@ -1072,7 +1018,7 @@ async def get_all_batches(db: Session = Depends(get_db)):
             }
             batch_list.append(batch_data)
         
-        return batch_list
+        return batch_list if batch_list is not None else []
         
     except Exception as e:
         logger.error(f"Error getting all batches: {e}")
@@ -1098,7 +1044,7 @@ async def get_all_results(db: Session = Depends(get_db)):
             }
             results_list.append(result_data)
         
-        return results_list
+        return results_list if results_list is not None else []
         
     except Exception as e:
         logger.error(f"Error getting all results: {e}")

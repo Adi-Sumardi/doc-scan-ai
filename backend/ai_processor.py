@@ -362,41 +362,6 @@ class RealOCRProcessor:
             logger.error(f"❌ PDF processing failed: {e}")
             return ""
     
-    def extract_text(self, file_path: str) -> str:
-        """Extract text using best available method"""
-        if not os.path.exists(file_path):
-            logger.error(f"❌ File not found: {file_path}")
-            return ""
-        
-        file_ext = Path(file_path).suffix.lower()
-        logger.info(f"🔍 Processing {file_ext} file: {file_path}")
-        
-        # Handle PDF files
-        if file_ext == '.pdf':
-            text = self.extract_text_from_pdf(file_path)
-            if text:
-                return text
-            logger.warning(f"⚠️ PDF extraction failed, trying as image...")
-        
-        # Handle image files (including failed PDF conversion)
-        if file_ext in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.pdf']:
-            # Try EasyOCR first (usually better for Indonesian)
-            if HAS_EASYOCR:
-                text = self.extract_text_easyocr(file_path)
-                if text:
-                    logger.info(f"✅ EasyOCR extracted {len(text)} characters")
-                    return text
-            
-            # Fallback to Tesseract
-            if HAS_OCR:
-                text = self.extract_text_tesseract(file_path)
-                if text:
-                    logger.info(f"✅ Tesseract extracted {len(text)} characters")
-                    return text
-        
-        logger.error(f"❌ No text could be extracted from {file_path}")
-        return ""
-
 class IndonesianTaxDocumentParser:
     """Parser for Indonesian tax documents"""
     
@@ -425,164 +390,6 @@ class IndonesianTaxDocumentParser:
                     "field_extraction": "disabled"
                 }
             }
-            
-            return result
-            
-            # Use regex patterns for more robust extraction
-            import re
-            
-            for line in lines:
-                line_lower = line.lower()
-                
-                # Explicit section detection
-                if 'masukan' in line_lower or 'pembeli' in line_lower:
-                    current_section = 'masukan'
-                    continue
-                elif 'keluaran' in line_lower or 'penjual' in line_lower:
-                    current_section = 'keluaran'
-                    continue
-                
-                # Smart data distribution based on content
-                target_section = current_section
-                
-                # Company/business indicators suggest keluaran
-                if any(indicator in line_lower for indicator in ['tower', 'gedung', 'jl ', 'jalan', 'pt ', 'cv ']):
-                    if primary_section == 'keluaran':
-                        target_section = 'keluaran'
-                
-                # Email and contact info suggests masukan
-                if '@' in line or '.co.id' in line_lower or 'email' in line_lower:
-                    target_section = 'masukan'
-                
-                # Extract No Seri FP
-                nomor_match = re.search(r'(?:nomor|no\.?\s*seri|fp)[:\s]*([0-9.-]+)', line, re.IGNORECASE)
-                if nomor_match:
-                    result[target_section]['no_seri_fp'] = nomor_match.group(1)
-                
-                # Extract Tanggal Faktur
-                tanggal_match = re.search(r'(?:tanggal|tgl)[:\s]*(.+)', line, re.IGNORECASE)
-                if tanggal_match:
-                    result[target_section]['tgl_faktur'] = tanggal_match.group(1).strip()
-                
-                # NPWP pattern - distribute to both sections if found
-                npwp_match = re.search(r'npwp[^:]*[:\s]*([0-9.-]+)', line, re.IGNORECASE)
-                if npwp_match:
-                    npwp_value = npwp_match.group(1)
-                    result[target_section]['npwp'] = npwp_value
-                    # Also add to the other section if it's empty
-                    other_section = 'masukan' if target_section == 'keluaran' else 'keluaran'
-                    if not result[other_section]['npwp']:
-                        result[other_section]['npwp'] = npwp_value
-                
-                # ADVANCED AI-POWERED NAMA EXTRACTION
-                # Clean extraction of company names with intelligent filtering
-                nama_patterns = [
-                    r'(?:Nama\s*:?\s*)([A-Z][A-Z\s&.,]+?)(?:\s*(?:NPWP|Alamat|Email|PT|TBK)|\s*$)',
-                    r'\b([A-Z]{2,}(?:\s+[A-Z]{2,})*(?:\s+(?:TBK|PERSERO|INDONESIA|NUSANTARA|ABADI|MANDIRI|JAYA|SUKSES|GROUP|CORP))?)\b',
-                    r'(?:PT\.?\s*|CV\.?\s*)([A-Z\s&.,]+?)(?:\s*(?:NPWP|Alamat)|\s*$)',
-                ]
-                
-                for pattern in nama_patterns:
-                    nama_match = re.search(pattern, line, re.IGNORECASE)
-                    if nama_match:
-                        raw_name = nama_match.group(1).strip()
-                        
-                        # INTELLIGENT NAME CLEANING
-                        cleaned_name = self._clean_company_name_advanced(raw_name)
-                        
-                        # SMART FILTERING - avoid generic terms
-                        if self._is_valid_company_name_advanced(cleaned_name):
-                            # CONTEXTUAL SECTION ASSIGNMENT
-                            if self._is_seller_context_advanced(line, lines):
-                                if not result['keluaran']['nama_lawan_transaksi']:
-                                    result['keluaran']['nama_lawan_transaksi'] = cleaned_name
-                            else:
-                                if not result['masukan']['nama_lawan_transaksi']:
-                                    result['masukan']['nama_lawan_transaksi'] = cleaned_name
-                            break
-                
-                # Alamat pattern - company addresses go to keluaran
-                alamat_match = re.search(r'alamat[:\s]*(.+)', line, re.IGNORECASE)
-                if alamat_match:
-                    alamat_value = alamat_match.group(1).strip()
-                    # Business addresses (with keywords) go to keluaran
-                    if any(biz_word in alamat_value.lower() for biz_word in ['tower', 'gedung', 'plaza', 'center', 'building']):
-                        result['keluaran']['alamat'] = alamat_value
-                    else:
-                        result[target_section]['alamat'] = alamat_value
-                
-                # Extract Email (always goes to masukan)
-                if '@' in line and '.co' in line_lower:
-                    email_match = re.search(r'([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', line)
-                    if email_match:
-                        result['masukan']['email'] = email_match.group(1)
-                
-                # DPP pattern
-                dpp_match = re.search(r'dpp[:\s]*(.+)', line, re.IGNORECASE)
-                if dpp_match:
-                    result[current_section]['dpp'] = self.extract_amount(dpp_match.group(1))
-                
-                # PPN pattern - allocate to keluaran (seller tax)
-                ppn_match = re.search(r'ppn[:\s]*(.+)', line, re.IGNORECASE)
-                if ppn_match:
-                    ppn_amount = self.extract_amount(ppn_match.group(1))
-                    if ppn_amount > 0:
-                        result['keluaran']['ppn'] = ppn_amount  # PPN always goes to seller (keluaran)
-                
-                # Total pattern
-                total_match = re.search(r'total[:\s]*(.+)', line, re.IGNORECASE)
-                if total_match:
-                    result[target_section]['total'] = self.extract_amount(total_match.group(1))
-                
-                # Extract Harga
-                harga_match = re.search(r'harga[:\s]*(.+)', line, re.IGNORECASE)
-                if harga_match:
-                    result[current_section]['harga'] = self.extract_amount(harga_match.group(1))
-                
-                # Extract Quantity - be more careful about large numbers
-                qty_match = re.search(r'(?:qty|quantity|jumlah)[:\s]*(.+)', line, re.IGNORECASE)
-                if qty_match:
-                    qty_value = self.extract_amount(qty_match.group(1))
-                    # Quantity should be reasonable (not millions like PPN)
-                    if qty_value < 100000:  # Reasonable quantity limit
-                        result[target_section]['quantity'] = qty_value
-                
-                # Extract Diskon
-                diskon_match = re.search(r'diskon[:\s]*(.+)', line, re.IGNORECASE)
-                if diskon_match:
-                    result[current_section]['diskon'] = self.extract_amount(diskon_match.group(1))
-            
-            # Check if we extracted any meaningful data
-            has_data = False
-            for section_data in result.values():
-                if isinstance(section_data, dict) and any(section_data.values()):
-                    has_data = True
-                    break
-            
-            if not has_data:
-                # Try to extract any recognizable patterns from the raw text
-                logger.warning("⚠️ No structured data found, attempting basic text extraction")
-                
-                # Create sample keterangan_barang structure
-                sample_barang = {
-                    "no": 1,
-                    "kode_barang_jasa": "BRG001",
-                    "nama_barang_kena_pajak_jasa_kena_pajak": "Extracted from OCR",
-                    "harga_jual_penggantian_uang_muka_termin": 0
-                }
-                
-                result['masukan']['keterangan_barang'] = [sample_barang]
-                result['keluaran']['keterangan_barang'] = [sample_barang]
-                
-                # Look for any numbers that might be important
-                numbers = re.findall(r'\d{1,3}(?:\.\d{3})*(?:,\d{2})?', text)
-                if numbers:
-                    result['masukan']['extracted_numbers'] = numbers[:5]  # First 5 numbers
-                    result['masukan']['raw_text_sample'] = text[:200]     # First 200 chars
-                    has_data = True
-            
-            if not has_data:
-                raise Exception("No data patterns could be identified in the document")
             
             return result
             
@@ -727,7 +534,6 @@ class IndonesianTaxDocumentParser:
             }
             
             return result
-            
         except Exception as e:
             logger.error(f"❌ Error parsing PPh 21: {e}")
             return self._get_empty_pph21_result()
@@ -853,7 +659,6 @@ class IndonesianTaxDocumentParser:
             }
             
             return result
-            
         except Exception as e:
             logger.error(f"❌ Error parsing PPh 23: {e}")
             return {
@@ -1403,6 +1208,11 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
         # Calculate confidence based on data completeness
         confidence = calculate_confidence(extracted_data, document_type)
         
+        # Get Next-Gen OCR metrics and add them to the result
+        nextgen_metrics = parser.ocr_processor.get_last_ocr_metadata()
+        if nextgen_metrics:
+            extracted_data['nextgen_metrics'] = nextgen_metrics
+        
         # DEBUG: Log confidence calculation details
         logger.info(f"🎯 CONFIDENCE CALCULATION for {document_type}:")
         if document_type == 'faktur_pajak':
@@ -1527,7 +1337,7 @@ def create_enhanced_excel_export(result: Dict[str, Any], output_path: str) -> bo
         ws[f'B{row}'] = f"{result.get('confidence', 0)*100:.1f}%"
         row += 2
         
-        # Raw OCR Text
+        # Extracted Data Section
         ws[f'A{row}'] = "OCR Results"
         ws[f'A{row}'].font = Font(bold=True, size=14)
         row += 2
@@ -1535,71 +1345,32 @@ def create_enhanced_excel_export(result: Dict[str, Any], output_path: str) -> bo
         extracted_data = result.get('extracted_data', {})
         
         # Document Type
-        if 'document_type' in extracted_data:
-            ws[f'A{row}'] = "Document Type:"
-            ws[f'B{row}'] = extracted_data['document_type']
-            row += 1
-        
-        # Processing Info
-        processing_info = extracted_data.get('processing_info', {})
-        if processing_info:
-            ws[f'A{row}'] = "Processing Method:"
-            ws[f'B{row}'] = processing_info.get('parsing_method', 'Unknown')
-            row += 1
-            
-            ws[f'A{row}'] = "Regex Parsing:"
-            ws[f'B{row}'] = processing_info.get('regex_parsing', 'Unknown')
-            row += 1
-        
-        # Content Info
-        content_info = extracted_data.get('extracted_content', {})
-        if content_info:
-            ws[f'A{row}'] = "Character Count:"
-            ws[f'B{row}'] = content_info.get('character_count', 0)
-            row += 1
-            
-            ws[f'A{row}'] = "Line Count:"
-            ws[f'B{row}'] = content_info.get('line_count', 0)
-            row += 1
-            
-            ws[f'A{row}'] = "Scan Timestamp:"
-            ws[f'B{row}'] = content_info.get('scan_timestamp', 'Unknown')
-            row += 2
-        
-        # Raw Text Content
-        ws[f'A{row}'] = "RAW OCR TEXT (PURE SCAN RESULTS)"
-        ws[f'A{row}'].font = Font(bold=True, size=14, color="FF0000")  # Red color for emphasis
-        row += 2
-        
-        raw_text = extracted_data.get('raw_text', '')
-        if raw_text:
-            # Split text into multiple cells for readability - full raw text display
-            lines = raw_text.split('\n')
-            for line in lines:
-                ws[f'A{row}'] = line if line.strip() else ""  # Keep empty lines for spacing
-                row += 1
-        else:
-            ws[f'A{row}'] = "No raw OCR text available"
-            row += 1
-        
-        # Focus on Raw OCR Text - No structured data parsing
-        # Show pure scan results as intended by user
-        
-        # Text Lines (if different from raw text)
-        text_lines = extracted_data.get('text_lines', [])
-        # For rekening koran and invoice, allow more lines due to multi-page nature
-        is_multipage_doc = result.get('document_type') in ['rekening_koran', 'invoice']
-        max_text_lines = 100 if is_multipage_doc else 20
-        
-        if text_lines and (is_multipage_doc or len(text_lines) <= 20):
-            row += 2
-            ws[f'A{row}'] = "Structured Lines:"
-            ws[f'A{row}'].font = Font(bold=True)
-            row += 1
-            for i, line in enumerate(text_lines[:max_text_lines]):
-                ws[f'A{row}'] = f"Line {i+1}:"
-                ws[f'B{row}'] = line
-                row += 1
+        # Generic key-value pair rendering for any data structure
+        def render_dict_to_excel(data_dict, start_row, indent=0):
+            current_row = start_row
+            for key, value in data_dict.items():
+                key_cell = ws[f'A{current_row}']
+                key_cell.value = '  ' * indent + str(key).replace('_', ' ').capitalize()
+                key_cell.font = Font(bold=(indent==0))
+                
+                if isinstance(value, dict):
+                    current_row += 1
+                    current_row = render_dict_to_excel(value, current_row, indent + 1)
+                elif isinstance(value, list):
+                    current_row += 1
+                    for i, item in enumerate(value):
+                        ws[f'A{current_row}'] = '  ' * (indent + 1) + f"Item {i+1}"
+                        current_row += 1
+                        if isinstance(item, dict):
+                            current_row = render_dict_to_excel(item, currentrow, indent + 2)
+                        else:
+                            ws[f'B{current_row-1}'] = str(item)
+                else:
+                    ws[f'B{current_row}'] = str(value)
+                    current_row += 1
+            return current_row
+
+        render_dict_to_excel(extracted_data, row)
         
         # Auto-adjust column widths
         for column in ws.columns:
@@ -1662,48 +1433,30 @@ def create_enhanced_pdf_export(result: Dict[str, Any], output_path: str) -> bool
         story.append(Paragraph("Extracted Data", styles['Heading2']))
         story.append(Spacer(1, 12))
         
+        # Generic key-value pair rendering for any data structure
+        def render_dict_to_pdf(data_dict, indent=0):
+            for key, value in data_dict.items():
+                key_text = ' ' * (indent * 4) + f"<b>{str(key).replace('_', ' ').capitalize()}:</b>"
+                
+                if isinstance(value, dict):
+                    story.append(Paragraph(key_text, styles['Normal']))
+                    render_dict_to_pdf(value, indent + 1)
+                elif isinstance(value, list):
+                    story.append(Paragraph(key_text, styles['Normal']))
+                    for i, item in enumerate(value):
+                        story.append(Paragraph(' ' * ((indent + 1) * 4) + f"<i>Item {i+1}</i>", styles['Normal']))
+                        if isinstance(item, dict):
+                            render_dict_to_pdf(item, indent + 2)
+                        else:
+                            story.append(Paragraph(' ' * ((indent + 2) * 4) + str(item), styles['Normal']))
+                else:
+                    story.append(Paragraph(f"{key_text} {str(value)}", styles['Normal']))
+
         extracted_data = result.get('extracted_data', {})
-        
-        # Document Type
-        if 'document_type' in extracted_data:
-            story.append(Paragraph(f"<b>Document Type:</b> {extracted_data['document_type']}", styles['Normal']))
-            story.append(Spacer(1, 6))
-        
-        # Processing Info
-        processing_info = extracted_data.get('processing_info', {})
-        if processing_info:
-            story.append(Paragraph("<b>Processing Information</b>", styles['Heading3']))
-            story.append(Paragraph(f"Method: {processing_info.get('parsing_method', 'Unknown')}", styles['Normal']))
-            story.append(Paragraph(f"Regex Parsing: {processing_info.get('regex_parsing', 'Unknown')}", styles['Normal']))
-            story.append(Spacer(1, 12))
-        
-        # Content Info
-        content_info = extracted_data.get('extracted_content', {})
-        if content_info:
-            story.append(Paragraph("<b>Content Statistics</b>", styles['Heading3']))
-            story.append(Paragraph(f"Character Count: {content_info.get('character_count', 0)}", styles['Normal']))
-            story.append(Paragraph(f"Line Count: {content_info.get('line_count', 0)}", styles['Normal']))
-            story.append(Paragraph(f"Scan Timestamp: {content_info.get('scan_timestamp', 'Unknown')}", styles['Normal']))
-            story.append(Spacer(1, 12))
-        
-        # Focus on Raw OCR Text - No structured data parsing
-        # Show pure scan results as intended by user
-        
-        # Raw OCR Text - Primary Focus
-        story.append(Paragraph("<b><font color='red' size='14'>RAW OCR TEXT (PURE SCAN RESULTS)</font></b>", styles['Heading2']))
-        story.append(Spacer(1, 12))
-        
-        raw_text = extracted_data.get('raw_text', '')
-        if raw_text:
-            # Split text into paragraphs for better PDF formatting - show full content
-            lines = raw_text.split('\n')
-            for line in lines:
-                if line.strip():
-                    # Escape special characters for PDF
-                    safe_line = line.strip().replace('<', '&lt;').replace('>', '&gt;')
-                    story.append(Paragraph(safe_line, styles['Normal']))
+        if extracted_data:
+            render_dict_to_pdf(extracted_data)
         else:
-            story.append(Paragraph("No text extracted", styles['Normal']))
+            story.append(Paragraph("No structured data available.", styles['Normal']))
         
         doc.build(story)
         logger.info(f"✅ PDF export created: {output_path}")

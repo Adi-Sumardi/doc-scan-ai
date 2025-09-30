@@ -26,7 +26,7 @@ const API_BASE_URL = getApiBaseUrl();
 // Axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000, // 30 detik untuk file upload
+  timeout: 60000, // 60 detik timeout untuk semua request
 });
 
 // Request logging
@@ -84,7 +84,7 @@ export const apiService = {
 
   getBatchResults: async (batchId: string): Promise<ScanResult[]> => {
     const response = await api.get(`/api/batches/${batchId}/results`);
-    return response.data.results || [];
+    return Array.isArray(response.data) ? response.data : [];
   },
 
   getAllBatches: async (): Promise<Batch[]> => {
@@ -107,8 +107,8 @@ export const apiService = {
     return response.data;
   },
 
-  exportBatchExcel: async (batchId: string): Promise<Blob> => {
-    const response = await api.get(`/api/batches/${batchId}/export/excel`, { responseType: 'blob' });
+  exportBatch: async (batchId: string, format: 'excel' | 'pdf'): Promise<Blob> => {
+    const response = await api.get(`/api/batches/${batchId}/export/${format}`, { responseType: 'blob' });
     return response.data;
   },
 

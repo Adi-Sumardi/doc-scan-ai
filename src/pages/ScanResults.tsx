@@ -29,18 +29,13 @@ const ScanResults = () => {
   console.log('Batch Data:', batch);
   console.log('Scan Results:', scanResults);
 
-  // Refresh batch data periodically if still processing
+  // Automatically refresh batch data when the component mounts
   useEffect(() => {
-    if (!batch) return;
-    
-    if (batch.status === 'processing') {
-      const interval = setInterval(() => {
-        refreshBatch(batchId!);
-      }, 3000);
-      
-      return () => clearInterval(interval);
+    if (batchId) {
+      refreshBatch(batchId);
     }
-  }, [batch?.status, batchId, refreshBatch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchId]); // Only re-run if batchId changes
 
   if (!batch) {
     return (
@@ -58,7 +53,7 @@ const ScanResults = () => {
     if (result) {
       await exportResult(result.id, format);
     } else {
-      await exportBatch(batchId!, 'excel');
+      await exportBatch(batchId!, format);
     }
   };
 
@@ -84,22 +79,20 @@ const ScanResults = () => {
           </h4>
           <div className="bg-white border rounded-lg p-4">
             <pre className="text-sm text-gray-800 whitespace-pre-wrap font-mono leading-relaxed max-h-96 overflow-y-auto">
-              {extractedData.raw_text || result.extracted_text || result.raw_text || 
-               (extractedData.text_lines ? extractedData.text_lines.join('\n') : '') ||
-               'No raw OCR text available'}
+              {extractedData?.raw_text || 'No raw OCR text available'}
             </pre>
           </div>
           <div className="mt-3 md:mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 text-xs md:text-sm">
             <div className="bg-white rounded-lg p-2 md:p-3 border">
               <div className="text-gray-600 text-xs md:text-sm">Characters</div>
               <div className="font-semibold text-blue-600 text-sm md:text-base">
-                {extractedData.extracted_content?.character_count || (extractedData.raw_text || result.extracted_text || '').length}
+                {extractedData?.extracted_content?.character_count || extractedData?.raw_text?.length || 0}
               </div>
             </div>
             <div className="bg-white rounded-lg p-2 md:p-3 border">
               <div className="text-gray-600 text-xs md:text-sm">Lines</div>
               <div className="font-semibold text-green-600 text-sm md:text-base">
-                {extractedData.extracted_content?.line_count || extractedData.text_lines?.length || 0}
+                {extractedData?.extracted_content?.line_count || extractedData?.text_lines?.length || 0}
               </div>
             </div>
             <div className="bg-white rounded-lg p-2 md:p-3 border">
@@ -118,7 +111,7 @@ const ScanResults = () => {
         </div>
 
         {/* Text Lines */}
-        {extractedData.text_lines && extractedData.text_lines.length > 0 && (
+        {extractedData?.text_lines && extractedData.text_lines.length > 0 && (
           <div className="bg-green-50 border border-green-200 rounded-lg p-4 md:p-6">
             <h4 className="text-base md:text-lg font-semibold text-green-900 mb-3 md:mb-4">
               Extracted Lines ({extractedData.text_lines.length})
@@ -135,13 +128,13 @@ const ScanResults = () => {
         )}
 
         {/* Processing Information */}
-        {extractedData.processing_info && (
+        {extractedData?.processing_info && (
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 md:p-6">
             <h4 className="text-base md:text-lg font-semibold text-gray-900 mb-3 md:mb-4">
               Processing Information
             </h4>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-              {Object.entries(extractedData.processing_info).map(([key, value]) => (
+              {Object.entries(extractedData.processing_info).map(([key, value]: [string, any]) => (
                 <div key={key} className="bg-white rounded-lg p-4 border">
                   <div className="text-gray-600 text-sm capitalize">{key.replace(/_/g, ' ')}</div>
                   <div className="font-semibold text-gray-900 mt-1">
@@ -162,13 +155,13 @@ const ScanResults = () => {
             <div className="bg-white rounded-lg p-4 border">
               <div className="text-gray-600 text-sm">Document Type</div>
               <div className="font-semibold text-purple-600 mt-1">
-                {extractedData.document_type || result.document_type || 'Unknown'}
+                {extractedData?.document_type || result.document_type || 'Unknown'}
               </div>
             </div>
             <div className="bg-white rounded-lg p-4 border">
               <div className="text-gray-600 text-sm">Scan Timestamp</div>
               <div className="font-semibold text-purple-600 mt-1">
-                {extractedData.extracted_content?.scan_timestamp || new Date(result.created_at).toLocaleString()}
+                {extractedData?.extracted_content?.scan_timestamp || new Date(result.created_at).toLocaleString()}
               </div>
             </div>
             <div className="bg-white rounded-lg p-4 border">
