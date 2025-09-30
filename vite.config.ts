@@ -7,4 +7,13 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
+  define: {
+    __DEV__: JSON.stringify(process.env.NODE_ENV !== 'production'),
+    'import.meta.env.PROD': JSON.stringify(process.env.NODE_ENV === 'production'),
+    'import.meta.env.DEV': JSON.stringify(process.env.NODE_ENV !== 'production'),
+  },
+  build: {
+    sourcemap: false,
+    minify: 'esbuild',
+  },
 });

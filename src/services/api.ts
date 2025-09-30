@@ -1,14 +1,24 @@
 import axios from 'axios';
 
-// Determine API base URL based on environment
+// Determine API base URL based on environment - production-first approach
 const getApiBaseUrl = () => {
-  // In production, use relative URLs to work with Nginx proxy
-  if (import.meta.env.PROD) {
+  const hostname = window.location.hostname;
+  
+  // Production environment detection (domain-based)
+  if (hostname === 'docscan.adilabs.id' || hostname.includes('adilabs.id')) {
+    console.log('Production mode: Using /api');
     return '/api';
   }
   
-  // In development, use localhost
-  return 'http://localhost:8000';
+  // Development environment
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    console.log('Development mode: Using localhost:8000');
+    return 'http://localhost:8000';
+  }
+  
+  // Default to production for any other domain
+  console.log('Unknown domain, defaulting to production: /api');
+  return '/api';
 };
 
 const API_BASE_URL = getApiBaseUrl();
@@ -201,15 +211,24 @@ export const apiService = {
 
   // Real-time processing status via WebSocket
   createWebSocketConnection(batchId: string): WebSocket {
-    // Determine WebSocket URL based on environment
+    // Determine WebSocket URL based on environment - domain-based detection
     const getWsUrl = () => {
-      if (import.meta.env.PROD) {
-        // In production, use wss:// with domain
+      const hostname = window.location.hostname;
+      
+      // Production environment
+      if (hostname === 'docscan.adilabs.id' || hostname.includes('adilabs.id')) {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         return `${protocol}//${window.location.host}/ws/batch/${batchId}`;
       }
-      // In development, use localhost
-      return `ws://localhost:8000/ws/batch/${batchId}`;
+      
+      // Development environment
+      if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return `ws://localhost:8000/ws/batch/${batchId}`;
+      }
+      
+      // Default to production WebSocket for unknown domains
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${protocol}//${window.location.host}/ws/batch/${batchId}`;
     };
     
     const wsUrl = getWsUrl();

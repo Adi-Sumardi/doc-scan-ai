@@ -7,6 +7,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy import Column, String, Integer, Text, DateTime, JSON, Float, Boolean
 from sqlalchemy.dialects.mysql import LONGTEXT
+import sqlalchemy
 import os
 from datetime import datetime
 from typing import Generator
@@ -15,6 +16,15 @@ import logging
 
 # Load environment variables
 load_dotenv()
+
+# Helper function for database compatibility
+def get_text_column():
+    """Return appropriate text column type based on database engine"""
+    db_url = os.getenv("DATABASE_URL", "sqlite:///./doc_scan_dev.db")
+    if "sqlite" in db_url.lower():
+        return Text  # SQLite uses TEXT for large text
+    else:
+        return LONGTEXT  # MySQL uses LONGTEXT
 
 # Database Configuration
 DATABASE_URL = os.getenv(
@@ -95,7 +105,7 @@ class ScanResult(Base):
     original_filename = Column(String(255), nullable=False)
     
     # OCR and extraction data
-    extracted_text = Column(LONGTEXT, nullable=True)
+    extracted_text = Column(get_text_column(), nullable=True)
     extracted_data = Column(JSON, nullable=True)
     confidence = Column(Float, nullable=False, default=0.0, index=True)
     
