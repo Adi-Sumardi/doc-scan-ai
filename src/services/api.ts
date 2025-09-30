@@ -1,26 +1,28 @@
 import axios from 'axios';
 
 // Determine API base URL based on environment - production-first approach
-const getApiBaseUrl = () => {
-  const hostname = window.location.hostname;
+// const getApiBaseUrl = () => {
+//   const hostname = window.location.hostname;
   
-  // Production environment detection (domain-based)
-  if (hostname === 'docscan.adilabs.id' || hostname.includes('adilabs.id')) {
-    console.log('Production mode: Using base domain (backend already has /api prefix)');
-    return '';
-  }
+//   // Production environment detection (domain-based)
+//   if (hostname === 'docscan.adilabs.id' || hostname.includes('adilabs.id')) {
+//     console.log('Production mode: Using base domain (backend already has /api prefix)');
+//     return '';
+//   }
   
   
-  // Development environment
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    console.log('Development mode: Using localhost:8000');
-    return 'http://localhost:8000';
-  }
+//   // Development environment
+//   if (hostname === 'localhost' || hostname === '127.0.0.1') {
+//     console.log('Development mode: Using localhost:8000');
+//     return 'http://localhost:8000/api';
+//   }
   
-  // Default to production for any other domain
-  console.log('Unknown domain, defaulting to production (backend already has /api prefix)');
-  return '';
-};const API_BASE_URL = getApiBaseUrl();
+//   // Default to production for any other domain
+//   console.log('Unknown domain, defaulting to production (backend already has /api prefix)');
+//   return '';
+// };
+
+const API_BASE_URL = '';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
