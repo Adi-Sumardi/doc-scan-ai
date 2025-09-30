@@ -6,7 +6,7 @@ const getApiBaseUrl = () => {
   
   // Production environment detection (domain-based)
   if (hostname === 'docscan.adilabs.id' || hostname.includes('adilabs.id')) {
-    console.log('Production mode: Using /api');
+    console.log('Production mode: Using base domain (backend already has /api prefix)');
     return '';
   }
   
@@ -18,11 +18,9 @@ const getApiBaseUrl = () => {
   }
   
   // Default to production for any other domain
-  console.log('Unknown domain, defaulting to production: /api');
+  console.log('Unknown domain, defaulting to production (backend already has /api prefix)');
   return '';
-};
-
-const API_BASE_URL = getApiBaseUrl();
+};const API_BASE_URL = getApiBaseUrl();
 
 const api = axios.create({
   baseURL: API_BASE_URL,
