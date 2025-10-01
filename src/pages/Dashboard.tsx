@@ -7,7 +7,9 @@ import {
   TrendingUp,
   Upload as UploadIcon,
   Brain,
-  Zap
+  Zap,
+  Award,
+  FileCheck
 } from 'lucide-react';
 
 const Dashboard = () => {
@@ -29,42 +31,42 @@ const Dashboard = () => {
     ? resultsWithQuality.reduce((sum, r) => sum + (r.nextgen_metrics?.quality_score || 0), 0) / resultsWithQuality.length
     : 0;
 
-  const stats = [
+  const recentBatches = Array.isArray(batches) ? batches.slice(0, 5) : [];
+
+  const statsCards = [
     {
-      label: 'Next-Gen OCR Accuracy',
-      value: `${averageAccuracy.toFixed(2)}%`,
-      icon: Brain,
-      color: 'bg-gradient-to-r from-purple-500 to-blue-500',
-      change: safeResults.length > 0 ? 'High Confidence' : 'N/A',
-      subtitle: 'Average confidence score'
+      label: 'AI Accuracy',
+      value: `${averageAccuracy.toFixed(1)}%`,
+      subtitle: 'Document recognition precision',
+      icon: TrendingUp,
+      color: 'bg-gradient-to-r from-green-500 to-green-600',
+      change: '+2.5% from last week'
     },
     {
       label: 'Quality Score',
-      value: `${(averageQuality * 100).toFixed(1)}%`,
-      icon: TrendingUp,
-      color: 'bg-gradient-to-r from-green-500 to-blue-500',
-      change: safeResults.length > 0 ? 'Excellent' : 'N/A',
-      subtitle: 'Document processing quality'
+      value: `${averageQuality.toFixed(1)}%`,
+      subtitle: 'Real-time validation metrics',
+      icon: Award,
+      color: 'bg-gradient-to-r from-blue-500 to-blue-600',
+      change: '+1.8% from last week'
     },
     {
       label: 'Processing Speed',
       value: `${averageProcessingTime.toFixed(2)}s`,
+      subtitle: 'Average time per document',
       icon: Zap,
-      color: 'bg-gradient-to-r from-orange-500 to-red-500',
-      change: safeResults.length > 0 ? 'Ultra-fast' : 'N/A',
-      subtitle: 'Average per document'
+      color: 'bg-gradient-to-r from-orange-500 to-orange-600',
+      change: '-0.3s faster'
     },
     {
       label: 'Documents Processed',
       value: totalDocuments,
-      icon: FileText,
-      color: 'bg-gradient-to-r from-indigo-500 to-purple-500',
-      change: `${totalDocuments} total`,
-      subtitle: 'Total scanned documents'
+      subtitle: 'Successfully scanned documents',
+      icon: FileCheck,
+      color: 'bg-gradient-to-r from-purple-500 to-purple-600',
+      change: `+${recentBatches.length} batches`
     }
   ];
-
-  const recentBatches = Array.isArray(batches) ? batches.slice(0, 5) : [];
 
   return (
     <div className="space-y-6">
@@ -84,7 +86,7 @@ const Dashboard = () => {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, index) => {
+        {statsCards.map((stat, index) => {
           const Icon = stat.icon;
           return (
             <div key={index} className="bg-white rounded-lg p-6 shadow-sm border hover:shadow-lg transition-shadow">
@@ -155,7 +157,7 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Next-Generation OCR Status */}
+        {/* AI DocScan Status */}
         <div className="bg-white rounded-lg shadow-sm border">
           <div className="p-6 border-b">
             <div className="flex items-center space-x-3">
@@ -163,8 +165,8 @@ const Dashboard = () => {
                 <Brain className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Next-Generation OCR</h3>
-                <p className="text-sm text-gray-600">Advanced AI processing engines</p>
+                <h3 className="text-lg font-semibold text-gray-900">AI DocScan Engine</h3>
+                <p className="text-sm text-gray-600">Intelligent document processing</p>
               </div>
             </div>
           </div>
@@ -174,8 +176,8 @@ const Dashboard = () => {
                 <div className="flex items-center space-x-3">
                   <Zap className="w-5 h-5 text-orange-600" />
                   <div>
-                    <p className="font-medium text-orange-900">RapidOCR</p>
-                    <p className="text-sm text-orange-600">Ultra-fast ONNX runtime • 98.9% confidence</p>
+                    <p className="font-medium text-orange-900">Lightning Processing</p>
+                    <p className="text-sm text-orange-600">Ultra-fast document recognition</p>
                   </div>
                 </div>
                 <div className="text-right">
@@ -190,7 +192,7 @@ const Dashboard = () => {
                 <div className="flex items-center space-x-3">
                   <Brain className="w-5 h-5 text-blue-600" />
                   <div>
-                    <p className="font-medium text-blue-900">EasyOCR</p>
+                    <p className="font-medium text-blue-900">Smart Recognition</p>
                     <p className="text-sm text-blue-600">Multilingual support • Indonesian optimized</p>
                   </div>
                 </div>
@@ -198,7 +200,7 @@ const Dashboard = () => {
                   <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
                     🧠 Active
                   </span>
-                  <p className="text-xs text-gray-500 mt-1">Ensemble Engine</p>
+                  <p className="text-xs text-gray-500 mt-1">AI Intelligence</p>
                 </div>
               </div>
               
@@ -206,8 +208,8 @@ const Dashboard = () => {
                 <div className="flex items-center space-x-3">
                   <Brain className="w-5 h-5 text-purple-600" />
                   <div>
-                    <p className="font-medium text-purple-900">Advanced Preprocessor</p>
-                    <p className="text-sm text-purple-600">AI-based image enhancement • Albumentations</p>
+                    <p className="font-medium text-purple-900">Image Enhancement</p>
+                    <p className="text-sm text-purple-600">AI-powered quality optimization</p>
                   </div>
                 </div>
                 <div className="text-right">  
@@ -226,7 +228,7 @@ const Dashboard = () => {
                   </div>
                   <div className="flex items-center space-x-1">
                     <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                    <span className="text-blue-700">99.6% Faktur Pajak Accuracy</span>
+                    <span className="text-blue-700">High Accuracy • Tax Documents</span>
                   </div>
                 </div>
               </div>

@@ -231,7 +231,7 @@ const ScanResults = () => {
         <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-4 md:p-6 border border-green-200">
           <div className="flex items-center space-x-3 mb-4">
             <CheckCircle className="w-5 h-5 md:w-6 md:h-6 text-green-600 flex-shrink-0" />
-            <h3 className="text-base md:text-lg font-semibold text-green-900">Next-Gen OCR Processing Complete</h3>
+            <h3 className="text-base md:text-lg font-semibold text-green-900">AI DocScan Processing Complete</h3>
           </div>
           <div className="mb-4">
             <div className="flex justify-between items-center mb-2">
@@ -247,7 +247,7 @@ const ScanResults = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="flex items-center space-x-2">
               <Brain className="w-5 h-5 text-green-600" />
-              <span className="text-sm text-green-700">99%+ Accuracy Achieved</span>
+              <span className="text-sm text-green-700">High Accuracy Achieved</span>
             </div>
             <div className="flex items-center space-x-2">
               <Database className="w-5 h-5 text-blue-600" />

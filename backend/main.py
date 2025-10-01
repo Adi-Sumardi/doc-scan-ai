@@ -17,9 +17,11 @@ from sqlalchemy import desc, and_, text
 from config import settings, get_upload_dir, get_results_dir, get_exports_dir
 # Import our modules
 from ai_processor import process_document_ai, create_enhanced_excel_export, create_enhanced_pdf_export, RealOCRProcessor, create_batch_excel_export, create_batch_pdf_export
-from models import BatchResponse, ScanResult, BatchStatus, DocumentFile as DocumentFileModel
-from database import SessionLocal, engine, Base, Batch, DocumentFile, ScanResult as DBScanResult, ProcessingLog, SystemMetrics, get_db
+from models import BatchResponse, ScanResult, BatchStatus, DocumentFile as DocumentFileModel, UserRegister, UserLogin, UserResponse, Token
+from database import SessionLocal, engine, Base, Batch, DocumentFile, ScanResult as DBScanResult, ProcessingLog, SystemMetrics, get_db, User
 from websocket_manager import manager
+from auth import get_password_hash, verify_password, create_access_token, get_current_user, get_current_active_user
+from datetime import timedelta
 # Redis cache is optional - only for stats and health monitoring
 try:
     from redis_cache import cache
@@ -47,14 +49,63 @@ app = FastAPI(title="AI Document Scanner API", version="1.0.0")
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
-# CORS middleware
+# CORS middleware - Security hardened
+# Only allow specific origins (no wildcards)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
+    allow_origins=settings.cors_origins_list,  # Specific origins only from .env
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],  # Explicit methods
+    allow_headers=[
+        "Accept",
+        "Accept-Language",
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+    ],  # Only necessary headers
+    max_age=600,  # Cache preflight requests for 10 minutes
 )
+
+# Security Headers Middleware
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    """Add security headers to all responses"""
+    response = await call_next(request)
+    
+    # Prevent MIME type sniffing
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    
+    # Prevent clickjacking attacks
+    response.headers["X-Frame-Options"] = "DENY"
+    
+    # Enable XSS protection
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    
+    # Enforce HTTPS (if in production)
+    if settings.environment == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    
+    # Content Security Policy
+    csp_policy = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; "
+        "font-src 'self' data:; "
+        "connect-src 'self' http://localhost:* http://127.0.0.1:*; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    )
+    response.headers["Content-Security-Policy"] = csp_policy
+    
+    # Referrer policy
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    
+    # Permissions policy (restrict browser features)
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    
+    return response
 
 # Environment validation
 def validate_environment():
@@ -108,9 +159,9 @@ UPLOAD_DIR = Path(get_upload_dir())
 RESULTS_DIR = Path(get_results_dir())
 EXPORTS_DIR = Path(get_exports_dir())
 
-# Simple file validation function
+# Enhanced file validation function with MIME type detection
 def validate_file(content: bytes, filename: str) -> dict:
-    """Simple file validation for error handling demo"""
+    """Enhanced file validation with actual MIME type detection"""
     errors = []
     warnings = []
     
@@ -118,30 +169,397 @@ def validate_file(content: bytes, filename: str) -> dict:
     if len(content) > 10 * 1024 * 1024:
         errors.append("File size exceeds 10MB limit")
     
+    # Check if file has content
+    if len(content) == 0:
+        errors.append("File is empty")
+        return {
+            "is_valid": False,
+            "errors": errors,
+            "warnings": warnings,
+            "file_info": {"mime_type": "unknown", "md5": "", "sha256": ""}
+        }
+    
     # Check file extension
-    allowed_extensions = ['.jpg', '.jpeg', '.png', '.pdf', '.tiff', '.tif']
+    allowed_extensions = ['.jpg', '.jpeg', '.png', '.pdf', '.tiff', '.tif', '.bmp', '.webp']
     file_ext = Path(filename).suffix.lower()
     if file_ext not in allowed_extensions:
         errors.append(f"File type '{file_ext}' not supported. Allowed: {', '.join(allowed_extensions)}")
     
-    # Check if file has content
-    if len(content) == 0:
-        errors.append("File is empty")
+    # Detect actual MIME type from file content (magic numbers)
+    mime_type = "application/octet-stream"
+    
+    # Check magic numbers for common file types
+    if content[:4] == b'\x89PNG':
+        mime_type = "image/png"
+        if file_ext not in ['.png']:
+            warnings.append(f"File extension '{file_ext}' doesn't match actual type (PNG)")
+    elif content[:3] == b'\xff\xd8\xff':
+        mime_type = "image/jpeg"
+        if file_ext not in ['.jpg', '.jpeg']:
+            warnings.append(f"File extension '{file_ext}' doesn't match actual type (JPEG)")
+    elif content[:2] == b'BM':
+        mime_type = "image/bmp"
+        if file_ext not in ['.bmp']:
+            warnings.append(f"File extension '{file_ext}' doesn't match actual type (BMP)")
+    elif content[:4] == b'RIFF' and content[8:12] == b'WEBP':
+        mime_type = "image/webp"
+        if file_ext not in ['.webp']:
+            warnings.append(f"File extension '{file_ext}' doesn't match actual type (WEBP)")
+    elif content[:4] == b'%PDF':
+        mime_type = "application/pdf"
+        if file_ext not in ['.pdf']:
+            warnings.append(f"File extension '{file_ext}' doesn't match actual type (PDF)")
+    elif content[:4] in [b'II*\x00', b'MM\x00*']:  # TIFF
+        mime_type = "image/tiff"
+        if file_ext not in ['.tiff', '.tif']:
+            warnings.append(f"File extension '{file_ext}' doesn't match actual type (TIFF)")
+    else:
+        # Unknown file type - potential security risk
+        warnings.append("Could not verify file type from content - may be corrupted or unsupported")
+    
+    # Security check: reject executable files disguised as images
+    dangerous_signatures = [
+        b'MZ',  # Windows executable
+        b'\x7fELF',  # Linux executable
+        b'#!/',  # Script file
+    ]
+    
+    for sig in dangerous_signatures:
+        if content.startswith(sig):
+            errors.append("File appears to be an executable or script - rejected for security reasons")
+            break
+    
+    # Calculate basic hashes for deduplication
+    import hashlib
+    md5_hash = hashlib.md5(content).hexdigest()
+    sha256_hash = hashlib.sha256(content).hexdigest()
     
     return {
         "is_valid": len(errors) == 0,
         "errors": errors,
         "warnings": warnings,
         "file_info": {
-            "mime_type": "application/octet-stream",
-            "md5": "temp_md5",
-            "sha256": "temp_sha256"
+            "mime_type": mime_type,
+            "md5": md5_hash,
+            "sha256": sha256_hash
         }
     }
 
 @app.get("/")
 async def root():
     return {"message": "AI Document Scanner API", "status": "online"}
+
+# ==================== Authentication Endpoints ====================
+
+@app.post("/api/register", response_model=UserResponse)
+async def register(user: UserRegister, db: Session = Depends(get_db)):
+    """Register a new user with input validation and password strength check"""
+    # Import SecurityValidator
+    from security import SecurityValidator
+    
+    # Validate username (prevent XSS and SQL injection)
+    validated_username = SecurityValidator.validate_username(user.username)
+    
+    # Validate email format
+    validated_email = SecurityValidator.validate_email(user.email)
+    
+    # Validate password strength
+    SecurityValidator.validate_password_strength(user.password)
+    
+    # Sanitize full name (prevent XSS)
+    validated_full_name = SecurityValidator.sanitize_input(user.full_name, max_length=100)
+    
+    # Check if username already exists
+    existing_user = db.query(User).filter(User.username == validated_username).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    
+    # Check if email already exists
+    existing_email = db.query(User).filter(User.email == validated_email).first()
+    if existing_email:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Create new user
+    db_user = User(
+        id=str(uuid.uuid4()),
+        username=validated_username,
+        email=validated_email,
+        hashed_password=get_password_hash(user.password),
+        full_name=validated_full_name,
+        is_active=True,
+        is_admin=False,
+        created_at=datetime.utcnow()
+    )
+    
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    
+    logger.info(f"New user registered: {validated_username}")
+    return db_user
+
+@app.post("/api/login", response_model=Token)
+async def login(user: UserLogin, db: Session = Depends(get_db)):
+    """Login and get JWT token"""
+    # Find user by username
+    db_user = db.query(User).filter(User.username == user.username).first()
+    if not db_user or not verify_password(user.password, db_user.hashed_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    if not db_user.is_active:
+        raise HTTPException(status_code=400, detail="Inactive user")
+    
+    # Update last login
+    db_user.last_login = datetime.utcnow()
+    db.commit()
+    
+    # Create access token
+    access_token_expires = timedelta(minutes=30)
+    access_token = create_access_token(
+        data={"sub": db_user.id, "username": db_user.username},
+        expires_delta=access_token_expires
+    )
+    
+    logger.info(f"User logged in: {user.username}")
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/api/me", response_model=UserResponse)
+async def get_current_user_info(current_user: User = Depends(get_current_active_user)):
+    """Get current user information"""
+    return current_user
+
+# ==================== Admin Endpoints ====================
+
+async def get_current_admin_user(current_user: User = Depends(get_current_active_user)):
+    """Dependency to verify admin access"""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+@app.get("/api/admin/users")
+async def get_all_users(
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Get all users with their activity stats (Admin only)"""
+    users = db.query(User).all()
+    
+    # Get activity stats for each user
+    user_list = []
+    for user in users:
+        # Count batches created by user
+        batch_count = db.query(Batch).filter(Batch.user_id == user.id).count()
+        
+        # Get latest batch
+        latest_batch = db.query(Batch).filter(Batch.user_id == user.id).order_by(Batch.created_at.desc()).first()
+        
+        user_data = {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "full_name": user.full_name,
+            "is_active": user.is_active,
+            "is_admin": user.is_admin,
+            "created_at": user.created_at,
+            "last_login": user.last_login,
+            "total_batches": batch_count,
+            "last_activity": latest_batch.created_at if latest_batch else None
+        }
+        user_list.append(user_data)
+    
+    return user_list
+
+@app.get("/api/admin/users/{user_id}/activities")
+async def get_user_activities(
+    user_id: str,
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Get detailed activity history for a specific user (Admin only)"""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get all batches by user
+    batches = db.query(Batch).filter(Batch.user_id == user_id).order_by(Batch.created_at.desc()).all()
+    
+    batch_list = []
+    for batch in batches:
+        # Get file count for this batch
+        files = db.query(DocumentFile).filter(DocumentFile.batch_id == batch.id).all()
+        
+        batch_data = {
+            "id": batch.id,
+            "status": batch.status,
+            "created_at": batch.created_at,
+            "completed_at": batch.completed_at,
+            "file_count": len(files),  # Changed from total_files to file_count
+            "processed_files": batch.processed_files,
+            "file_names": [f.name for f in files[:5]],  # First 5 files
+            "processing_time": batch.total_processing_time
+        }
+        batch_list.append(batch_data)
+    
+    return {
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "full_name": user.full_name,
+            "is_active": user.is_active,
+            "created_at": user.created_at,
+            "last_login": user.last_login
+        },
+        "batches": batch_list,  # Changed from activities to batches
+        "total_batches": len(batch_list)
+    }
+
+@app.patch("/api/admin/users/{user_id}/status")
+async def update_user_status(
+    user_id: str,
+    is_active: bool,
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Update user active status (Admin only)"""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Prevent admin from deactivating themselves
+    if user.id == current_admin.id:
+        raise HTTPException(status_code=400, detail="Cannot change your own status")
+    
+    user.is_active = is_active
+    db.commit()
+    
+    logger.info(f"Admin {current_admin.username} changed user {user.username} status to {'active' if is_active else 'inactive'}")
+    
+    return {"message": f"User {user.username} has been {'activated' if is_active else 'deactivated'}"}
+
+@app.post("/api/admin/users/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: str,
+    new_password: str,
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Reset user password (Admin only) with password strength validation"""
+    # Import SecurityValidator
+    from security import SecurityValidator
+    
+    # Validate user_id (prevent SQL injection)
+    if SecurityValidator.check_sql_injection(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user ID")
+    
+    # Validate password strength
+    SecurityValidator.validate_password_strength(new_password)
+    
+    # Find user
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Hash new password
+    from auth import get_password_hash
+    user.hashed_password = get_password_hash(new_password)
+    db.commit()
+    
+    logger.info(f"Admin {current_admin.username} reset password for user {user.username}")
+    
+    return {
+        "message": f"Password for user {user.username} has been reset successfully",
+        "username": user.username,
+        "email": user.email
+    }
+
+@app.post("/api/admin/users/{user_id}/generate-temp-password")
+async def generate_temp_password(
+    user_id: str,
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Generate and set a temporary password for user (Admin only)"""
+    import secrets
+    import string
+    
+    # Find user
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Generate secure random password (8 chars: letters, digits, special chars)
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    temp_password = ''.join(secrets.choice(alphabet) for i in range(10))
+    
+    # Hash and set new password
+    from auth import get_password_hash
+    user.hashed_password = get_password_hash(temp_password)
+    db.commit()
+    
+    logger.info(f"Admin {current_admin.username} generated temporary password for user {user.username}")
+    
+    return {
+        "message": f"Temporary password generated for user {user.username}",
+        "username": user.username,
+        "email": user.email,
+        "temp_password": temp_password,
+        "note": "This password is shown only once. Please share it securely with the user."
+    }
+
+@app.get("/api/admin/dashboard/stats")
+async def get_dashboard_stats(
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Get overall system statistics (Admin only)"""
+    from sqlalchemy import func
+    
+    # Count users
+    total_users = db.query(User).count()
+    active_users = db.query(User).filter(User.is_active == True).count()
+    admin_users = db.query(User).filter(User.is_admin == True).count()
+    
+    # Count batches
+    total_batches = db.query(Batch).count()
+    completed_batches = db.query(Batch).filter(Batch.status == "completed").count()
+    processing_batches = db.query(Batch).filter(Batch.status == "processing").count()
+    failed_batches = db.query(Batch).filter(Batch.status == "error").count()
+    
+    # Count files
+    total_files = db.query(DocumentFile).count()
+    
+    # Recent activity (last 7 days)
+    from datetime import datetime, timedelta
+    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    recent_batches = db.query(Batch).filter(Batch.created_at >= seven_days_ago).count()
+    recent_users = db.query(User).filter(User.created_at >= seven_days_ago).count()
+    
+    return {
+        "users": {
+            "total": total_users,
+            "active": active_users,
+            "inactive": total_users - active_users,
+            "admins": admin_users,
+            "new_this_week": recent_users
+        },
+        "batches": {
+            "total": total_batches,
+            "completed": completed_batches,
+            "processing": processing_batches,
+            "failed": failed_batches,
+            "this_week": recent_batches
+        },
+        "files": {
+            "total": total_files
+        }
+    }
+
+# ==================== Public Endpoints ====================
 
 @app.post("/api/heartbeat")
 async def heartbeat():
@@ -259,7 +677,8 @@ async def upload_documents(
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
     document_types: List[str] = Form(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """Upload multiple documents for batch processing with comprehensive error handling and security validation"""
     batch_id = None
@@ -327,7 +746,8 @@ async def upload_documents(
             db_batch = Batch(
                 id=batch_id,
                 status="processing",
-                created_at=datetime.now()
+                created_at=datetime.now(),
+                user_id=current_user.id
             )
             db.add(db_batch)
             db.commit()
@@ -374,10 +794,9 @@ async def upload_documents(
                     validation_results.append(validation_result)
                     continue
                 
-                # Read file content for validation
+                # Read file content ONCE for validation and saving
                 try:
                     content = await file.read()
-                    await file.seek(0)  # Reset file pointer for later processing
                     
                     if len(content) == 0:
                         validation_result = {
@@ -400,7 +819,7 @@ async def upload_documents(
                     validation_results.append(validation_result)
                     continue
                 
-                # Perform security validation
+                # Perform security validation (using already-read content)
                 validation_result = validate_file(content, file.filename)
                 validation_result["filename"] = file.filename
                 validation_results.append(validation_result)
@@ -416,13 +835,13 @@ async def upload_documents(
                     db.add(log_entry)
                     continue
                 
-                # Save file with comprehensive error handling
+                # Save file with comprehensive error handling (reuse content)
                 safe_filename = f"{i:03d}_{file.filename}"
                 file_path = batch_dir / safe_filename
                 
                 try:
                     async with aiofiles.open(file_path, 'wb') as f:
-                        content = await file.read()
+                        # Reuse content from first read - NO DOUBLE READ!
                         await f.write(content)
                     
                     # Verify file was written correctly
@@ -727,14 +1146,27 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                     file_info["document_type"]
                 )
 
-                # Ensure extracted_data is a dictionary, not a JSON string
+                # Ensure extracted_data is a dictionary with proper validation
                 extracted_data = result.get("extracted_data", {})
                 if isinstance(extracted_data, str):
                     try:
-                        extracted_data = json.loads(extracted_data)
-                    except json.JSONDecodeError:
-                        logger.warning(f"Could not decode extracted_data string for {db_file.name}. Storing as raw text.")
-                        extracted_data = {"raw_text": extracted_data}
+                        parsed_data = json.loads(extracted_data)
+                        # Validate that parsed result is actually a dict
+                        if isinstance(parsed_data, dict):
+                            extracted_data = parsed_data
+                        else:
+                            logger.warning(f"Parsed data is not a dict for {db_file.name}. Type: {type(parsed_data)}")
+                            extracted_data = {"raw_text": str(extracted_data), "parse_error": "Invalid type after parsing"}
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"JSON decode failed for {db_file.name}: {e}. Storing as raw text.")
+                        extracted_data = {"raw_text": extracted_data, "parse_error": str(e)}
+                    except Exception as e:
+                        logger.error(f"Unexpected error parsing extracted_data for {db_file.name}: {e}")
+                        extracted_data = {"raw_text": str(extracted_data), "parse_error": f"Unexpected: {str(e)}"}
+                elif not isinstance(extracted_data, dict):
+                    # Handle any non-dict, non-string types
+                    logger.warning(f"extracted_data has unexpected type {type(extracted_data)} for {db_file.name}")
+                    extracted_data = {"raw_text": str(extracted_data), "type_error": str(type(extracted_data))}
                 
                 # Create scan result in database
                 scan_result = DBScanResult(
@@ -884,7 +1316,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
         db.close()
 
 @app.get("/api/batches/{batch_id}")
-async def get_batch_status(batch_id: str, db: Session = Depends(get_db)):
+async def get_batch_status(batch_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
     """Get batch processing status with comprehensive error handling and Redis caching"""
     try:
         # Validate batch_id format
@@ -922,6 +1354,17 @@ async def get_batch_status(batch_id: str, db: Session = Depends(get_db)):
                 }
             )
         
+        # Verify ownership
+        if batch.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "Access denied",
+                    "message": "You don't have permission to access this batch.",
+                    "error_code": "ACCESS_DENIED"
+                }
+            )
+        
         # Calculate processing progress
         progress_percentage = 0
         if batch.total_files > 0:
@@ -955,7 +1398,7 @@ async def get_batch_status(batch_id: str, db: Session = Depends(get_db)):
         )
 
 @app.get("/api/batches/{batch_id}/results")
-async def get_batch_results(batch_id: str, db: Session = Depends(get_db)):
+async def get_batch_results(batch_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
     """Get scan results for a batch directly from database"""
     try:
         
@@ -997,10 +1440,11 @@ async def get_batch_results(batch_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error retrieving batch results: {str(e)}")
 
 @app.get("/api/batches")
-async def get_all_batches(db: Session = Depends(get_db)):
-    """Get all batches from database"""
+async def get_all_batches(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    """Get all batches from database for current user"""
     try:
-        batches = db.query(Batch).order_by(desc(Batch.created_at)).all()
+        # Filter batches by user_id
+        batches = db.query(Batch).filter(Batch.user_id == current_user.id).order_by(desc(Batch.created_at)).all()
         
         batch_list = []
         for batch in batches:
@@ -1022,10 +1466,11 @@ async def get_all_batches(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error retrieving batches: {str(e)}")
 
 @app.get("/api/results")
-async def get_all_results(db: Session = Depends(get_db)):
-    """Get all scan results from database"""
+async def get_all_results(db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    """Get all scan results from database for current user"""
     try:
-        results = db.query(DBScanResult).order_by(desc(DBScanResult.created_at)).all()
+        # Join with Batch to filter by user_id
+        results = db.query(DBScanResult).join(Batch, DBScanResult.batch_id == Batch.id).filter(Batch.user_id == current_user.id).order_by(desc(DBScanResult.created_at)).all()
         
         results_list = []
         for result in results:
@@ -1137,7 +1582,7 @@ async def export_result(result_id: str, format: str, db: Session = Depends(get_d
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
 @app.get("/api/batches/{batch_id}/export/{format}")
-async def export_batch(batch_id: str, format: str, db: Session = Depends(get_db)):
+async def export_batch(batch_id: str, format: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
     """Export all scan results in a batch to Excel or PDF"""
     try:
         # Validate format

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   Upload, 
@@ -7,19 +7,42 @@ import {
   History, 
   Bot,
   Menu,
-  X
+  X,
+  LogIn,
+  LogOut,
+  User,
+  Shield
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 const Navbar = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, isAuthenticated, logout } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  
+  // Hide navbar on login/register pages
+  if (location.pathname === '/login' || location.pathname === '/register') {
+    return null;
+  }
 
   const menuItems = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/upload', icon: Upload, label: 'Upload Documents' },
+    { path: '/upload', icon: Upload, label: 'Upload' },
     { path: '/documents', icon: FileText, label: 'Documents' },
     { path: '/history', icon: History, label: 'History' },
   ];
+  
+  // Add Admin menu item if user is admin
+  const allMenuItems = user?.is_admin 
+    ? [...menuItems, { path: '/admin', icon: Shield, label: 'Settings' }]
+    : menuItems;
+  
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+    closeMobileMenu();
+  };
 
   const toggleMobileMenu = () => {
     setIsMobileMenuOpen(!isMobileMenuOpen);
@@ -47,7 +70,7 @@ const Navbar = () => {
 
             {/* Desktop Navigation Menu */}
             <div className="hidden lg:flex items-center space-x-1">
-              {menuItems.map((item) => {
+              {allMenuItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
                 
@@ -70,7 +93,7 @@ const Navbar = () => {
 
             {/* Mobile & Tablet Navigation Icons */}
             <div className="flex lg:hidden items-center space-x-1">
-              {menuItems.map((item) => {
+              {allMenuItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
                 
@@ -91,18 +114,40 @@ const Navbar = () => {
               })}
             </div>
 
-            {/* Status Indicator & Mobile Menu Button */}
+            {/* Auth Section & Mobile Menu Button */}
             <div className="flex items-center space-x-2 md:space-x-3">
+              {/* User Info & Auth Buttons */}
+              {isAuthenticated ? (
+                <div className="hidden md:flex items-center space-x-3">
+                  <div className="flex items-center space-x-2 px-3 py-1.5 bg-gray-100 rounded-lg">
+                    <User className="w-4 h-4 text-gray-600" />
+                    <span className="text-sm font-medium text-gray-700">{user?.username}</span>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center space-x-2 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span className="text-sm font-medium">Logout</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="hidden md:flex items-center space-x-2">
+                  <Link
+                    to="/login"
+                    className="flex items-center space-x-2 px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    <span className="text-sm font-medium">Login</span>
+                  </Link>
+                </div>
+              )}
+              
               {/* Status Indicator */}
               <div className="hidden sm:flex items-center space-x-2 text-green-600">
                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                 <span className="text-xs md:text-sm font-medium hidden lg:block">System Online</span>
                 <span className="text-xs md:text-sm font-medium lg:hidden">Online</span>
-              </div>
-
-              {/* Mobile Status Indicator */}
-              <div className="sm:hidden">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
               </div>
 
               {/* Mobile Menu Button */}
@@ -145,6 +190,34 @@ const Navbar = () => {
                   </Link>
                 );
               })}
+              
+              {/* Auth Section in Mobile Menu */}
+              <div className="border-t border-gray-100 mt-2 pt-2 md:hidden">
+                {isAuthenticated ? (
+                  <>
+                    <div className="flex items-center space-x-3 px-3 py-2 text-gray-700">
+                      <User className="w-5 h-5 text-gray-500" />
+                      <span className="font-medium">{user?.username}</span>
+                    </div>
+                    <button
+                      onClick={handleLogout}
+                      className="w-full flex items-center space-x-3 px-3 py-3 rounded-lg text-red-600 hover:bg-red-50 transition-all"
+                    >
+                      <LogOut className="w-5 h-5" />
+                      <span className="font-medium">Logout</span>
+                    </button>
+                  </>
+                ) : (
+                  <Link
+                    to="/login"
+                    onClick={closeMobileMenu}
+                    className="flex items-center space-x-3 px-3 py-3 rounded-lg text-gray-700 hover:bg-gray-100 transition-all"
+                  >
+                    <LogIn className="w-5 h-5 text-gray-500" />
+                    <span className="font-medium">Login</span>
+                  </Link>
+                )}
+              </div>
               
               {/* Mobile Status in Menu */}
               <div className="flex items-center space-x-3 px-3 py-3 text-green-600 border-t border-gray-100 mt-2 pt-3">

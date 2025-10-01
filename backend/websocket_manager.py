@@ -62,7 +62,10 @@ class ConnectionManager:
         message_str = json.dumps(message)
         disconnected = []
         
-        for connection in self.active_connections[batch_id]:
+        # Create a copy to avoid "Set changed size during iteration" error
+        connections_copy = list(self.active_connections[batch_id])
+        
+        for connection in connections_copy:
             try:
                 await connection.send_text(message_str)
             except Exception as e:
@@ -78,7 +81,10 @@ class ConnectionManager:
         message_str = json.dumps(message)
         disconnected = []
         
-        for connection in self.general_connections:
+        # Create a copy to avoid "Set changed size during iteration" error
+        connections_copy = list(self.general_connections)
+        
+        for connection in connections_copy:
             try:
                 await connection.send_text(message_str)
             except Exception as e:

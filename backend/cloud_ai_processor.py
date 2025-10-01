@@ -150,19 +150,28 @@ class CloudAIProcessor:
                 processing_time = asyncio.get_event_loop().time() - start_time
                 
                 return CloudOCRResult(
-                    text=full_text,
+                    raw_text=full_text,
                     confidence=avg_confidence * 100,
                     service_used="Azure Document Intelligence",
                     processing_time=processing_time,
                     extracted_fields=self._extract_tax_fields_azure(full_text),
-                    bounding_boxes=bounding_boxes,
+                    raw_response={"bounding_boxes": bounding_boxes, "read_result": "success"},
                     document_type="tax_document",
                     language_detected="id"
                 )
                 
         except Exception as e:
             logger.error(f"❌ Azure processing failed: {e}")
-            return CloudOCRResult("", 0.0, "Azure (Failed)", 0.0, {}, {}, "unknown", "unknown") # type: ignore
+            return CloudOCRResult(
+                raw_text="",
+                confidence=0.0,
+                service_used="Azure (Failed)",
+                processing_time=0.0,
+                extracted_fields={},
+                raw_response={"error": str(e)},
+                document_type="unknown",
+                language_detected="unknown"
+            )
     
     async def process_with_google(self, file_path: str) -> CloudOCRResult:
         """Process document with Google Document AI"""
@@ -282,12 +291,15 @@ class CloudAIProcessor:
             avg_confidence = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0.0
             processing_time = asyncio.get_event_loop().time() - start_time
             
-            # Extract key-value pairs
+            # Create block index for O(1) lookup instead of O(n) for each block
+            block_map = {block['Id']: block for block in response['Blocks']}
+            
+            # Extract key-value pairs with optimized lookup
             extracted_fields = {}
             for block in response['Blocks']:
                 if block['BlockType'] == 'KEY_VALUE_SET' and 'KEY' in block['EntityTypes']:
-                    key_text = self._get_text_from_relationships(block, response['Blocks'])
-                    value_text = self._get_value_from_key(block, response['Blocks'])
+                    key_text = self._get_text_from_relationships(block, block_map)
+                    value_text = self._get_value_from_key(block, block_map)
                     if key_text and value_text:
                         extracted_fields[key_text] = value_text
             
@@ -304,7 +316,16 @@ class CloudAIProcessor:
             
         except Exception as e:
             logger.error(f"❌ AWS processing failed: {e}")
-            return CloudOCRResult("", 0.0, "AWS (Failed)", 0.0, {}, {}, "unknown", "unknown") # type: ignore
+            return CloudOCRResult(
+                raw_text="",
+                confidence=0.0,
+                service_used="AWS (Failed)",
+                processing_time=0.0,
+                extracted_fields={},
+                raw_response={"error": str(e)},
+                document_type="unknown",
+                language_detected="unknown"
+            )
     
     async def process_ensemble_cloud(self, file_path: str) -> CloudOCRResult:
         """Ensemble processing with multiple cloud services"""
@@ -321,7 +342,16 @@ class CloudAIProcessor:
             
             if not tasks:
                 logger.error("❌ No cloud services available")
-                return CloudOCRResult("", 0.0, "None", 0.0, {}, {}, "unknown", "unknown") # type: ignore
+                return CloudOCRResult(
+                    raw_text="",
+                    confidence=0.0,
+                    service_used="None",
+                    processing_time=0.0,
+                    extracted_fields={},
+                    raw_response={"error": "No services available"},
+                    document_type="unknown",
+                    language_detected="unknown"
+                )
             
             # Wait for all results
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -331,7 +361,16 @@ class CloudAIProcessor:
             
             if not successful_results:
                 logger.error("❌ All cloud services failed")
-                return CloudOCRResult("", 0.0, "All Failed", 0.0, {}, {}, "unknown", "unknown") # type: ignore
+                return CloudOCRResult(
+                    raw_text="",
+                    confidence=0.0,
+                    service_used="All Failed",
+                    processing_time=0.0,
+                    extracted_fields={},
+                    raw_response={"error": "All services failed"},
+                    document_type="unknown",
+                    language_detected="unknown"
+                )
             
             # Select best result based on confidence
             best_result = max(successful_results, key=lambda x: x.confidence)
@@ -341,7 +380,16 @@ class CloudAIProcessor:
             
         except Exception as e:
             logger.error(f"❌ Ensemble cloud processing failed: {e}")
-            return CloudOCRResult("", 0.0, "Ensemble Failed", 0.0, {}, {}, "unknown", "unknown") # type: ignore
+            return CloudOCRResult(
+                raw_text="",
+                confidence=0.0,
+                service_used="Ensemble Failed",
+                processing_time=0.0,
+                extracted_fields={},
+                raw_response={"error": str(e)},
+                document_type="unknown",
+                language_detected="unknown"
+            )
     
     def _extract_tax_fields_azure(self, text: str) -> Dict[str, Any]:
         """Extract Indonesian tax document fields from Azure result"""
@@ -375,27 +423,27 @@ class CloudAIProcessor:
         
         return fields
     
-    def _get_text_from_relationships(self, block, blocks):
-        """Helper function for AWS Textract"""
+    def _get_text_from_relationships(self, block, block_map):
+        """Helper function for AWS Textract - optimized with dict lookup"""
         text = ""
         if 'Relationships' in block:
             for relationship in block['Relationships']:
                 if relationship['Type'] == 'CHILD':
                     for child_id in relationship['Ids']:
-                        child_block = next((b for b in blocks if b['Id'] == child_id), None)
+                        child_block = block_map.get(child_id)
                         if child_block and child_block['BlockType'] == 'WORD':
                             text += child_block['Text'] + " "
         return text.strip()
     
-    def _get_value_from_key(self, key_block, blocks):
-        """Helper function for AWS Textract"""
+    def _get_value_from_key(self, key_block, block_map):
+        """Helper function for AWS Textract - optimized with dict lookup"""
         if 'Relationships' in key_block:
             for relationship in key_block['Relationships']:
                 if relationship['Type'] == 'VALUE':
                     for value_id in relationship['Ids']:
-                        value_block = next((b for b in blocks if b['Id'] == value_id), None)
+                        value_block = block_map.get(value_id)
                         if value_block:
-                            return self._get_text_from_relationships(value_block, blocks)
+                            return self._get_text_from_relationships(value_block, block_map)
         return ""
 
 # Example usage

@@ -19,6 +19,9 @@ mysql-connector-python==9.1.0
 python-magic==0.4.27
 python-dotenv==1.0.1
 aioredis==2.0.1
+python-jose[cryptography]==3.5.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1 
 
 # ===== MONITORING & LOGGING =====
 prometheus-client==0.21.1

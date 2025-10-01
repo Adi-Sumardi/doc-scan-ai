@@ -6,6 +6,13 @@ from dotenv import load_dotenv
 # Load environment variables from .env file at the very beginning
 load_dotenv()
 
+# Utility function for parsing boolean environment variables
+def parse_bool_env(value: str, default: bool = False) -> bool:
+    """Parse boolean environment variable with support for multiple formats"""
+    if not value:
+        return default
+    return value.lower() in ('true', '1', 'yes', 'on', 'enabled')
+
 class Settings(BaseSettings):
     
     frontend_url: str
@@ -69,8 +76,10 @@ class Settings(BaseSettings):
     
     @property
     def cors_origins_list(self) -> List[str]:
-        """Get CORS origins as a list"""
-        return [origin.strip() for origin in self.cors_origins.split(",")]
+        """Get CORS origins as a list with proper whitespace handling"""
+        origins = [origin.strip() for origin in self.cors_origins.split(",")]
+        # Filter out empty strings after stripping
+        return [origin for origin in origins if origin]
     
     # Use SettingsConfigDict for Pydantic v2
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra='ignore')

@@ -51,7 +51,7 @@ const OCRMetricsDisplay: React.FC<OCRMetricsDisplayProps> = ({
         <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-blue-500 rounded-lg flex items-center justify-center">
           <Brain className="w-5 h-5 text-white" />
         </div>
-        <h3 className="text-lg font-semibold text-gray-900">Next-Gen OCR Metrics</h3>
+        <h3 className="text-lg font-semibold text-gray-900">AI Processing Metrics</h3>
       </div>
 
       {metrics && (
@@ -169,7 +169,7 @@ const OCRMetricsDisplay: React.FC<OCRMetricsDisplayProps> = ({
           <Target className="w-4 h-4 text-purple-500" />
           <span className="text-gray-600">Powered by</span>
           <span className="font-semibold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
-            Next-Generation OCR
+            AI DocScan
           </span>
         </div>
       </div>

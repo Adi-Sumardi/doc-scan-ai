@@ -15,6 +15,13 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import logging
 
+# Utility function for parsing boolean environment variables
+def parse_bool_env(value: str, default: bool = False) -> bool:
+    """Parse boolean environment variable with support for multiple formats"""
+    if not value:
+        return default
+    return value.lower() in ('true', '1', 'yes', 'on', 'enabled')
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -74,7 +81,7 @@ class RealOCRProcessor:
         self._check_dependencies()
 
         # Determine which processor to use based on availability and configuration
-        self.use_cloud_ai = HAS_CLOUD_AI and os.getenv('ENABLE_CLOUD_OCR', 'true').lower() == 'true'
+        self.use_cloud_ai = HAS_CLOUD_AI and parse_bool_env(os.getenv('ENABLE_CLOUD_OCR', 'true'), default=True)
         self.use_nextgen = False
 
         if self.use_cloud_ai:

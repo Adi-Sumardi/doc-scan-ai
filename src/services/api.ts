@@ -29,10 +29,17 @@ const api = axios.create({
   timeout: 60000, // 60 detik timeout untuk semua request
 });
 
-// Request logging
+// Request logging and JWT token interceptor
 api.interceptors.request.use(
   (config) => {
     console.log(`[API Request] ${config.method?.toUpperCase()} ${config.url}`);
+    
+    // Add JWT token to requests if available
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    
     return config;
   },
   (error) => {
@@ -41,7 +48,7 @@ api.interceptors.request.use(
   }
 );
 
-// Response logging & error handling
+// Response logging & error handling with 401 auto-logout
 api.interceptors.response.use(
   (response) => {
     console.log(`[API Response] ${response.status} ${response.config.url}`);
@@ -49,6 +56,28 @@ api.interceptors.response.use(
   },
   (error) => {
     console.error('[API Response Error]', error.response?.data || error.message);
+    
+    // Handle 401 Unauthorized - auto logout
+    if (error.response?.status === 401) {
+      console.warn('🔒 401 Unauthorized - Token expired or invalid');
+      
+      // Clear token from localStorage
+      localStorage.removeItem('access_token');
+      
+      // Redirect to login page if not already there
+      if (!window.location.pathname.includes('/login') && 
+          !window.location.pathname.includes('/register')) {
+        console.log('🔄 Redirecting to login page...');
+        window.location.href = '/login';
+      }
+    }
+    
+    // Handle network errors
+    if (error.message === 'Network Error') {
+      console.error('❌ Network Error - Check if backend is running');
+      error.message = 'Cannot connect to server. Please check your connection.';
+    }
+    
     return Promise.reject(error);
   }
 );

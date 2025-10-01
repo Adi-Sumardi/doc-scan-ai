@@ -44,6 +44,20 @@ logger = logging.getLogger(__name__)
 
 # Database Models for Production
 
+class User(Base):
+    """User model for authentication"""
+    __tablename__ = "users"
+    
+    id = Column(String(36), primary_key=True, index=True)
+    username = Column(String(50), unique=True, nullable=False, index=True)
+    email = Column(String(100), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(255), nullable=False)
+    full_name = Column(String(100), nullable=True)
+    is_active = Column(Boolean, default=True)
+    is_admin = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_login = Column(DateTime, nullable=True)
+
 class Batch(Base):
     """Batch model for document processing"""
     __tablename__ = "batches"
@@ -182,8 +196,9 @@ def create_tables():
 def test_connection():
     """Test database connection"""
     try:
+        from sqlalchemy import text
         db = SessionLocal()
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
         db.close()
         logger.info("✅ Database connection successful")
         return True
@@ -194,8 +209,9 @@ def test_connection():
 def get_database_info():
     """Get database information"""
     try:
+        from sqlalchemy import text
         db = SessionLocal()
-        result = db.execute("SELECT VERSION() as version, DATABASE() as database").fetchone()
+        result = db.execute(text("SELECT VERSION() as version, DATABASE() as database")).fetchone()
         db.close()
         return {
             "version": result.version if result else "Unknown",

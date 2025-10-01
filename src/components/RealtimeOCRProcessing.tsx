@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Brain, Zap, Cpu, CheckCircle, Clock, AlertCircle, TrendingUp } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Brain, Sparkles, Loader2 } from 'lucide-react';
 
 interface RealtimeOCRProcessingProps {
   batchId: string;
@@ -7,13 +7,15 @@ interface RealtimeOCRProcessingProps {
   className?: string;
 }
 
-interface ProcessingStage {
-  id: string;
-  name: string;
-  description: string;
-  status: 'pending' | 'processing' | 'completed' | 'error';
-  duration?: number;
-  icon: React.ReactNode;
+interface Particle {
+  id: number;
+  x: number;
+  y: number;
+  size: number;
+  speedX: number;
+  speedY: number;
+  color: string;
+  opacity: number;
 }
 
 const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
@@ -21,225 +23,224 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
   onComplete,
   className = ''
 }) => {
-  const [currentStage, setCurrentStage] = useState(0);
-  const [stages, setStages] = useState<ProcessingStage[]>([
-    {
-      id: 'preprocessing',
-      name: 'Advanced Preprocessing',
-      description: 'AI-powered image enhancement and optimization',
-      status: 'pending',
-      icon: <Brain className="w-5 h-5" />
-    },
-    {
-      id: 'rapidocr',
-      name: 'RapidOCR Processing',
-      description: 'Ultra-fast ONNX runtime text extraction',
-      status: 'pending',
-      icon: <Zap className="w-5 h-5" />
-    },
-    {
-      id: 'easyocr',
-      name: 'EasyOCR Analysis',
-      description: 'Multilingual OCR with Indonesian support',
-      status: 'pending',
-      icon: <Cpu className="w-5 h-5" />
-    },
-    {
-      id: 'ensemble',
-      name: 'Ensemble AI Fusion',
-      description: 'Combining results with confidence weighting',
-      status: 'pending',
-      icon: <TrendingUp className="w-5 h-5" />
-    },
-    {
-      id: 'analysis',
-      name: 'Document Analysis',
-      description: 'Structure analysis and entity extraction',
-      status: 'pending',
-      icon: <Brain className="w-5 h-5" />
-    }
-  ]);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [particles, setParticles] = useState<Particle[]>([]);
+  const [scanProgress, setScanProgress] = useState(0);
+  const [statusText, setStatusText] = useState('Initializing AI Scanner...');
+  const canvasRef = useRef<HTMLDivElement>(null);
 
-  const [processingMetrics, setProcessingMetrics] = useState({
-    totalFiles: 0,
-    processedFiles: 0,
-    currentFile: '',
-    averageAccuracy: 0,
-    processingSpeed: 0,
-    estimatedTimeRemaining: 0
-  });
-
+  // Generate particles for visual effects
   useEffect(() => {
-    // Simulate processing stages
-    const processStages = async () => {
-      for (let i = 0; i < stages.length; i++) {
-        setCurrentStage(i);
+    const colors = ['#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#EF4444'];
+    const newParticles: Particle[] = Array.from({ length: 30 }, (_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      y: Math.random() * 100,
+      size: Math.random() * 4 + 2,
+      speedX: (Math.random() - 0.5) * 0.5,
+      speedY: (Math.random() - 0.5) * 0.5,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      opacity: Math.random() * 0.3 + 0.2
+    }));
+    setParticles(newParticles);
+  }, []);
+
+  // Animate particles
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setParticles(prev => prev.map(p => ({
+        ...p,
+        x: (p.x + p.speedX + 100) % 100,
+        y: (p.y + p.speedY + 100) % 100
+      })));
+    }, 50);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Smooth progress animation
+  useEffect(() => {
+    const statuses = [
+      'Initializing AI Scanner...',
+      'Analyzing document structure...',
+      'Extracting text with AI...',
+      'Processing document data...',
+      'Optimizing results...',
+      'Finalizing scan...',
+      'Complete!'
+    ];
+
+    const totalDuration = 8000; // 8 seconds total
+    const startTime = Date.now();
+    
+    const progressInterval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(100, (elapsed / totalDuration) * 100);
+      
+      setScanProgress(progress);
+      
+      // Update status text based on progress
+      const statusIndex = Math.min(Math.floor(progress / 15), statuses.length - 1);
+      setStatusText(statuses[statusIndex]);
+      
+      if (progress >= 100) {
+        clearInterval(progressInterval);
+        setShowConfetti(true);
         
-        // Update stage to processing
-        setStages(prev => prev.map((stage, index) => ({
-          ...stage,
-          status: index === i ? 'processing' : index < i ? 'completed' : 'pending'
-        })));
-
-        // Simulate processing time
-        const processingTime = Math.random() * 2000 + 1000; // 1-3 seconds
-        
-        // Update metrics during processing
-        const interval = setInterval(() => {
-          setProcessingMetrics(prev => ({
-            ...prev,
-            processingSpeed: Math.random() * 50 + 50, // 50-100 chars/sec
-            averageAccuracy: Math.random() * 10 + 90, // 90-100%
-            estimatedTimeRemaining: Math.max(0, prev.estimatedTimeRemaining - 0.1)
-          }));
-        }, 100);
-
-        await new Promise(resolve => setTimeout(resolve, processingTime));
-        clearInterval(interval);
-
-        // Mark stage as completed
-        setStages(prev => prev.map((stage, index) => ({
-          ...stage,
-          status: index <= i ? 'completed' : 'pending',
-          duration: index === i ? processingTime : stage.duration
-        })));
+        setTimeout(() => {
+          setShowConfetti(false);
+          onComplete?.();
+        }, 1500);
       }
+    }, 50);
 
-      // All stages completed
-      setTimeout(() => {
-        onComplete?.();
-      }, 500);
-    };
-
-    processStages();
-  }, [batchId, onComplete, stages.length]);
-
-  const getStageStatusIcon = (status: ProcessingStage['status']) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="w-5 h-5 text-green-500" />;
-      case 'processing':
-        return <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />;
-      case 'error':
-        return <AlertCircle className="w-5 h-5 text-red-500" />;
-      default:
-        return <Clock className="w-5 h-5 text-gray-400" />;
-    }
-  };
-
-  const getStageStatusColor = (status: ProcessingStage['status']) => {
-    switch (status) {
-      case 'completed':
-        return 'border-green-200 bg-green-50';
-      case 'processing':
-        return 'border-blue-200 bg-blue-50';
-      case 'error':
-        return 'border-red-200 bg-red-50';
-      default:
-        return 'border-gray-200 bg-gray-50';
-    }
-  };
+    return () => clearInterval(progressInterval);
+  }, [batchId, onComplete]);
 
   return (
-    <div className={`bg-white rounded-lg p-6 shadow-sm border ${className}`}>
-      {/* Header */}
-      <div className="flex items-center space-x-3 mb-6">
-        <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-blue-500 rounded-lg flex items-center justify-center">
-          <Brain className="w-6 h-6 text-white" />
-        </div>
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900">Next-Generation OCR Processing</h3>
-          <p className="text-sm text-gray-600">Real-time AI document analysis in progress</p>
-        </div>
-      </div>
-
-      {/* Processing Stages */}
-      <div className="space-y-4 mb-6">
-        {stages.map((stage, index) => (
-          <div 
-            key={stage.id}
-            className={`p-4 rounded-lg border transition-all duration-300 ${getStageStatusColor(stage.status)}`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="text-gray-600">
-                  {stage.icon}
-                </div>
-                <div>
-                  <h4 className="font-medium text-gray-900">{stage.name}</h4>
-                  <p className="text-sm text-gray-600">{stage.description}</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-2">
-                {stage.duration && (
-                  <span className="text-xs text-gray-500">
-                    {(stage.duration / 1000).toFixed(1)}s
-                  </span>
-                )}
-                {getStageStatusIcon(stage.status)}
-              </div>
-            </div>
-            
-            {stage.status === 'processing' && (
-              <div className="mt-3">
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full animate-pulse" 
-                       style={{ width: `${Math.min(100, (index + 1) * 20)}%` }} />
-                </div>
-              </div>
-            )}
-          </div>
+    <div className={`bg-white rounded-lg p-8 shadow-sm border relative overflow-hidden ${className}`}>
+      {/* Animated Background Particles */}
+      <div ref={canvasRef} className="absolute inset-0 pointer-events-none overflow-hidden">
+        {particles.map(particle => (
+          <div
+            key={particle.id}
+            className="absolute rounded-full transition-all duration-300"
+            style={{
+              left: `${particle.x}%`,
+              top: `${particle.y}%`,
+              width: `${particle.size}px`,
+              height: `${particle.size}px`,
+              backgroundColor: particle.color,
+              opacity: particle.opacity,
+              boxShadow: `0 0 ${particle.size * 2}px ${particle.color}`,
+              animation: 'float 3s ease-in-out infinite'
+            }}
+          />
         ))}
       </div>
 
-      {/* Real-time Metrics */}
-      <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-4 border border-purple-100">
-        <h4 className="font-medium text-gray-900 mb-3">Processing Metrics</h4>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="text-center">
-            <div className="text-2xl font-bold text-purple-600">
-              {processingMetrics.averageAccuracy.toFixed(1)}%
+      {/* Confetti Effect */}
+      {showConfetti && (
+        <div className="absolute inset-0 pointer-events-none z-50">
+          {Array.from({ length: 50 }).map((_, i) => (
+            <div
+              key={`confetti-${i}`}
+              className="absolute w-2 h-2 rounded-full animate-confetti"
+              style={{
+                left: `${Math.random() * 100}%`,
+                top: '-10px',
+                backgroundColor: ['#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#EF4444'][i % 5],
+                animationDelay: `${Math.random() * 0.5}s`,
+                animationDuration: `${Math.random() * 2 + 1}s`
+              }}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Scanning Wave Effect */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div 
+          className="absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent opacity-50"
+          style={{
+            top: `${scanProgress}%`,
+            transition: 'top 0.1s linear',
+            boxShadow: '0 0 20px rgba(59, 130, 246, 0.8)'
+          }}
+        />
+      </div>
+
+      {/* Header */}
+      <div className="flex items-center justify-center space-x-3 mb-8 relative z-10">
+        <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl flex items-center justify-center animate-pulse-slow shadow-xl">
+          <Brain className="w-8 h-8 text-white" />
+        </div>
+        <div className="text-center">
+          <h3 className="text-2xl font-bold text-gray-900 mb-1">AI Document Scanner</h3>
+          <p className="text-sm text-gray-600 flex items-center gap-2 justify-center">
+            <Sparkles className="w-4 h-4 text-yellow-500 animate-pulse" />
+            Powered by Advanced AI
+            <Sparkles className="w-4 h-4 text-yellow-500 animate-pulse" />
+          </p>
+        </div>
+      </div>
+
+      {/* Circular Progress Indicator */}
+      <div className="flex justify-center mb-8 relative z-10">
+        <div className="relative inline-flex items-center justify-center">
+          <svg className="w-48 h-48 transform -rotate-90">
+            <circle 
+              cx="96" 
+              cy="96" 
+              r="88" 
+              stroke="#E5E7EB" 
+              strokeWidth="8" 
+              fill="none" 
+            />
+            <circle 
+              cx="96" 
+              cy="96" 
+              r="88" 
+              stroke="url(#gradient)" 
+              strokeWidth="8" 
+              fill="none"
+              strokeDasharray={`${2 * Math.PI * 88}`}
+              strokeDashoffset={`${2 * Math.PI * 88 * (1 - scanProgress / 100)}`}
+              className="transition-all duration-300"
+              strokeLinecap="round"
+            />
+            <defs>
+              <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#8B5CF6" />
+                <stop offset="50%" stopColor="#3B82F6" />
+                <stop offset="100%" stopColor="#10B981" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <div className="absolute flex flex-col items-center">
+            <div className="text-5xl font-bold bg-gradient-to-r from-purple-600 via-blue-600 to-green-600 bg-clip-text text-transparent">
+              {Math.round(scanProgress)}%
             </div>
-            <div className="text-xs text-gray-600">Accuracy</div>
-          </div>
-          
-          <div className="text-center">
-            <div className="text-2xl font-bold text-blue-600">
-              {processingMetrics.processingSpeed.toFixed(0)}
-            </div>
-            <div className="text-xs text-gray-600">chars/sec</div>
-          </div>
-          
-          <div className="text-center">
-            <div className="text-2xl font-bold text-green-600">
-              {currentStage + 1}/{stages.length}
-            </div>
-            <div className="text-xs text-gray-600">Stages</div>
-          </div>
-          
-          <div className="text-center">
-            <div className="text-2xl font-bold text-indigo-600">
-              {((currentStage + 1) / stages.length * 100).toFixed(0)}%
-            </div>
-            <div className="text-xs text-gray-600">Complete</div>
+            <Loader2 className="w-6 h-6 text-blue-500 animate-spin mt-2" />
           </div>
         </div>
       </div>
 
-      {/* Progress Bar */}
-      <div className="mt-4">
-        <div className="flex justify-between items-center mb-2">
-          <span className="text-sm font-medium text-gray-700">Overall Progress</span>
-          <span className="text-sm text-gray-500">
-            {((currentStage + 1) / stages.length * 100).toFixed(0)}%
-          </span>
-        </div>
-        <div className="w-full bg-gray-200 rounded-full h-3">
+      {/* Status Text */}
+      <div className="text-center mb-6 relative z-10">
+        <p className="text-lg font-medium text-gray-700 animate-pulse">
+          {statusText}
+        </p>
+      </div>
+
+      {/* Enhanced Progress Bar */}
+      <div className="relative z-10 px-4">
+        <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden shadow-inner relative">
           <div 
-            className="bg-gradient-to-r from-purple-500 to-blue-500 h-3 rounded-full transition-all duration-500"
-            style={{ width: `${(currentStage + 1) / stages.length * 100}%` }}
-          />
+            className="bg-gradient-to-r from-purple-500 via-blue-500 to-green-500 h-4 rounded-full transition-all duration-300 relative overflow-hidden"
+            style={{ width: `${scanProgress}%` }}
+          >
+            {/* Shimmer effect */}
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white to-transparent opacity-30 animate-shimmer" style={{ backgroundSize: '200% 100%' }} />
+            {/* Glowing edge */}
+            <div className="absolute right-0 top-0 bottom-0 w-2 bg-white opacity-70 blur-sm" />
+          </div>
         </div>
+      </div>
+
+      {/* Floating sparkles around the progress */}
+      <div className="absolute inset-0 pointer-events-none z-20">
+        {[...Array(6)].map((_, i) => (
+          <Sparkles 
+            key={i}
+            className="absolute w-5 h-5 text-yellow-400 animate-pulse" 
+            style={{
+              left: `${15 + i * 15}%`,
+              top: `${50 + Math.sin(i) * 20}%`,
+              animationDelay: `${i * 0.3}s`,
+              opacity: scanProgress > i * 15 ? 1 : 0.2
+            }}
+          />
+        ))}
       </div>
     </div>
   );
