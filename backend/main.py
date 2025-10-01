@@ -775,6 +775,9 @@ async def upload_documents(
                         }
                         validation_results.append(validation_result)
                         continue
+                    
+                    # Reset file pointer for security validation
+                    await file.seek(0)
                         
                 except Exception as e:
                     logger.error(f"Failed to read file {file.filename}: {e}")
