@@ -296,6 +296,17 @@ async def get_current_admin_user(current_user: User = Depends(get_current_active
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
 
+async def get_user_by_id_from_path(user_id: str, db: Session = Depends(get_db)):
+    """Dependency to get a user by ID from the URL path and handle not found cases."""
+    # Centralized validation
+    if SecurityValidator.check_sql_injection(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user ID format")
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
 @app.get("/api/admin/users")
 async def get_all_users(
     current_admin: User = Depends(get_current_admin_user),
@@ -331,17 +342,13 @@ async def get_all_users(
 
 @app.get("/api/admin/users/{user_id}/activities")
 async def get_user_activities(
-    user_id: str,
+    user: User = Depends(get_user_by_id_from_path),
     current_admin: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db)
 ):
     """Get detailed activity history for a specific user (Admin only)"""
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
     # Get all batches by user
-    batches = db.query(Batch).filter(Batch.user_id == user_id).order_by(Batch.created_at.desc()).all()
+    batches = db.query(Batch).filter(Batch.user_id == user.id).order_by(Batch.created_at.desc()).all()
     
     batch_list = []
     for batch in batches:
@@ -376,16 +383,12 @@ async def get_user_activities(
 
 @app.patch("/api/admin/users/{user_id}/status")
 async def update_user_status(
-    user_id: str,
     is_active: bool,
+    user: User = Depends(get_user_by_id_from_path),
     current_admin: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db)
 ):
     """Update user active status (Admin only)"""
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
     # Prevent admin from deactivating themselves
     if user.id == current_admin.id:
         raise HTTPException(status_code=400, detail="Cannot change your own status")
@@ -407,23 +410,14 @@ async def update_user_status(
 
 @app.post("/api/admin/users/{user_id}/reset-password")
 async def reset_user_password(
-    user_id: str,
     new_password: str,
+    user: User = Depends(get_user_by_id_from_path),
     current_admin: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db)
 ):
     """Reset user password (Admin only) with password strength validation"""
-    # Validate user_id (prevent SQL injection)
-    if SecurityValidator.check_sql_injection(user_id):
-        raise HTTPException(status_code=400, detail="Invalid user ID")
-    
     # Validate password strength
     SecurityValidator.validate_password_strength(new_password)
-    
-    # Find user
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
     
     # Hash new password
     from auth import get_password_hash
@@ -447,18 +441,13 @@ async def reset_user_password(
 
 @app.post("/api/admin/users/{user_id}/generate-temp-password")
 async def generate_temp_password(
-    user_id: str,
+    user: User = Depends(get_user_by_id_from_path),
     current_admin: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db)
 ):
     """Generate and set a temporary password for user (Admin only)"""
     import secrets
     import string
-    
-    # Find user
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
     
     # Generate secure random password (8 chars: letters, digits, special chars)
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"

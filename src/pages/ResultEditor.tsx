@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader, AlertCircle } from 'lucide-react';
 import DocumentPreview from '../components/DocumentPreview';
 import EditableOCRResult from '../components/EditableOCRResult.tsx';
 import { apiService, ScanResult } from '../services/api';
+import { useDocument } from '../context/DocumentContext';
 import toast from 'react-hot-toast';
 
 const ResultEditor = () => {
@@ -13,18 +14,14 @@ const ResultEditor = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
+  const { updateResult } = useDocument();
 
   const toggleEditMode = () => {
     setIsEditMode(prev => !prev);
   };
 
-  useEffect(() => {
-    if (id) {
-      fetchResult(id);
-    }
-  }, [id]);
-
-  const fetchResult = async (resultId: string) => {
+  // Wrap fetchResult with useCallback for stable reference
+  const fetchResult = useCallback(async (resultId: string) => {
     try {
       setLoading(true);
       setError(null);
@@ -42,27 +39,38 @@ const ResultEditor = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []); // Empty deps - function doesn't depend on any state/props
 
-  const handleSave = async (editedData: any) => {
+  useEffect(() => {
+    if (id) {
+      fetchResult(id);
+    }
+  }, [id, fetchResult]); // Include fetchResult in deps
+
+  const handleSave = useCallback(async (editedData: any) => {
     if (!id) return;
     
+    const toastId = toast.loading('Saving changes...');
     try {
-      // TODO: Implement API endpoint to update result
-      // await apiService.updateResult(id, editedData);
+      // Use the context function to save the result
+      await updateResult(id, editedData);
       
-      // For now, just update local state
-      setResult(prev => prev ? { ...prev, extracted_data: editedData } : null);
+      // Optimistic update - context already updated global state
+      // Just update local state to reflect changes immediately
+      setResult(prev => prev ? { 
+        ...prev, 
+        extracted_data: { ...prev.extracted_data, ...editedData },
+        updated_at: new Date().toISOString()
+      } : null);
       
-      console.log('Saving edited data:', editedData);
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      setIsEditMode(false); // Exit edit mode on success
+      toast.success('Changes saved successfully!', { id: toastId });
     } catch (error) {
       console.error('Error saving result:', error);
-      throw error;
+      toast.error('Failed to save changes.', { id: toastId });
+      // Don't re-throw - error already handled by updateResult
     }
-  };
+  }, [id, updateResult]); // Include dependencies
 
   const handleBack = () => {
     navigate(-1);

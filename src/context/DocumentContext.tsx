@@ -29,11 +29,19 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   const [scanResults, setScanResults] = useState<ScanResult[]>([]);
   const [loading, setLoading] = useState(false);
   const notifiedBatchesRef = useRef<Set<string>>(new Set());
+  const pollingIntervalsRef = useRef<NodeJS.Timeout[]>([]);
 
   // Load initial data
   React.useEffect(() => {
     refreshAllData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Cleanup polling intervals on unmount to prevent memory leaks
+  React.useEffect(() => {
+    return () => {
+      pollingIntervalsRef.current.forEach(clearInterval);
+    };
   }, []);
 
   const handleBatchCompletion = (batchId: string) => {
@@ -114,6 +122,7 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
         clearInterval(pollInterval);
       }
     }, 2000); // Poll every 2 seconds
+    pollingIntervalsRef.current.push(pollInterval);
     
     // Stop polling after 5 minutes
     setTimeout(() => clearInterval(pollInterval), 300000);
