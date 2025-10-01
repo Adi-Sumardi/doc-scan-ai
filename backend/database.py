@@ -11,6 +11,10 @@ import os
 from datetime import datetime
 from typing import Generator
 import logging
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Helper function for database compatibility
 def get_text_column():

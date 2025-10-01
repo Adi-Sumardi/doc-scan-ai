@@ -342,6 +342,7 @@ async def login(request: Request, user: UserLogin, db: Session = Depends(get_db)
     """Login and get JWT token with rate limiting"""
     # Find user by username
     db_user = db.query(User).filter(User.username == user.username).first()
+    
     if not db_user or not verify_password(user.password, db_user.hashed_password):
         # Log failed login attempt
         log_login_failure(user.username, request.client.host, "invalid_credentials")
