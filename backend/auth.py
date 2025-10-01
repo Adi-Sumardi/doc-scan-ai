@@ -1,7 +1,7 @@
 """
 Authentication utilities for JWT token-based authentication
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -38,9 +38,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     """Create JWT access token"""
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -70,13 +70,20 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     )
     
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_exp": True})
         user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception
+    except jwt.ExpiredSignatureError:
+        logger.warning(f"🔐 JWT Expired: Token has expired.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has expired",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     except JWTError as e:
         # Log the specific JWT error for easier debugging in production
-        logger.error(f"🔐 JWT Decode Error: {type(e).__name__}: {e}")
+        logger.error(f"🔐 JWT Decode Error: {type(e).__name__}: {e}", exc_info=True)
         raise credentials_exception
     
     user_id: str = payload.get("sub")
