@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useDocument } from '../context/DocumentContext';
 import OCRMetricsDisplay from '../components/OCRMetricsDisplay';
 import RealtimeOCRProcessing from '../components/RealtimeOCRProcessing';
+import DocumentPreview from '../components/DocumentPreview';
+import EditableOCRResult from '../components/EditableOCRResult';
 import { 
   ArrowLeft, 
   Download, 
@@ -12,7 +14,12 @@ import {
   AlertCircle,
   Brain,
   Database,
-  Share2
+  Share2,
+  Edit3,
+  Save,
+  X,
+  Maximize2,
+  Columns
 } from 'lucide-react';
 
 const ScanResults = () => {
@@ -20,6 +27,9 @@ const ScanResults = () => {
   const navigate = useNavigate();
   const { getBatch, getScanResultsByBatch, exportResult, exportBatch, saveToGoogleDrive, refreshBatch, loading } = useDocument();
   const [activeTab, setActiveTab] = useState(0);
+  const [viewMode, setViewMode] = useState<'split' | 'list'>('list');
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedData, setEditedData] = useState<any>(null);
 
   const batch = getBatch(batchId!);
   const resultsForBatch = getScanResultsByBatch(batchId!);
@@ -63,7 +73,22 @@ const ScanResults = () => {
     }
   };
 
+  const handleSaveEdit = async () => {
+    // TODO: Implement save edited data to backend
+    console.log('Saving edited data:', editedData);
+    setIsEditing(false);
+    // Refresh batch to get updated data
+    await refreshBatch(batchId!);
+  };
 
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditedData(null);
+  };
+
+  const toggleViewMode = () => {
+    setViewMode(prev => prev === 'split' ? 'list' : 'split');
+  };
 
   const renderRawScanData = (result: any) => {
     const extractedData = result.extracted_data || {};
@@ -269,6 +294,22 @@ const ScanResults = () => {
               <h3 className="text-lg font-semibold text-gray-900">Extracted Data</h3>
               <div className="flex flex-col sm:flex-row gap-2">
                 <button
+                  onClick={toggleViewMode}
+                  className="px-3 md:px-4 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-all duration-200 text-sm md:text-base font-medium"
+                >
+                  {viewMode === 'split' ? (
+                    <>
+                      <FileText className="w-4 h-4 inline mr-1 md:mr-2" />
+                      List View
+                    </>
+                  ) : (
+                    <>
+                      <Columns className="w-4 h-4 inline mr-1 md:mr-2" />
+                      Split View
+                    </>
+                  )}
+                </button>
+                <button
                   onClick={() => handleDownload('excel')}
                   disabled={loading}
                   className="px-3 md:px-4 py-2 success-gradient text-white rounded-lg hover:shadow-lg transition-all duration-200 text-sm md:text-base"
@@ -339,7 +380,7 @@ const ScanResults = () => {
 
             {scanResults[activeTab] && (
               <div className="space-y-6">
-                {/* File Info */}
+                {/* File Info & Actions */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                     <FileText className="w-6 h-6 text-blue-600" />
@@ -349,30 +390,61 @@ const ScanResults = () => {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => handleDownload('excel', scanResults[activeTab])}
-                      disabled={loading}
-                      className="px-2 md:px-3 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors text-xs md:text-sm"
-                    >
-                      <Download className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
-                      Excel
-                    </button>
-                    <button
-                      onClick={() => handleDownload('pdf', scanResults[activeTab])}
-                      disabled={loading}
-                      className="px-2 md:px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-xs md:text-sm"
-                    >
-                      <Download className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
-                      PDF
-                    </button>
-                    <button
-                      onClick={() => handleGoogleDriveShare('excel', scanResults[activeTab])}
-                      disabled={loading}
-                      className="px-2 md:px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors text-xs md:text-sm"
-                    >
-                      <Share2 className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
-                      <span className="hidden sm:inline">Save to</span> Drive
-                    </button>
+                    {isEditing ? (
+                      <>
+                        <button
+                          onClick={handleSaveEdit}
+                          className="px-2 md:px-3 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors text-xs md:text-sm font-medium"
+                        >
+                          <Save className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
+                          Save
+                        </button>
+                        <button
+                          onClick={handleCancelEdit}
+                          className="px-2 md:px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-xs md:text-sm font-medium"
+                        >
+                          <X className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => {
+                            setIsEditing(true);
+                            setEditedData(scanResults[activeTab].extracted_data);
+                          }}
+                          className="px-2 md:px-3 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-colors text-xs md:text-sm font-medium"
+                        >
+                          <Edit3 className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDownload('excel', scanResults[activeTab])}
+                          disabled={loading}
+                          className="px-2 md:px-3 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors text-xs md:text-sm"
+                        >
+                          <Download className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
+                          Excel
+                        </button>
+                        <button
+                          onClick={() => handleDownload('pdf', scanResults[activeTab])}
+                          disabled={loading}
+                          className="px-2 md:px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-xs md:text-sm"
+                        >
+                          <Download className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
+                          PDF
+                        </button>
+                        <button
+                          onClick={() => handleGoogleDriveShare('excel', scanResults[activeTab])}
+                          disabled={loading}
+                          className="px-2 md:px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors text-xs md:text-sm"
+                        >
+                          <Share2 className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
+                          <span className="hidden sm:inline">Save to</span> Drive
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -385,8 +457,40 @@ const ScanResults = () => {
                   />
                 )}
 
-                {/* Raw Scan Data */}
-                {renderRawScanData(scanResults[activeTab])}
+                {/* Split View or List View */}
+                {viewMode === 'split' ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Left: Document Preview */}
+                    <div className="bg-gray-50 rounded-lg border p-4">
+                      <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                        <Maximize2 className="w-5 h-5 mr-2 text-blue-600" />
+                        Document Preview
+                      </h4>
+                      <DocumentPreview
+                        fileUrl={`/api/results/${scanResults[activeTab].id}/file`}
+                        fileName={scanResults[activeTab].filename}
+                        fileType={scanResults[activeTab].file_type || 'pdf'}
+                      />
+                    </div>
+
+                    {/* Right: Editable OCR Result */}
+                    <div className="bg-white rounded-lg border p-4">
+                      <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                        <FileText className="w-5 h-5 mr-2 text-green-600" />
+                        Extracted Data {isEditing && <span className="text-sm text-orange-600 ml-2">(Editing Mode)</span>}
+                      </h4>
+                      <EditableOCRResult
+                        result={scanResults[activeTab]}
+                        isEditing={isEditing}
+                        onToggleEdit={() => setIsEditing(!isEditing)}
+                        onSave={handleSaveEdit}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  /* List View - Raw Scan Data */
+                  renderRawScanData(scanResults[activeTab])
+                )}
 
                 {/* Raw JSON Data (Optional) */}
                 <div className="mt-8">

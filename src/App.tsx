@@ -6,6 +6,7 @@ import Upload from './pages/Upload';
 import Documents from './pages/Documents';
 import History from './pages/History';
 import ScanResults from './pages/ScanResults';
+import ResultEditor from './pages/ResultEditor';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import AdminDashboard from './pages/AdminDashboard';
@@ -46,6 +47,11 @@ function App() {
                 <Route path="/scan-results/:batchId" element={
                   <ProtectedRoute>
                     <ScanResults />
+                  </ProtectedRoute>
+                } />
+                <Route path="/results/:id/editor" element={
+                  <ProtectedRoute>
+                    <ResultEditor />
                   </ProtectedRoute>
                 } />
                 <Route path="/admin" element={
