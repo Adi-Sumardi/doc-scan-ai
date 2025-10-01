@@ -21,7 +21,8 @@ python-dotenv==1.0.1
 aioredis==2.0.1
 python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
-bcrypt==4.0.1 
+bcrypt==4.0.1
+slowapi==0.1.9              # Rate limiting for authentication endpoints 
 
 # ===== MONITORING & LOGGING =====
 prometheus-client==0.21.1
@@ -113,10 +114,12 @@ urllib3==2.1.0
 certifi==2025.8.3
 regex==2025.9.1
 
-# ===== OPTIONAL CLOUD AI SERVICES =====
-# Uncomment for cloud services integration:
-# azure-cognitiveservices-vision-computervision==0.9.0
-# google-cloud-documentai==2.26.0
+# ===== CLOUD AI SERVICES =====
+# Required for production OCR processing
+google-cloud-documentai==2.26.0      # Google Document AI - Primary OCR engine
+google-cloud-storage==2.10.0         # Google Cloud Storage integration
+google-auth==2.23.0                   # Google Cloud authentication
+# azure-cognitiveservices-vision-computervision==0.9.0  # Optional: Azure AI
 
 # ===== PRODUCTION DEPLOYMENT =====
 # Uncomment for production:
