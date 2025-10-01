@@ -162,13 +162,13 @@ const DocumentPreview = ({ resultId, fileName, fileType, boundingBoxes }: Docume
       </div>
 
       {/* Document Viewer */}
-      <div className="flex-1 overflow-auto flex items-center justify-center p-4">
+      <div className="flex-1 overflow-auto flex items-center justify-center bg-gray-900">
         <div 
-          className="transition-all duration-300"
-          style={{
+          className={`transition-all duration-300 ${isPDF ? 'w-full h-full' : ''}`}
+          style={!isPDF ? {
             transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,
             transformOrigin: 'center center',
-          }}
+          } : undefined}
         >
           {isLoading && <div className="text-white">Loading preview...</div>}
           
@@ -179,18 +179,21 @@ const DocumentPreview = ({ resultId, fileName, fileType, boundingBoxes }: Docume
               src={objectUrl}
               alt={fileName}
               className="max-w-full h-auto shadow-2xl"
-              style={{ maxHeight: 'calc(100vh - 200px)' }}
+              style={{ 
+                maxHeight: 'calc(100vh - 200px)',
+                transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,
+              }}
             />
           )}
           
           {!isLoading && objectUrl && isPDF && (
-            <div className="bg-white shadow-2xl">
+            <div className="w-full h-full bg-white shadow-2xl">
               <iframe
                 src={`${objectUrl}#page=${currentPage}`}
-                className="w-full border-0"
+                className="w-full h-full border-0"
                 style={{ 
-                  width: '800px',
-                  height: '1000px',
+                  transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,
+                  transformOrigin: 'center center',
                 }}
                 title={fileName}
                 onLoad={() => {
