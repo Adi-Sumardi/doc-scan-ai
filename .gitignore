@@ -146,6 +146,7 @@ backend/exports/*
 # Configuration files with sensitive data
 config.local.*
 .env.*
+!**/.env.example
 
 # Cache files
 *.cache
