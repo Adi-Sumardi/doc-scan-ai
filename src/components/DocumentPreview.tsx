@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { ZoomIn, ZoomOut, RotateCw, Download, Maximize2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { apiService } from '../services/api';
 
 interface DocumentPreviewProps {
   fileUrl: string;
@@ -18,6 +19,8 @@ const DocumentPreview = ({ fileUrl, fileName, fileType, boundingBoxes }: Documen
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const isPDF = fileType.toLowerCase().includes('pdf');
@@ -55,6 +58,27 @@ const DocumentPreview = ({ fileUrl, fileName, fileType, boundingBoxes }: Documen
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchFile = async () => {
+      setIsLoading(true);
+      try {
+        const response = await apiService.exportResultPdf(fileUrl.split('/')[3]); // Extract ID from URL
+        const blob = new Blob([response], { type: fileType });
+        const url = URL.createObjectURL(blob);
+        if (isMounted) {
+          setObjectUrl(url);
+        }
+      } catch (error) {
+        console.error("Failed to load document preview:", error);
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+    fetchFile();
+    return () => { isMounted = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [fileUrl, fileType]);
 
   return (
     <div 
@@ -146,25 +170,32 @@ const DocumentPreview = ({ fileUrl, fileName, fileType, boundingBoxes }: Documen
             transformOrigin: 'center center',
           }}
         >
-          {isImage && (
+          {isLoading && <div className="text-white">Loading preview...</div>}
+          
+          {!isLoading && !objectUrl && <div className="text-red-400">Failed to load preview.</div>}
+
+          {!isLoading && objectUrl && isImage && (
             <img
-              src={fileUrl}
+              src={objectUrl}
               alt={fileName}
               className="max-w-full h-auto shadow-2xl"
               style={{ maxHeight: 'calc(100vh - 200px)' }}
             />
           )}
           
-          {isPDF && (
+          {!isLoading && objectUrl && isPDF && (
             <div className="bg-white shadow-2xl">
               <iframe
-                src={`${fileUrl}#page=${currentPage}`}
+                src={`${objectUrl}#page=${currentPage}`}
                 className="w-full border-0"
                 style={{ 
                   width: '800px',
                   height: '1000px',
                 }}
                 title={fileName}
+                onLoad={() => {
+                  // PDF loaded
+                }}
               />
             </div>
           )}

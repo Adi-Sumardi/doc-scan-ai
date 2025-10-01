@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDocument } from '../context/DocumentContext';
+import { apiService } from '../services/api';
 import OCRMetricsDisplay from '../components/OCRMetricsDisplay';
 import RealtimeOCRProcessing from '../components/RealtimeOCRProcessing';
 import DocumentPreview from '../components/DocumentPreview';
@@ -25,7 +26,7 @@ import {
 const ScanResults = () => {
   const { batchId } = useParams<{ batchId: string }>();
   const navigate = useNavigate();
-  const { getBatch, getScanResultsByBatch, exportResult, exportBatch, saveToGoogleDrive, refreshBatch, loading } = useDocument();
+  const { getBatch, getScanResultsByBatch, exportResult, exportBatch, saveToGoogleDrive, refreshBatch, updateResult, loading } = useDocument();
   const [activeTab, setActiveTab] = useState(0);
   const [viewMode, setViewMode] = useState<'split' | 'list'>('list');
   const [isEditing, setIsEditing] = useState(false);
@@ -46,6 +47,13 @@ const ScanResults = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batchId]); // Only re-run if batchId changes
+
+  // Reset activeTab if results change to prevent out-of-bounds access
+  useEffect(() => {
+    if (activeTab >= resultsForBatch.length) {
+      setActiveTab(0);
+    }
+  }, [resultsForBatch, activeTab]);
 
   if (!batch) {
     return (
@@ -74,11 +82,21 @@ const ScanResults = () => {
   };
 
   const handleSaveEdit = async () => {
-    // TODO: Implement save edited data to backend
-    console.log('Saving edited data:', editedData);
-    setIsEditing(false);
-    // Refresh batch to get updated data
-    await refreshBatch(batchId!);
+    try {
+      if (!editedData || scanResults.length === 0) return;
+      
+      const currentResult = scanResults[activeTab];
+      await updateResult(currentResult.id, editedData);
+      
+      setIsEditing(false);
+      setEditedData(null);
+      
+      // Refresh batch to get updated data from backend
+      await refreshBatch(batchId!);
+    } catch (error) {
+      console.error('Save edit failed:', error);
+      // Error toast already shown in updateResult
+    }
   };
 
   const handleCancelEdit = () => {
@@ -378,7 +396,8 @@ const ScanResults = () => {
               </div>
             </div>
 
-            {scanResults[activeTab] && (
+            {/* Add a guard to prevent crashing if the active tab is out of bounds */}
+            {scanResults.length > 0 && scanResults[activeTab] ? (
               <div className="space-y-6">
                 {/* File Info & Actions */}
                 <div className="flex items-center justify-between">
@@ -467,7 +486,7 @@ const ScanResults = () => {
                         Document Preview
                       </h4>
                       <DocumentPreview
-                        fileUrl={`/api/results/${scanResults[activeTab].id}/file`}
+                        fileUrl={apiService.getResultFile(scanResults[activeTab].id)}
                         fileName={scanResults[activeTab].filename}
                         fileType={scanResults[activeTab].file_type || 'pdf'}
                       />
@@ -505,6 +524,11 @@ const ScanResults = () => {
                     </div>
                   </details>
                 </div>
+              </div>
+            ) : (
+              <div className="text-center py-12 text-gray-500">
+                <FileText className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                <p>Select a file to view its details.</p>
               </div>
             )}
           </div>

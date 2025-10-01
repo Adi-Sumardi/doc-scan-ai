@@ -1683,6 +1683,119 @@ async def export_batch(batch_id: str, format: str, db: Session = Depends(get_db)
         logger.error(f"Batch export error: {e}")
         raise HTTPException(status_code=500, detail=f"Batch export failed: {str(e)}")
 
+@app.patch("/api/results/{result_id}")
+async def update_result(
+    result_id: str, 
+    updated_data: dict,
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_active_user)
+):
+    """Update edited OCR result data"""
+    try:
+        # Get scan result from database
+        result = db.query(DBScanResult).filter(DBScanResult.id == result_id).first()
+        if not result:
+            raise HTTPException(status_code=404, detail="Scan result not found")
+        
+        # Verify ownership through batch
+        batch = db.query(Batch).filter(Batch.id == result.batch_id).first()
+        if not batch:
+            raise HTTPException(status_code=404, detail="Associated batch not found")
+        
+        # Only allow user to edit their own results (or admin can edit all)
+        if batch.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to edit this result")
+        
+        # Store old data for history (optional - for version control)
+        old_data = result.extracted_data.copy() if result.extracted_data else {}
+        
+        # Update extracted_data with edited data
+        if result.extracted_data:
+            result.extracted_data.update(updated_data)
+        else:
+            result.extracted_data = updated_data
+        
+        # Update timestamp
+        result.updated_at = datetime.utcnow()
+        
+        # Commit to database
+        db.commit()
+        db.refresh(result)
+        
+        logger.info(f"✅ Updated scan result {result_id} by user {current_user.username}")
+        
+        return {
+            "success": True,
+            "message": "Result updated successfully",
+            "result_id": result_id,
+            "updated_at": result.updated_at.isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating result {result_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update result: {str(e)}")
+
+@app.get("/api/results/{result_id}/file")
+async def get_result_file(
+    result_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Serve the original uploaded file for a scan result"""
+    try:
+        # Get scan result
+        result = db.query(DBScanResult).filter(DBScanResult.id == result_id).first()
+        if not result:
+            raise HTTPException(status_code=404, detail="Scan result not found")
+        
+        # Get document file info
+        doc_file = db.query(DocumentFile).filter(DocumentFile.id == result.document_file_id).first()
+        if not doc_file:
+            raise HTTPException(status_code=404, detail="Document file not found")
+        
+        # Verify ownership
+        batch = db.query(Batch).filter(Batch.id == result.batch_id).first()
+        if not batch:
+            raise HTTPException(status_code=404, detail="Associated batch not found")
+        
+        if batch.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this file")
+        
+        # Construct file path
+        file_path = UPLOAD_DIR / result.batch_id / doc_file.stored_filename
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Original file not found on disk")
+        
+        # Determine media type based on file extension
+        file_extension = file_path.suffix.lower()
+        media_type_map = {
+            '.pdf': 'application/pdf',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.tiff': 'image/tiff',
+            '.tif': 'image/tiff',
+            '.bmp': 'image/bmp'
+        }
+        media_type = media_type_map.get(file_extension, 'application/octet-stream')
+        
+        # Return file
+        return FileResponse(
+            path=str(file_path),
+            filename=doc_file.name,
+            media_type=media_type
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error serving file for result {result_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to serve file: {str(e)}")
+
 if __name__ == "__main__":
     logger.info("Starting AI Document Scanner API with MySQL database")
     uvicorn.run(app, host="0.0.0.0", port=8000)

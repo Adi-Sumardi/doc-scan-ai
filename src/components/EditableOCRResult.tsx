@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Edit3, Save, X, Check, AlertCircle, Copy, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ScanResult } from '../services/api';
@@ -26,26 +26,23 @@ const EditableOCRResult = ({
   onSave
 }: EditableOCRResultProps) => {
   const [editedData, setEditedData] = useState<any>(result.extracted_data || {});
-  const [fields, setFields] = useState<OCRField[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
   useEffect(() => {
-    // Convert result data to editable fields
-    const extractedFields = parseDataToFields(result);
-    setFields(extractedFields);
     setEditedData(result.extracted_data || {});
   }, [result]);
 
   const parseDataToFields = (data: ScanResult): OCRField[] => {
     const fields: OCRField[] = [];
 
-    // Raw text
-    if (data.extracted_text) {
+    // Raw text from extracted_data if available, otherwise from top level
+    const rawText = data.extracted_data?.raw_text || data.extracted_text;
+    if (rawText) {
       fields.push({
-        key: 'extracted_text',
+        key: 'raw_text', // Simplified key
         label: 'Extracted Text',
-        value: data.extracted_text,
+        value: rawText,
         type: 'textarea',
         editable: true,
       });
@@ -55,9 +52,9 @@ const EditableOCRResult = ({
     if (data.extracted_data) {
       Object.keys(data.extracted_data).forEach(key => {
         const value = data.extracted_data[key];
-        if (key !== 'raw_text' && key !== 'extracted_text') {
+        if (key !== 'raw_text') { // Avoid duplicating raw_text
           fields.push({
-            key: `extracted_data.${key}`,
+            key: key, // Use simple key
             label: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
             value: typeof value === 'object' ? JSON.stringify(value, null, 2) : value,
             type: typeof value === 'object' ? 'json' : 'text',
@@ -67,42 +64,17 @@ const EditableOCRResult = ({
       });
     }
 
-    // Document info
-    fields.push({
-      key: 'document_type',
-      label: 'Document Type',
-      value: data.document_type || 'Unknown',
-      type: 'text',
-      editable: true,
-    });
-
     return fields;
   };
 
+  const fields = useMemo(() => parseDataToFields({ ...result, extracted_data: editedData }), [editedData, result]);
+
   const handleFieldChange = (key: string, newValue: any) => {
     setHasChanges(true);
-    
-    // Update editedData
-    const updatedData = { ...editedData };
-    const keys = key.split('.');
-    
-    if (keys.length === 1) {
-      updatedData[key] = newValue;
-    } else {
-      let current = updatedData;
-      for (let i = 0; i < keys.length - 1; i++) {
-        if (!current[keys[i]]) current[keys[i]] = {};
-        current = current[keys[i]];
-      }
-      current[keys[keys.length - 1]] = newValue;
-    }
-    
-    setEditedData(updatedData);
-
-    // Update fields
-    setFields(prev => prev.map(f => 
-      f.key === key ? { ...f, value: newValue } : f
-    ));
+    setEditedData((prev: any) => ({
+      ...prev,
+      [key]: newValue,
+    }));
   };
 
   const handleSave = async () => {
@@ -121,7 +93,6 @@ const EditableOCRResult = ({
   const handleCancel = () => {
     // Reset to original data
     setEditedData(result.extracted_data || {});
-    setFields(parseDataToFields(result));
     setHasChanges(false);
     onToggleEdit();
   };

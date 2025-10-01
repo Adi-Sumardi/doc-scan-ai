@@ -126,6 +126,11 @@ export const apiService = {
     return response.data;
   },
 
+  getResultById: async (resultId: string): Promise<ScanResult> => {
+    const response = await api.get(`/api/results/${resultId}`);
+    return response.data;
+  },
+
   exportResultExcel: async (resultId: string): Promise<Blob> => {
     const response = await api.get(`/api/results/${resultId}/export/excel`, { responseType: 'blob' });
     return response.data;
@@ -174,6 +179,15 @@ export const apiService = {
   saveToGoogleDrive: async (resultId: string, format: 'excel' | 'pdf') => {
     console.log(`Saving result ${resultId} to Google Drive as ${format}`);
     await new Promise(resolve => setTimeout(resolve, 1000));
+  },
+
+  updateResult: async (resultId: string, updatedData: any): Promise<any> => {
+    const response = await api.patch(`/api/results/${resultId}`, updatedData);
+    return response.data;
+  },
+
+  getResultFile: (resultId: string): string => {
+    return `${API_BASE_URL}/api/results/${resultId}/file`;
   }
 };
 

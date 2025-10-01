@@ -18,6 +18,7 @@ interface DocumentContextType {
   exportResult: (resultId: string, format: 'excel' | 'pdf') => Promise<void>;
   exportBatch: (batchId: string, format: 'excel' | 'pdf') => Promise<void>;
   saveToGoogleDrive: (resultId: string, format: 'excel' | 'pdf') => Promise<void>;
+  updateResult: (resultId: string, updatedData: any) => Promise<void>;
   loading: boolean;
 }
 
@@ -40,6 +41,11 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       toast.success(`Batch #${batchId.slice(-8)} processed successfully!`);
       notifiedBatchesRef.current.add(batchId);
     }
+  };
+
+  // Helper to consistently update results for a batch
+  const updateResultsForBatch = (batchId: string, results: ScanResult[]) => {
+    setScanResults(prev => [...results, ...prev.filter(r => r.batch_id !== batchId)]);
   };
 
   const uploadDocuments = async (files: File[], documentTypes: string[]): Promise<Batch> => {
@@ -81,7 +87,7 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
           const attemptLoad = async () => {
             const results = await apiService.getBatchResults(batchId);
             if (Array.isArray(results) && results.length >= updatedBatch.total_files) {
-              setScanResults(prev => [...results, ...prev.filter(r => r.batch_id !== batchId)]);
+              updateResultsForBatch(batchId, results);
               handleBatchCompletion(batchId);
             } else if (attempts < maxAttempts) {
               attempts++;
@@ -122,7 +128,7 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       
       if (updatedBatch.status === 'completed') {
         const results = await apiService.getBatchResults(batchId);
-        setScanResults(prev => [...results, ...prev.filter(r => r.batch_id !== batchId)]);
+        updateResultsForBatch(batchId, results);
         handleBatchCompletion(batchId);
       }
     } catch (error) {
@@ -228,6 +234,32 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const updateResult = async (resultId: string, updatedData: any) => {
+    try {
+      setLoading(true);
+      const response = await apiService.updateResult(resultId, updatedData);
+      
+      // Update local state with new data
+      setScanResults(prev => prev.map(result => 
+        result.id === resultId 
+          ? { 
+              ...result, 
+              extracted_data: { ...result.extracted_data, ...updatedData },
+              updated_at: response.updated_at 
+            }
+          : result
+      ));
+      
+      toast.success('✅ Result updated successfully!');
+    } catch (error: any) {
+      console.error('Update result error:', error);
+      toast.error(error.response?.data?.detail || 'Failed to update result');
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <DocumentContext.Provider value={{
       batches,
@@ -240,6 +272,7 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       exportResult,
       exportBatch,
       saveToGoogleDrive,
+      updateResult,
       loading
     }}>
       {children}

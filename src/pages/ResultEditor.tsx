@@ -28,12 +28,10 @@ const ResultEditor = () => {
     try {
       setLoading(true);
       setError(null);
-      // Mock fetch - replace with actual API call
-      const response = await apiService.getAllResults();
-      const foundResult = response.find(r => r.id === resultId);
-      
-      if (foundResult) {
-        setResult(foundResult);
+      // Fetch a single result by its ID for efficiency
+      const response = await apiService.getResultById(resultId);
+      if (response) {
+        setResult(response);
       } else {
         setError('Result not found');
       }
@@ -74,9 +72,8 @@ const ResultEditor = () => {
   const getFileUrl = () => {
     if (!result) return '';
     
-    // Backend serves uploaded files at /uploads/{batch_id}/{filename}
-    // In production, this would be the actual file URL
-    return `/api/files/${result.batch_id}/${result.filename}`;
+    // Pass the API endpoint to fetch the file blob
+    return `/api/results/${result.id}/file`;
   };
 
   if (loading) {
