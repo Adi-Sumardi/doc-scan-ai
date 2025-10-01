@@ -63,23 +63,33 @@ class CloudAIProcessor:
             # 2. Google Document AI
             try:
                 from google.cloud import documentai_v1 as documentai
+                from google.oauth2 import service_account
                 
-                # GOOGLE_APPLICATION_CREDENTIALS env var is used automatically
+                # Load credentials explicitly
+                creds_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
                 project_id = os.getenv('GOOGLE_CLOUD_PROJECT_ID')
                 location = os.getenv('GOOGLE_PROCESSOR_LOCATION')
                 
-                if project_id and location:
+                if creds_path and project_id and location:
+                    # Load credentials from file
+                    credentials = service_account.Credentials.from_service_account_file(creds_path)
+                    
                     # The client options are important for specifying the regional endpoint
                     client_options = {"api_endpoint": f"{location}-documentai.googleapis.com"}
                     self.services['google'] = {
-                        'client': documentai.DocumentProcessorServiceAsyncClient(client_options=client_options)
+                        'client': documentai.DocumentProcessorServiceAsyncClient(
+                            credentials=credentials,
+                            client_options=client_options
+                        )
                     }
-                    logger.info("✅ Google Document AI initialized")
+                    logger.info("✅ Google Document AI initialized with explicit credentials")
                 else:
                     logger.warning("⚠️ Google Cloud credentials not found")
                     
             except ImportError:
                 logger.warning("⚠️ Google Cloud SDK not available")
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize Google Document AI: {e}")
             
             # 3. AWS Textract
             try:
