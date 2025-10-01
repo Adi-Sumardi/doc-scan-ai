@@ -10,11 +10,15 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from database import SessionLocal
 import os
+import logging
 
-# Configuration
+# Configure logging
+logger = logging.getLogger(__name__)
+
+# Configuration - Read from environment variables
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production-09876543210")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -61,12 +65,18 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     """Get current authenticated user from JWT token"""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
+        detail="Not authenticated", # Changed to match the log for consistency
         headers={"WWW-Authenticate": "Bearer"},
     )
     
-    payload = decode_access_token(token)
-    if payload is None:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise credentials_exception
+    except JWTError as e:
+        # Log the specific JWT error for easier debugging in production
+        logger.error(f"🔐 JWT Decode Error: {type(e).__name__}: {e}")
         raise credentials_exception
     
     user_id: str = payload.get("sub")
