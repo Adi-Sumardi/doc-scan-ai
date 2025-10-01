@@ -339,12 +339,12 @@ class RealOCRProcessor:
                     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
                         image.save(temp_file.name, 'PNG')
                         
-                        # Extract text from image
+                        # BUG FIX: Extract text from the temporary image file, not the original PDF path.
                         if HAS_EASYOCR:
                             page_text = self.extract_text_easyocr(temp_file.name)
                         else:
                             page_text = self.extract_text_tesseract(temp_file.name)
-                        
+
                         if page_text:
                             all_text += f"Page {i+1}:\n{page_text}\n\n"
                         
@@ -986,7 +986,7 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
         extracted_text = await parser.ocr_processor.extract_text(file_path)
         
         if not extracted_text:
-            raise Exception("OCR failed - no text could be extracted from the document")
+            raise Exception("OCR failed to extract any text from the document. The file might be blank, corrupted, or unsupported.")
         
         logger.info(f"📝 Extracted {len(extracted_text)} characters of text")
         logger.info(f"📝 Sample text: {extracted_text[:200]}...")
