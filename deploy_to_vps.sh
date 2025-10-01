@@ -87,13 +87,19 @@ chmod +x scripts/setup_mysql.sh
 # Step 7: Configure Environment
 echo -e "${YELLOW}⚙️  Step 7/9: Configuring environment...${NC}"
 
+# Check if template exists
+if [ ! -f backend/.env.production.template ]; then
+    echo -e "${RED}❌ Error: backend/.env.production.template not found${NC}"
+    exit 1
+fi
+
 # Generate SECRET_KEY
 SECRET_KEY=$(openssl rand -hex 32)
 
 # Create .env from template
-cp backend/.env.production backend/.env
-sed -i "s/CHANGE_THIS_PASSWORD/${DB_PASS}/g" backend/.env
-sed -i "s/CHANGE_THIS_TO_RANDOM_SECRET_KEY/${SECRET_KEY}/g" backend/.env
+cp backend/.env.production.template backend/.env
+sed -i "s/YOUR_DB_PASSWORD/${DB_PASS}/g" backend/.env
+sed -i "s/YOUR_SECRET_KEY_WILL_BE_GENERATED/${SECRET_KEY}/g" backend/.env
 
 chown $APP_USER:$APP_USER backend/.env
 chmod 600 backend/.env

@@ -17,6 +17,9 @@ build/
 .env.local
 .env.production
 backend/.env
+# Allow template files
+!.env.production.template
+!backend/.env.production.template
 
 # Logs
 logs
