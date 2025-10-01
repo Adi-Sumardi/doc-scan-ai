@@ -3,7 +3,7 @@ import { ZoomIn, ZoomOut, RotateCw, Download, Maximize2, ChevronLeft, ChevronRig
 import { apiService } from '../services/api';
 
 interface DocumentPreviewProps {
-  fileUrl: string;
+  resultId: string;
   fileName: string;
   fileType: string;
   boundingBoxes?: Array<{
@@ -13,7 +13,7 @@ interface DocumentPreviewProps {
   }>;
 }
 
-const DocumentPreview = ({ fileUrl, fileName, fileType, boundingBoxes }: DocumentPreviewProps) => {
+const DocumentPreview = ({ resultId, fileName, fileType, boundingBoxes }: DocumentPreviewProps) => {
   const [zoom, setZoom] = useState(100);
   const [rotation, setRotation] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
@@ -44,7 +44,7 @@ const DocumentPreview = ({ fileUrl, fileName, fileType, boundingBoxes }: Documen
 
   const handleDownload = () => {
     const link = document.createElement('a');
-    link.href = fileUrl;
+    link.href = objectUrl || '#';
     link.download = fileName;
     document.body.appendChild(link);
     link.click();
@@ -64,8 +64,8 @@ const DocumentPreview = ({ fileUrl, fileName, fileType, boundingBoxes }: Documen
     const fetchFile = async () => {
       setIsLoading(true);
       try {
-        const response = await apiService.exportResultPdf(fileUrl.split('/')[3]); // Extract ID from URL
-        const blob = new Blob([response], { type: fileType });
+        // Use the correct API function to get the original file content
+        const blob = await apiService.getResultFileBlob(resultId);
         const url = URL.createObjectURL(blob);
         if (isMounted) {
           setObjectUrl(url);
@@ -78,7 +78,7 @@ const DocumentPreview = ({ fileUrl, fileName, fileType, boundingBoxes }: Documen
     };
     fetchFile();
     return () => { isMounted = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [fileUrl, fileType]);
+  }, [resultId, fileType]);
 
   return (
     <div 

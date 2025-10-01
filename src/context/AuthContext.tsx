@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
 import api from '../services/api';
+import toast from 'react-hot-toast';
 
 interface User {
   id: string;
@@ -123,6 +124,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setUser(response.data);
     } catch (error: any) {
       console.error('Failed to fetch user info:', error);
+      
+      // Provide more descriptive error messages based on error type
+      let errorMessage = 'Failed to fetch user information. Please try again.';
+      
+      if (error.response) {
+        // Server responded with error
+        if (error.response.status === 401) {
+          errorMessage = 'Session expired. Please login again.';
+        } else if (error.response.status === 403) {
+          errorMessage = 'Access denied. Please check your permissions.';
+        } else if (error.response.status >= 500) {
+          errorMessage = 'Server error. Please try again later.';
+        } else if (error.response.data?.detail) {
+          errorMessage = error.response.data.detail;
+        }
+      } else if (error.request) {
+        // Network error - no response received
+        errorMessage = 'Network error. Please check your internet connection.';
+      }
+      
+      toast.error(errorMessage);
       
       // Token might be invalid, clear everything
       localStorage.removeItem('access_token');

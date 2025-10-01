@@ -59,7 +59,7 @@ const ViewModal: React.FC<ViewModalProps> = ({ result, isOpen, onClose }) => {
             <h3 className="text-xl font-semibold text-gray-900">{result.original_filename}</h3>
             <p className="text-sm text-gray-600">
               {documentTypeLabels[result.document_type] || result.document_type} • 
-              Confidence: {(result.confidence * 100).toFixed(1)}%
+              Confidence: {((result.confidence ?? result.confidence_score ?? 0) * 100).toFixed(1)}%
             </p>
           </div>
           <button
@@ -198,7 +198,7 @@ const Documents = () => {
                     </div>
                   </div>
                   <span className={`px-2 py-1 rounded-full text-xs font-medium flex-shrink-0 ml-2 ${getConfidenceColor(result.confidence || result.confidence_score || 0)}`}>
-                    {((result.confidence || result.confidence_score || 0) * 100).toFixed(1)}%
+                    {(((result.confidence ?? 0) || (result.confidence_score ?? 0)) * 100).toFixed(1)}%
                   </span>
                 </div>
 

@@ -37,8 +37,8 @@ try:
 except ImportError:
     cache = None
     REDIS_AVAILABLE = False
-# Temporarily comment out security validator for now
-# from utils import FileSecurityValidator
+# Import the robust security validator
+from security import file_security, SecurityValidator
 import logging
 
 # Apply nest_asyncio patch to allow nested event loops (for gRPC compatibility)
@@ -194,92 +194,6 @@ UPLOAD_DIR = Path(get_upload_dir())
 RESULTS_DIR = Path(get_results_dir())
 EXPORTS_DIR = Path(get_exports_dir())
 
-# Enhanced file validation function with MIME type detection
-def validate_file(content: bytes, filename: str) -> dict:
-    """Enhanced file validation with actual MIME type detection"""
-    errors = []
-    warnings = []
-    
-    # Check file size (max 10MB)
-    if len(content) > 10 * 1024 * 1024:
-        errors.append("File size exceeds 10MB limit")
-    
-    # Check if file has content
-    if len(content) == 0:
-        errors.append("File is empty")
-        return {
-            "is_valid": False,
-            "errors": errors,
-            "warnings": warnings,
-            "file_info": {"mime_type": "unknown", "md5": "", "sha256": ""}
-        }
-    
-    # Check file extension
-    allowed_extensions = ['.jpg', '.jpeg', '.png', '.pdf', '.tiff', '.tif', '.bmp', '.webp']
-    file_ext = Path(filename).suffix.lower()
-    if file_ext not in allowed_extensions:
-        errors.append(f"File type '{file_ext}' not supported. Allowed: {', '.join(allowed_extensions)}")
-    
-    # Detect actual MIME type from file content (magic numbers)
-    mime_type = "application/octet-stream"
-    
-    # Check magic numbers for common file types
-    if content[:4] == b'\x89PNG':
-        mime_type = "image/png"
-        if file_ext not in ['.png']:
-            warnings.append(f"File extension '{file_ext}' doesn't match actual type (PNG)")
-    elif content[:3] == b'\xff\xd8\xff':
-        mime_type = "image/jpeg"
-        if file_ext not in ['.jpg', '.jpeg']:
-            warnings.append(f"File extension '{file_ext}' doesn't match actual type (JPEG)")
-    elif content[:2] == b'BM':
-        mime_type = "image/bmp"
-        if file_ext not in ['.bmp']:
-            warnings.append(f"File extension '{file_ext}' doesn't match actual type (BMP)")
-    elif content[:4] == b'RIFF' and content[8:12] == b'WEBP':
-        mime_type = "image/webp"
-        if file_ext not in ['.webp']:
-            warnings.append(f"File extension '{file_ext}' doesn't match actual type (WEBP)")
-    elif content[:4] == b'%PDF':
-        mime_type = "application/pdf"
-        if file_ext not in ['.pdf']:
-            warnings.append(f"File extension '{file_ext}' doesn't match actual type (PDF)")
-    elif content[:4] in [b'II*\x00', b'MM\x00*']:  # TIFF
-        mime_type = "image/tiff"
-        if file_ext not in ['.tiff', '.tif']:
-            warnings.append(f"File extension '{file_ext}' doesn't match actual type (TIFF)")
-    else:
-        # Unknown file type - potential security risk
-        warnings.append("Could not verify file type from content - may be corrupted or unsupported")
-    
-    # Security check: reject executable files disguised as images
-    dangerous_signatures = [
-        b'MZ',  # Windows executable
-        b'\x7fELF',  # Linux executable
-        b'#!/',  # Script file
-    ]
-    
-    for sig in dangerous_signatures:
-        if content.startswith(sig):
-            errors.append("File appears to be an executable or script - rejected for security reasons")
-            break
-    
-    # Calculate basic hashes for deduplication
-    import hashlib
-    md5_hash = hashlib.md5(content).hexdigest()
-    sha256_hash = hashlib.sha256(content).hexdigest()
-    
-    return {
-        "is_valid": len(errors) == 0,
-        "errors": errors,
-        "warnings": warnings,
-        "file_info": {
-            "mime_type": mime_type,
-            "md5": md5_hash,
-            "sha256": sha256_hash
-        }
-    }
-
 @app.get("/")
 async def root():
     return {"message": "AI Document Scanner API", "status": "online"}
@@ -290,9 +204,6 @@ async def root():
 @limiter.limit("5/minute")  # Max 5 registration attempts per minute per IP
 async def register(request: Request, user: UserRegister, db: Session = Depends(get_db)):
     """Register a new user with input validation and password strength check"""
-    # Import SecurityValidator
-    from security import SecurityValidator
-    
     # Validate username (prevent XSS and SQL injection)
     validated_username = SecurityValidator.validate_username(user.username)
     
@@ -502,9 +413,6 @@ async def reset_user_password(
     db: Session = Depends(get_db)
 ):
     """Reset user password (Admin only) with password strength validation"""
-    # Import SecurityValidator
-    from security import SecurityValidator
-    
     # Validate user_id (prevent SQL injection)
     if SecurityValidator.check_sql_injection(user_id):
         raise HTTPException(status_code=400, detail="Invalid user ID")
@@ -886,7 +794,7 @@ async def upload_documents(
                     continue
                 
                 # Perform security validation (using already-read content)
-                validation_result = validate_file(content, file.filename)
+                validation_result = await file_security.validate_file(file)
                 validation_result["filename"] = file.filename
                 validation_results.append(validation_result)
                 
@@ -902,7 +810,7 @@ async def upload_documents(
                     continue
                 
                 # Save file with comprehensive error handling (reuse content)
-                safe_filename = f"{i:03d}_{file.filename}"
+                safe_filename = f"{i:03d}_{SecurityValidator.validate_filename(file.filename)}"
                 file_path = batch_dir / safe_filename
                 
                 try:
@@ -1765,7 +1673,7 @@ async def get_result_file(
             raise HTTPException(status_code=403, detail="Not authorized to access this file")
         
         # Construct file path
-        file_path = UPLOAD_DIR / result.batch_id / doc_file.stored_filename
+        file_path = Path(doc_file.file_path)
         
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Original file not found on disk")

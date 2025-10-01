@@ -223,12 +223,39 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
   const saveToGoogleDrive = async (resultId: string, format: 'excel' | 'pdf') => {
     try {
+      // Validation
+      if (!resultId) {
+        throw new Error('Result ID is required');
+      }
+      if (!['excel', 'pdf'].includes(format)) {
+        throw new Error('Invalid format. Must be excel or pdf');
+      }
+
       setLoading(true);
       await apiService.saveToGoogleDrive(resultId, format);
-      toast.success(`Saved to Google Drive as ${format.toUpperCase()}`);
-    } catch (error) {
+      toast.success(`✅ Successfully saved to Google Drive as ${format.toUpperCase()}`);
+    } catch (error: any) {
       console.error('Google Drive save error:', error);
-      toast.error('Failed to save to Google Drive');
+      
+      // Provide detailed error messages
+      let errorMessage = 'Failed to save to Google Drive';
+      
+      if (error.message) {
+        errorMessage = error.message;
+      } else if (error.response?.data?.detail) {
+        errorMessage = `Google Drive Error: ${error.response.data.detail}`;
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Authentication required. Please login again.';
+      } else if (error.response?.status === 403) {
+        errorMessage = 'Permission denied. Check Google Drive access rights.';
+      } else if (error.response?.status === 404) {
+        errorMessage = 'Document not found. Please refresh and try again.';
+      } else if (error.response?.status >= 500) {
+        errorMessage = 'Server error. Please try again later.';
+      }
+      
+      toast.error(errorMessage);
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -236,15 +263,42 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
   const updateResult = async (resultId: string, updatedData: any) => {
     try {
+      // Validation: Check if resultId is valid
+      if (!resultId || typeof resultId !== 'string') {
+        throw new Error('Invalid result ID');
+      }
+
+      // Validation: Check if updatedData is provided and is an object
+      if (!updatedData || typeof updatedData !== 'object' || Array.isArray(updatedData)) {
+        throw new Error('Invalid data format. Expected an object.');
+      }
+
+      // Validation: Check if updatedData is not empty
+      if (Object.keys(updatedData).length === 0) {
+        throw new Error('No data to update. Please make changes first.');
+      }
+
+      // Validation: Sanitize data - remove null/undefined values
+      const sanitizedData = Object.entries(updatedData).reduce((acc, [key, value]) => {
+        if (value !== null && value !== undefined) {
+          acc[key] = value;
+        }
+        return acc;
+      }, {} as Record<string, any>);
+
+      if (Object.keys(sanitizedData).length === 0) {
+        throw new Error('All provided values are null or undefined.');
+      }
+
       setLoading(true);
-      const response = await apiService.updateResult(resultId, updatedData);
+      const response = await apiService.updateResult(resultId, sanitizedData);
       
       // Update local state with new data
       setScanResults(prev => prev.map(result => 
         result.id === resultId 
           ? { 
               ...result, 
-              extracted_data: { ...result.extracted_data, ...updatedData },
+              extracted_data: { ...result.extracted_data, ...sanitizedData },
               updated_at: response.updated_at 
             }
           : result
@@ -253,7 +307,8 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       toast.success('✅ Result updated successfully!');
     } catch (error: any) {
       console.error('Update result error:', error);
-      toast.error(error.response?.data?.detail || 'Failed to update result');
+      const errorMessage = error.message || error.response?.data?.detail || 'Failed to update result';
+      toast.error(errorMessage);
       throw error;
     } finally {
       setLoading(false);

@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDocument } from '../context/DocumentContext';
-import { apiService } from '../services/api';
 import OCRMetricsDisplay from '../components/OCRMetricsDisplay';
 import RealtimeOCRProcessing from '../components/RealtimeOCRProcessing';
 import DocumentPreview from '../components/DocumentPreview';
@@ -486,7 +485,7 @@ const ScanResults = () => {
                         Document Preview
                       </h4>
                       <DocumentPreview
-                        fileUrl={apiService.getResultFile(scanResults[activeTab].id)}
+                        resultId={scanResults[activeTab].id}
                         fileName={scanResults[activeTab].filename}
                         fileType={scanResults[activeTab].file_type || 'pdf'}
                       />

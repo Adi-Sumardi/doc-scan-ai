@@ -68,14 +68,6 @@ const ResultEditor = () => {
     navigate(-1);
   };
 
-  // Get file URL - construct from backend
-  const getFileUrl = () => {
-    if (!result) return '';
-    
-    // Pass the API endpoint to fetch the file blob
-    return `/api/results/${result.id}/file`;
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -133,7 +125,7 @@ const ResultEditor = () => {
         {/* Left Panel - Document Preview */}
         <div className="w-1/2 p-4">
           <DocumentPreview
-            fileUrl={getFileUrl()}
+            resultId={result.id}
             fileName={result.filename || result.original_filename || 'document'}
             fileType={result.file_type || 'application/pdf'}
           />

@@ -141,6 +141,11 @@ export const apiService = {
     return response.data;
   },
 
+  getResultFileBlob: async (resultId: string): Promise<Blob> => {
+    const response = await api.get(`/api/results/${resultId}/file`, { responseType: 'blob' });
+    return response.data;
+  },
+
   exportBatch: async (batchId: string, format: 'excel' | 'pdf'): Promise<Blob> => {
     const response = await api.get(`/api/batches/${batchId}/export/${format}`, { responseType: 'blob' });
     return response.data;
