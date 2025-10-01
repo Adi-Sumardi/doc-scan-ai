@@ -187,8 +187,15 @@ class CloudAIProcessor:
             location = os.getenv('GOOGLE_PROCESSOR_LOCATION', 'us')
             processor_id = os.getenv('GOOGLE_PROCESSOR_ID')
             
+            # Validate required configuration
+            if not project_id:
+                raise Exception("GOOGLE_CLOUD_PROJECT_ID not configured")
+            if not processor_id:
+                raise Exception("GOOGLE_PROCESSOR_ID not configured")
+            
             # The full resource name of the processor
             name = f"projects/{project_id}/locations/{location}/processors/{processor_id}"
+            logger.info(f"📄 Processing with Google Document AI: {name}")
             
             # Read document
             with open(file_path, "rb") as document:
@@ -213,6 +220,7 @@ class CloudAIProcessor:
             
             # Extract text and confidence
             raw_text = document.text
+            logger.info(f"📊 Google Document AI extracted {len(raw_text)} characters")
             
             # Calculate average confidence from pages
             # The 'Page' object does not have a confidence attribute.
