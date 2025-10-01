@@ -1,6 +1,5 @@
 import { useDocument } from '../context/DocumentContext';
 import { 
-  FileText, 
   Clock, 
   CheckCircle, 
   AlertCircle,

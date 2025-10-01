@@ -1,6 +1,10 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, WebSocket, WebSocketDisconnect, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, WebSocket, WebSocketDisconnect, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import uvicorn
 import os
 import uuid
@@ -22,6 +26,10 @@ from database import SessionLocal, engine, Base, Batch, DocumentFile, ScanResult
 from websocket_manager import manager
 from auth import get_password_hash, verify_password, create_access_token, get_current_user, get_current_active_user
 from datetime import timedelta
+from audit_logger import (
+    log_login_success, log_login_failure, log_registration,
+    log_password_reset, log_user_status_change, log_rate_limit_exceeded
+)
 # Redis cache is optional - only for stats and health monitoring
 try:
     from redis_cache import cache
@@ -44,7 +52,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Request size limiting middleware
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    """Middleware to limit request body size (max 10MB)"""
+    MAX_REQUEST_SIZE = 10 * 1024 * 1024  # 10MB in bytes
+    
+    async def dispatch(self, request: Request, call_next):
+        if request.method in ["POST", "PUT", "PATCH"]:
+            content_length = request.headers.get("content-length")
+            if content_length:
+                content_length = int(content_length)
+                if content_length > self.MAX_REQUEST_SIZE:
+                    return JSONResponse(
+                        status_code=413,
+                        content={
+                            "detail": f"Request entity too large. Maximum size is {self.MAX_REQUEST_SIZE / (1024 * 1024):.0f}MB"
+                        }
+                    )
+        return await call_next(request)
+
 app = FastAPI(title="AI Document Scanner API", version="1.0.0")
+
+# Rate Limiting Setup
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -65,6 +97,9 @@ app.add_middleware(
     ],  # Only necessary headers
     max_age=600,  # Cache preflight requests for 10 minutes
 )
+
+# Add request size limiting middleware
+app.add_middleware(RequestSizeLimitMiddleware)
 
 # Security Headers Middleware
 @app.middleware("http")
@@ -252,7 +287,8 @@ async def root():
 # ==================== Authentication Endpoints ====================
 
 @app.post("/api/register", response_model=UserResponse)
-async def register(user: UserRegister, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")  # Max 5 registration attempts per minute per IP
+async def register(request: Request, user: UserRegister, db: Session = Depends(get_db)):
     """Register a new user with input validation and password strength check"""
     # Import SecurityValidator
     from security import SecurityValidator
@@ -295,15 +331,21 @@ async def register(user: UserRegister, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_user)
     
+    # Log successful registration
+    log_registration(validated_username, request.client.host, "success")
     logger.info(f"New user registered: {validated_username}")
     return db_user
 
 @app.post("/api/login", response_model=Token)
-async def login(user: UserLogin, db: Session = Depends(get_db)):
-    """Login and get JWT token"""
+@limiter.limit("10/minute")  # Max 10 login attempts per minute per IP
+async def login(request: Request, user: UserLogin, db: Session = Depends(get_db)):
+    """Login and get JWT token with rate limiting"""
     # Find user by username
     db_user = db.query(User).filter(User.username == user.username).first()
     if not db_user or not verify_password(user.password, db_user.hashed_password):
+        # Log failed login attempt
+        log_login_failure(user.username, request.client.host, "invalid_credentials")
+        logger.warning(f"Failed login attempt for username: {user.username} from IP: {request.client.host}")
         raise HTTPException(
             status_code=401,
             detail="Incorrect username or password",
@@ -324,6 +366,8 @@ async def login(user: UserLogin, db: Session = Depends(get_db)):
         expires_delta=access_token_expires
     )
     
+    # Log successful login
+    log_login_success(db_user.username, request.client.host)
     logger.info(f"User logged in: {user.username}")
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -437,6 +481,14 @@ async def update_user_status(
     user.is_active = is_active
     db.commit()
     
+    # Audit log for admin action
+    log_user_status_change(
+        admin=current_admin.username,
+        target=user.username,
+        new_status="active" if is_active else "inactive",
+        ip="admin_action"  # Could get real IP if Request is passed
+    )
+    
     logger.info(f"Admin {current_admin.username} changed user {user.username} status to {'active' if is_active else 'inactive'}")
     
     return {"message": f"User {user.username} has been {'activated' if is_active else 'deactivated'}"}
@@ -468,6 +520,13 @@ async def reset_user_password(
     from auth import get_password_hash
     user.hashed_password = get_password_hash(new_password)
     db.commit()
+    
+    # Audit log for admin action
+    log_password_reset(
+        admin=current_admin.username,
+        target=user.username,
+        ip="admin_action"  # Could get real IP if Request is passed
+    )
     
     logger.info(f"Admin {current_admin.username} reset password for user {user.username}")
     
@@ -607,19 +666,25 @@ async def health_check():
     return health_data
 
 @app.get("/api/cache/stats")
-async def get_cache_statistics():
-    """Get comprehensive Redis cache statistics (optional feature)"""
+async def get_cache_statistics(current_user: User = Depends(get_current_active_user)):
+    """Get comprehensive Redis cache statistics (requires authentication)"""
     if not REDIS_AVAILABLE or not cache:
         raise HTTPException(status_code=503, detail="Cache service not available")
     return cache.get_cache_stats()
 
 @app.post("/api/cache/clear")
-async def clear_cache():
-    """Clear all cache entries (optional feature)"""
+@limiter.limit("5/minute")  # Rate limit to prevent DoS
+async def clear_cache(request: Request, current_user: User = Depends(get_current_active_user)):
+    """Clear all cache entries (requires authentication, rate limited)"""
     if not REDIS_AVAILABLE or not cache:
         raise HTTPException(status_code=503, detail="Cache service not available")
     
+    # Only admin can clear cache
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
     if cache.clear_all_cache():
+        logger.warning(f"Cache cleared by admin: {current_user.username}")
         return {"message": "Cache cleared successfully"}
     else:
         return {"message": "Failed to clear cache", "status": "error"}
@@ -668,8 +733,8 @@ async def websocket_batch(websocket: WebSocket, batch_id: str):
         manager.disconnect(websocket, batch_id)
 
 @app.get("/api/connections")
-async def get_connection_stats():
-    """Get WebSocket connection statistics"""
+async def get_connection_stats(current_user: User = Depends(get_current_active_user)):
+    """Get WebSocket connection statistics (requires authentication)"""
     return manager.get_connection_stats()
 
 @app.post("/api/upload", response_model=BatchResponse)
@@ -1492,38 +1557,12 @@ async def get_all_results(db: Session = Depends(get_db), current_user: User = De
         logger.error(f"Error getting all results: {e}")
         raise HTTPException(status_code=500, detail=f"Error retrieving results: {str(e)}")
 
-@app.delete("/api/debug/clear-storage")
-async def clear_all_storage(db: Session = Depends(get_db)):
-    """Clear all storage - FOR DEBUGGING ONLY"""
-    try:
-        # Count existing records
-        batches_count = db.query(Batch).count()
-        results_count = db.query(DBScanResult).count()
-        files_count = db.query(DocumentFile).count()
-        logs_count = db.query(ProcessingLog).count()
-        
-        # Clear all tables
-        db.query(ProcessingLog).delete()
-        db.query(DBScanResult).delete()
-        db.query(DocumentFile).delete()
-        db.query(Batch).delete()
-        db.commit()
-        
-        logger.warning("Database storage cleared for debugging")
-        
-        return {
-            "message": "Database storage cleared",
-            "cleared": {
-                "batches": batches_count,
-                "results": results_count,
-                "files": files_count,
-                "logs": logs_count
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"Error clearing storage: {e}")
-        raise HTTPException(status_code=500, detail=f"Error clearing storage: {str(e)}")
+# DEBUG ENDPOINT REMOVED FOR PRODUCTION SECURITY
+# This endpoint was removed because it allowed unauthorized users to delete all database data
+# If you need this functionality for development, add it back with admin authentication:
+# @app.delete("/api/debug/clear-storage")
+# async def clear_all_storage(db: Session = Depends(get_db), current_user: User = Depends(get_current_admin_user)):
+#     ... implementation ...
 
 @app.get("/api/results/{result_id}/export/{format}")
 async def export_result(result_id: str, format: str, db: Session = Depends(get_db)):

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LogIn, Mail, Lock, AlertCircle, Brain, CheckCircle, XCircle, Wifi, WifiOff } from 'lucide-react';
+import { LogIn, Mail, Lock, AlertCircle, Brain, CheckCircle } from 'lucide-react';
 
 const Login = () => {
   const navigate = useNavigate();
