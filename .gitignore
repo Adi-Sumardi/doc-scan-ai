@@ -160,3 +160,4 @@ backend/doc_scan_env/
 
 # Google Cloud Credentials
 backend/config/*.json
+backend/config/*.json
