@@ -734,12 +734,17 @@ async def upload_documents(
         for i, (file, doc_type) in enumerate(zip(files, document_types)):
             try:
                 # Validate document type
-                valid_types = ["invoice", "receipt", "id_card", "passport", "driver_license", "other", 
-                             "faktur_pajak", "pph21", "pph23", "rekening_koran", "spt", "npwp"]
+                # Make validation case-insensitive and more robust
+                valid_types = ["invoice", "receipt", "id_card", "passport", "driver_license", "other",
+                               "faktur_pajak", "pph21", "pph23", "rekening_koran", "spt", "npwp", "faktur"]
+                
+                # Normalize the input document type for validation AND storage
+                doc_type = doc_type.lower().strip()
+                
                 if doc_type not in valid_types:
                     validation_result = {
                         "is_valid": False,
-                        "errors": [f"Invalid document type '{doc_type}'. Valid types: {', '.join(valid_types)}"],
+                        "errors": [f"Invalid document type '{doc_type}'. Supported types are: {', '.join(valid_types)}"],
                         "warnings": [],
                         "filename": file.filename
                     }
@@ -827,7 +832,7 @@ async def upload_documents(
                     db_file = DocumentFile(
                         id=str(uuid.uuid4()),
                         batch_id=batch_id,
-                        name=file.filename,
+                        name=file.filename, # Use original filename for display
                         file_path=str(file_path),
                         type=doc_type,
                         file_size=len(content),

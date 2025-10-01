@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader, AlertCircle } from 'lucide-react';
 import DocumentPreview from '../components/DocumentPreview';
@@ -20,8 +20,13 @@ const ResultEditor = () => {
     setIsEditMode(prev => !prev);
   };
 
-  // Wrap fetchResult with useCallback for stable reference
-  const fetchResult = useCallback(async (resultId: string) => {
+  useEffect(() => {
+    if (id) {
+      fetchResult(id);
+    }
+  }, [id]);
+
+  const fetchResult = async (resultId: string) => {
     try {
       setLoading(true);
       setError(null);
@@ -39,15 +44,9 @@ const ResultEditor = () => {
     } finally {
       setLoading(false);
     }
-  }, []); // Empty deps - function doesn't depend on any state/props
+  };
 
-  useEffect(() => {
-    if (id) {
-      fetchResult(id);
-    }
-  }, [id, fetchResult]); // Include fetchResult in deps
-
-  const handleSave = useCallback(async (editedData: any) => {
+  const handleSave = async (editedData: any) => {
     if (!id) return;
     
     const toastId = toast.loading('Saving changes...');
@@ -55,22 +54,15 @@ const ResultEditor = () => {
       // Use the context function to save the result
       await updateResult(id, editedData);
       
-      // Optimistic update - context already updated global state
-      // Just update local state to reflect changes immediately
-      setResult(prev => prev ? { 
-        ...prev, 
-        extracted_data: { ...prev.extracted_data, ...editedData },
-        updated_at: new Date().toISOString()
-      } : null);
-      
+      await fetchResult(id); // Re-fetch the result to get the latest data
       setIsEditMode(false); // Exit edit mode on success
       toast.success('Changes saved successfully!', { id: toastId });
     } catch (error) {
       console.error('Error saving result:', error);
       toast.error('Failed to save changes.', { id: toastId });
-      // Don't re-throw - error already handled by updateResult
+      throw error;
     }
-  }, [id, updateResult]); // Include dependencies
+  };
 
   const handleBack = () => {
     navigate(-1);
