@@ -40,6 +40,56 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const fetchingUserRef = useRef(false); // Prevent duplicate calls
+  const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Inactivity timeout: 30 minutes
+  const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
+
+  // Reset inactivity timer
+  const resetInactivityTimer = () => {
+    // Clear existing timer
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
+    }
+
+    // Set new timer - auto logout after 30 min of inactivity
+    if (token) {
+      inactivityTimerRef.current = setTimeout(() => {
+        console.warn('⏰ Session expired due to inactivity');
+        logout();
+      }, INACTIVITY_TIMEOUT);
+    }
+  };
+
+  // Track user activity
+  useEffect(() => {
+    if (!token) return;
+
+    // Events that indicate user activity
+    const activityEvents = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
+    
+    const handleActivity = () => {
+      resetInactivityTimer();
+    };
+
+    // Add event listeners
+    activityEvents.forEach(event => {
+      window.addEventListener(event, handleActivity);
+    });
+
+    // Initial timer setup
+    resetInactivityTimer();
+
+    // Cleanup
+    return () => {
+      activityEvents.forEach(event => {
+        window.removeEventListener(event, handleActivity);
+      });
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current);
+      }
+    };
+  }, [token]);
 
   // Load token from localStorage on mount
   useEffect(() => {
@@ -143,9 +193,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const logout = () => {
+    // Clear inactivity timer
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = null;
+    }
+    
     setUser(null);
     setToken(null);
     localStorage.removeItem('access_token');
+    
+    console.log('🚪 User logged out');
   };
 
   const value: AuthContextType = {
