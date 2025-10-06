@@ -27,7 +27,7 @@ const ScanResults = () => {
   const navigate = useNavigate();
   const { getBatch, getScanResultsByBatch, exportResult, exportBatch, saveToGoogleDrive, refreshBatch, updateResult, loading } = useDocument();
   const [activeTab, setActiveTab] = useState(0);
-  const [viewMode, setViewMode] = useState<'split' | 'list'>('list');
+  const [viewMode, setViewMode] = useState<'split' | 'list'>('split');
   const [isEditing, setIsEditing] = useState(false);
   const [editedData, setEditedData] = useState<any>(null);
 

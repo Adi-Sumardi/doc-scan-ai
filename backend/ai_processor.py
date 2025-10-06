@@ -61,11 +61,11 @@ HAS_PRODUCTION_OCR = False
 
 try:
     from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import inch
     from reportlab.lib import colors
-    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
     HAS_EXPORT = True
     logger.info("✅ Export libraries loaded successfully")
@@ -1125,70 +1125,135 @@ def calculate_confidence(raw_text: str, document_type: str) -> float:
         return 0.3  # Default confidence if calculation fails
 
 def _populate_excel_sheet(ws, result: Dict[str, Any]):
-    """Helper function to populate an Excel worksheet with a single result."""
+    """Helper function to populate an Excel worksheet with professional table formatting."""
     try:
-        # Document info
-        ws['A1'] = "Document Information"
-        ws['A1'].font = Font(bold=True, size=14)
+        from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
         
-        row = 3
-        ws[f'A{row}'] = "Filename:"
-        ws[f'B{row}'] = result.get('original_filename', 'Unknown')
+        # Define styles
+        header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        header_font = Font(bold=True, size=12, color="FFFFFF")
+        
+        subheader_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        subheader_font = Font(bold=True, size=11, color="FFFFFF")
+        
+        data_fill_1 = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+        data_fill_2 = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+        
+        border_thin = Border(
+            left=Side(style='thin', color='000000'),
+            right=Side(style='thin', color='000000'),
+            top=Side(style='thin', color='000000'),
+            bottom=Side(style='thin', color='000000')
+        )
+        
+        center_align = Alignment(horizontal='center', vertical='center')
+        left_align = Alignment(horizontal='left', vertical='center')
+        
+        row = 1
+        
+        # ===== DOCUMENT INFORMATION TABLE =====
+        ws.merge_cells(f'A{row}:D{row}')
+        ws[f'A{row}'] = "📄 DOCUMENT INFORMATION"
+        ws[f'A{row}'].font = header_font
+        ws[f'A{row}'].fill = header_fill
+        ws[f'A{row}'].alignment = center_align
+        ws[f'A{row}'].border = border_thin
         row += 1
         
-        ws[f'A{row}'] = "Document Type:"
-        ws[f'B{row}'] = result.get('document_type', 'Unknown')
+        # Table Headers
+        headers = ["Field", "Value", "Metric", "Score"]
+        for col_idx, header in enumerate(headers, start=1):
+            cell = ws.cell(row=row, column=col_idx, value=header)
+            cell.font = subheader_font
+            cell.fill = subheader_fill
+            cell.alignment = center_align
+            cell.border = border_thin
         row += 1
         
-        ws[f'A{row}'] = "Confidence:"
-        ws[f'B{row}'] = f"{result.get('confidence', 0)*100:.1f}%"
-        row += 2
-        
-        # Raw OCR Text
-        ws[f'A{row}'] = "OCR Results"
-        ws[f'A{row}'].font = Font(bold=True, size=14)
-        row += 2
-        
+        # Document Data
         extracted_data = result.get('extracted_data', {})
-        
-        # Content Info
         content_info = extracted_data.get('extracted_content', {})
-        if content_info:
-            ws[f'A{row}'] = "Character Count:"
-            ws[f'B{row}'] = content_info.get('character_count', 0)
-            row += 1
-            
-            ws[f'A{row}'] = "Line Count:"
-            ws[f'B{row}'] = content_info.get('line_count', 0)
-            row += 1
-            
-            ws[f'A{row}'] = "Scan Timestamp:"
-            ws[f'B{row}'] = content_info.get('scan_timestamp', 'Unknown')
-            row += 2
+        confidence = result.get('confidence', 0)
         
-        # Raw Text Content
-        ws[f'A{row}'] = "RAW OCR TEXT (PURE SCAN RESULTS)"
-        ws[f'A{row}'].font = Font(bold=True, size=14, color="FF0000")  # Red color for emphasis
-        row += 2
+        doc_info = [
+            ["Filename", result.get('original_filename', 'Unknown'), "Confidence Score", f"{confidence*100:.1f}%"],
+            ["Document Type", result.get('document_type', 'Unknown'), "Character Count", content_info.get('character_count', 0)],
+            ["Processing Method", extracted_data.get('processing_info', {}).get('parsing_method', 'Unknown'), "Line Count", content_info.get('line_count', 0)],
+            ["Scan Timestamp", content_info.get('scan_timestamp', datetime.now().strftime("%Y-%m-%d %H:%M:%S")), "Word Count", len(extracted_data.get('raw_text', '').split())]
+        ]
         
+        for idx, data_row in enumerate(doc_info):
+            fill = data_fill_1 if idx % 2 == 0 else data_fill_2
+            for col_idx, value in enumerate(data_row, start=1):
+                cell = ws.cell(row=row, column=col_idx, value=value)
+                cell.fill = fill
+                cell.alignment = left_align if col_idx % 2 == 0 else left_align
+                cell.border = border_thin
+                if col_idx % 2 == 1:  # Field names in bold
+                    cell.font = Font(bold=True, size=10)
+            row += 1
+        
+        row += 2  # Space between tables
+        
+        # ===== OCR RESULTS TABLE =====
+        ws.merge_cells(f'A{row}:C{row}')
+        ws[f'A{row}'] = "📝 OCR EXTRACTED TEXT (LINE BY LINE)"
+        ws[f'A{row}'].font = header_font
+        ws[f'A{row}'].fill = header_fill
+        ws[f'A{row}'].alignment = center_align
+        ws[f'A{row}'].border = border_thin
+        row += 1
+        
+        # OCR Table Headers
+        ocr_headers = ["#", "Line Content", "Length"]
+        for col_idx, header in enumerate(ocr_headers, start=1):
+            cell = ws.cell(row=row, column=col_idx, value=header)
+            cell.font = subheader_font
+            cell.fill = subheader_fill
+            cell.alignment = center_align
+            cell.border = border_thin
+        row += 1
+        
+        # OCR Text Lines
         raw_text = extracted_data.get('raw_text', '')
         if raw_text:
             lines = raw_text.split('\n')
-            for line in lines:
-                ws[f'A{row}'] = line if line.strip() else ""
+            for line_idx, line_content in enumerate(lines, start=1):
+                fill = data_fill_1 if line_idx % 2 == 0 else data_fill_2
+                
+                # Line number
+                cell = ws.cell(row=row, column=1, value=line_idx)
+                cell.fill = fill
+                cell.alignment = center_align
+                cell.border = border_thin
+                cell.font = Font(bold=True, size=9)
+                
+                # Line content
+                cell = ws.cell(row=row, column=2, value=line_content.strip() if line_content.strip() else "(empty line)")
+                cell.fill = fill
+                cell.alignment = left_align
+                cell.border = border_thin
+                
+                # Character count
+                cell = ws.cell(row=row, column=3, value=len(line_content.strip()))
+                cell.fill = fill
+                cell.alignment = center_align
+                cell.border = border_thin
+                
                 row += 1
         else:
-            ws[f'A{row}'] = "No raw OCR text available"
+            cell = ws.cell(row=row, column=2, value="No OCR text extracted")
+            cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+            cell.font = Font(italic=True, color="9C0006")
+            cell.alignment = center_align
+            cell.border = border_thin
         
         # Auto-adjust column widths
-        for column in ws.columns:
-            max_length = 0
-            column_letter = column[0].column_letter
-            for cell in column:
-                if len(str(cell.value)) > max_length:
-                    max_length = len(str(cell.value))
-            adjusted_width = min(max_length + 2, 50)
-            ws.column_dimensions[column_letter].width = adjusted_width
+        ws.column_dimensions['A'].width = 8
+        ws.column_dimensions['B'].width = 60
+        ws.column_dimensions['C'].width = 18
+        ws.column_dimensions['D'].width = 18
+        
     except Exception as e:
         logger.error(f"❌ Failed to populate Excel sheet: {e}")
 
@@ -1215,87 +1280,172 @@ def create_enhanced_excel_export(result: Dict[str, Any], output_path: str) -> bo
         return False
 
 def create_enhanced_pdf_export(result: Dict[str, Any], output_path: str) -> bool:
-    """Create enhanced PDF export with proper formatting"""
+    """Create enhanced PDF export with professional table formatting"""
     try:
         if not HAS_EXPORT:
             logger.error("❌ Export libraries not available")
             return False
         
-        doc = SimpleDocTemplate(output_path, pagesize=A4)
+        doc = SimpleDocTemplate(output_path, pagesize=A4, 
+                                topMargin=0.5*inch, bottomMargin=0.5*inch,
+                                leftMargin=0.75*inch, rightMargin=0.75*inch)
         styles = getSampleStyleSheet()
         story = []
         
-        # Title
-        story.append(Paragraph("Document Scan Results", styles['Title']))
-        story.append(Spacer(1, 12))
+        # Custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            textColor=colors.HexColor('#1e40af'),
+            spaceAfter=20,
+            alignment=1  # Center
+        )
         
-        # Document info
+        # ===== TITLE =====
+        story.append(Paragraph("📄 DOCUMENT OCR SCAN RESULTS", title_style))
+        story.append(Spacer(1, 15))
+        
+        # ===== DOCUMENT INFORMATION TABLE =====
+        extracted_data = result.get('extracted_data', {})
+        content_info = extracted_data.get('extracted_content', {})
+        confidence = result.get('confidence', 0)
+        
+        # Header row
+        info_header = [["📋 DOCUMENT INFORMATION", "", "", ""]]
+        
+        # Data rows (2 columns of info per row)
         info_data = [
-            ["Filename:", result.get('original_filename', 'Unknown')],
-            ["Document Type:", result.get('document_type', 'Unknown')],
-            ["Confidence:", f"{result.get('confidence', 0)*100:.1f}%"],
-            ["Processed:", datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
+            ["Field", "Value", "Metric", "Score"],
+            ["Filename", result.get('original_filename', 'Unknown')[:40], "Confidence Score", f"{confidence*100:.1f}%"],
+            ["Document Type", result.get('document_type', 'Unknown'), "Character Count", str(content_info.get('character_count', 0))],
+            ["Processing Method", extracted_data.get('processing_info', {}).get('parsing_method', 'Unknown'), "Line Count", str(content_info.get('line_count', 0))],
+            ["Scan Timestamp", content_info.get('scan_timestamp', datetime.now().strftime("%Y-%m-%d %H:%M:%S")), "Word Count", str(len(extracted_data.get('raw_text', '').split()))]
         ]
         
-        info_table = Table(info_data, colWidths=[2*inch, 4*inch])
+        # Create header table
+        header_table = Table(info_header, colWidths=[6.5*inch])
+        header_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#1e40af')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        story.append(header_table)
+        
+        # Create info table
+        info_table = Table(info_data, colWidths=[1.3*inch, 2*inch, 1.5*inch, 1.7*inch])
         info_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
+            # Header row
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3b82f6')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+            # Data rows - alternating colors
+            ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#dbeafe')),
+            ('BACKGROUND', (0, 2), (-1, 2), colors.white),
+            ('BACKGROUND', (0, 3), (-1, 3), colors.HexColor('#dbeafe')),
+            ('BACKGROUND', (0, 4), (-1, 4), colors.white),
+            # Field names bold
+            ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
+            ('FONTNAME', (2, 1), (2, -1), 'Helvetica-Bold'),
+            # General styling
             ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
         ]))
-        
         story.append(info_table)
         story.append(Spacer(1, 20))
         
-        # Extracted data
-        story.append(Paragraph("Extracted Data", styles['Heading2']))
-        story.append(Spacer(1, 12))
+        # ===== OCR RESULTS TABLE =====
+        # Header
+        ocr_header = [["📝 OCR EXTRACTED TEXT (LINE BY LINE)"]]
+        ocr_header_table = Table(ocr_header, colWidths=[6.5*inch])
+        ocr_header_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#1e40af')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        story.append(ocr_header_table)
         
-        extracted_data = result.get('extracted_data', {})
-        
-        # Document Type
-        if 'document_type' in extracted_data:
-            story.append(Paragraph(f"<b>Document Type:</b> {extracted_data['document_type']}", styles['Normal']))
-            story.append(Spacer(1, 6))
-        
-        # Processing Info
-        processing_info = extracted_data.get('processing_info', {})
-        if processing_info:
-            story.append(Paragraph("<b>Processing Information</b>", styles['Heading3']))
-            story.append(Paragraph(f"Method: {processing_info.get('parsing_method', 'Unknown')}", styles['Normal']))
-            story.append(Paragraph(f"Regex Parsing: {processing_info.get('regex_parsing', 'Unknown')}", styles['Normal']))
-            story.append(Spacer(1, 12))
-        
-        # Content Info
-        content_info = extracted_data.get('extracted_content', {})
-        if content_info:
-            story.append(Paragraph("<b>Content Statistics</b>", styles['Heading3']))
-            story.append(Paragraph(f"Character Count: {content_info.get('character_count', 0)}", styles['Normal']))
-            story.append(Paragraph(f"Line Count: {content_info.get('line_count', 0)}", styles['Normal']))
-            story.append(Paragraph(f"Scan Timestamp: {content_info.get('scan_timestamp', 'Unknown')}", styles['Normal']))
-            story.append(Spacer(1, 12))
-        
-        # Focus on Raw OCR Text - No structured data parsing
-        # Show pure scan results as intended by user
-        
-        # Raw OCR Text - Primary Focus
-        story.append(Paragraph("<b><font color='red' size='14'>RAW OCR TEXT (PURE SCAN RESULTS)</font></b>", styles['Heading2']))
-        story.append(Spacer(1, 12))
-        
+        # OCR content table
         raw_text = extracted_data.get('raw_text', '')
         if raw_text:
-            # Split text into paragraphs for better PDF formatting - show full content
             lines = raw_text.split('\n')
-            for line in lines:
-                if line.strip():
-                    # Escape special characters for PDF
-                    safe_line = line.strip().replace('<', '&lt;').replace('>', '&gt;')
-                    story.append(Paragraph(safe_line, styles['Normal']))
+            
+            # Table headers
+            ocr_data = [["#", "Line Content", "Chars"]]
+            
+            # Add lines
+            for line_idx, line_content in enumerate(lines[:200], start=1):  # Limit to 200 lines for PDF
+                safe_line = line_content.strip().replace('<', '&lt;').replace('>', '&gt;') if line_content.strip() else "(empty line)"
+                # Truncate long lines for PDF
+                if len(safe_line) > 90:
+                    safe_line = safe_line[:87] + "..."
+                ocr_data.append([str(line_idx), safe_line, str(len(line_content.strip()))])
+            
+            if len(lines) > 200:
+                ocr_data.append(["...", f"+ {len(lines) - 200} more lines (truncated for PDF)", ""])
+            
+            ocr_table = Table(ocr_data, colWidths=[0.4*inch, 5.4*inch, 0.7*inch])
+            
+            # Build style list dynamically
+            style_list = [
+                # Header row
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3b82f6')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+                # General styling
+                ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                ('FONTSIZE', (0, 1), (-1, -1), 8),
+                ('ALIGN', (0, 1), (0, -1), 'CENTER'),  # Line numbers centered
+                ('ALIGN', (2, 1), (2, -1), 'CENTER'),  # Char count centered
+                ('ALIGN', (1, 1), (1, -1), 'LEFT'),    # Content left-aligned
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                ('LEFTPADDING', (0, 0), (-1, -1), 4),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                ('TOPPADDING', (0, 0), (-1, -1), 3),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ]
+            
+            # Alternating row colors
+            for i in range(1, len(ocr_data)):
+                if i % 2 == 1:
+                    style_list.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#dbeafe')))
+                else:
+                    style_list.append(('BACKGROUND', (0, i), (-1, i), colors.white))
+            
+            ocr_table.setStyle(TableStyle(style_list))
+            story.append(ocr_table)
         else:
-            story.append(Paragraph("No text extracted", styles['Normal']))
+            no_data = [["No OCR text extracted from document"]]
+            no_data_table = Table(no_data, colWidths=[6.5*inch])
+            no_data_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#fee2e2')),
+                ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#991b1b')),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Oblique'),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('PADDING', (0, 0), (-1, -1), 12),
+            ]))
+            story.append(no_data_table)
         
         doc.build(story)
         logger.info(f"✅ PDF export created: {output_path}")
@@ -1403,43 +1553,207 @@ def create_batch_excel_export(batch_id: str, results: list, output_path: str) ->
         return False
 
 def create_batch_pdf_export(batch_id: str, results: list, output_path: str) -> bool:
-    """Create a single PDF file for a batch with all results."""
+    """Create a single PDF file for a batch with all results using professional table formatting."""
     try:
         if not HAS_EXPORT:
             logger.error("❌ Export libraries not available for batch PDF export")
             return False
 
-        doc = SimpleDocTemplate(output_path, pagesize=A4)
+        doc = SimpleDocTemplate(output_path, pagesize=A4,
+                                topMargin=0.5*inch, bottomMargin=0.5*inch,
+                                leftMargin=0.75*inch, rightMargin=0.75*inch)
         styles = getSampleStyleSheet()
         story = []
+        
+        # Custom title style
+        batch_title_style = ParagraphStyle(
+            'BatchTitle',
+            parent=styles['Heading1'],
+            fontSize=20,
+            textColor=colors.HexColor('#1e40af'),
+            spaceAfter=20,
+            alignment=1  # Center
+        )
 
-        # Title page
-        story.append(Paragraph("Batch Scan Results", styles['Title']))
-        story.append(Spacer(1, 12))
-        story.append(Paragraph(f"<b>Batch ID:</b> {batch_id}", styles['Normal']))
-        story.append(Paragraph(f"<b>Total Files:</b> {len(results)}", styles['Normal']))
-        story.append(Paragraph(f"<b>Export Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+        # ===== BATCH COVER PAGE =====
+        story.append(Paragraph("📦 BATCH SCAN RESULTS", batch_title_style))
+        story.append(Spacer(1, 20))
+        
+        # Batch info table
+        batch_header = [["📋 BATCH INFORMATION"]]
+        batch_header_table = Table(batch_header, colWidths=[6.5*inch])
+        batch_header_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#1e40af')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 14),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+            ('TOPPADDING', (0, 0), (-1, -1), 10),
+        ]))
+        story.append(batch_header_table)
+        
+        batch_data = [
+            ["Field", "Value"],
+            ["Batch ID", batch_id],
+            ["Total Documents", str(len(results))],
+            ["Export Date", datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
+            ["Export Type", "Complete Batch PDF Report"]
+        ]
+        
+        batch_table = Table(batch_data, colWidths=[2*inch, 4.5*inch])
+        batch_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3b82f6')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#dbeafe')),
+            ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        story.append(batch_table)
         story.append(PageBreak())
 
-        for i, result_dict in enumerate(results):
+        # ===== INDIVIDUAL DOCUMENTS =====
+        for i, result_dict in enumerate(results, start=1):
+            # Document separator
+            doc_separator = [[f"📄 DOCUMENT {i} OF {len(results)}"]]
+            sep_table = Table(doc_separator, colWidths=[6.5*inch])
+            sep_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#059669')),
+                ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 12),
+                ('TOPPADDING', (0, 0), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ]))
+            story.append(sep_table)
+            story.append(Spacer(1, 15))
+            
+            # Convert dict to object
             class ResultObject:
                 def __init__(self, **entries):
                     self.__dict__.update(entries)
             result = ResultObject(**result_dict)
-
-            story.append(Paragraph(f"Document {i+1}: {result.original_filename}", styles['h2']))
             
-            result_data_for_export = {
-                'original_filename': result.original_filename,
-                'document_type': result.document_type,
-                'confidence': result.confidence,
-                'extracted_data': result.extracted_data,
-                'created_at': result.created_at.isoformat() if result.created_at else datetime.now().isoformat()
-            }
-            # Re-use the single-file export logic for the content
-            _populate_pdf_story(story, styles, result_data_for_export)
-
-            if i < len(results) - 1:
+            # Document info table
+            extracted_data = result.extracted_data or {}
+            content_info = extracted_data.get('extracted_content', {})
+            confidence = getattr(result, 'confidence', 0)
+            
+            info_header = [["📋 DOCUMENT INFORMATION"]]
+            info_header_table = Table(info_header, colWidths=[6.5*inch])
+            info_header_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#1e40af')),
+                ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 11),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ]))
+            story.append(info_header_table)
+            
+            info_data = [
+                ["Field", "Value"],
+                ["Filename", getattr(result, 'original_filename', 'Unknown')[:50]],
+                ["Document Type", getattr(result, 'document_type', 'Unknown')],
+                ["Confidence Score", f"{confidence*100:.1f}%"],
+                ["Characters", str(content_info.get('character_count', 0))],
+                ["Lines", str(content_info.get('line_count', 0))]
+            ]
+            
+            info_table = Table(info_data, colWidths=[1.8*inch, 4.7*inch])
+            info_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3b82f6')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#dbeafe')),
+                ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 1), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 5),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ]))
+            story.append(info_table)
+            story.append(Spacer(1, 12))
+            
+            # OCR results (limit to 100 lines per document in batch)
+            ocr_header = [["📝 OCR EXTRACTED TEXT"]]
+            ocr_header_table = Table(ocr_header, colWidths=[6.5*inch])
+            ocr_header_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#1e40af')),
+                ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 11),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ]))
+            story.append(ocr_header_table)
+            
+            raw_text = extracted_data.get('raw_text', '')
+            if raw_text:
+                lines = raw_text.split('\n')
+                ocr_data = [["#", "Line Content"]]
+                
+                for line_idx, line_content in enumerate(lines[:100], start=1):  # Limit to 100 lines for batch
+                    safe_line = line_content.strip().replace('<', '&lt;').replace('>', '&gt;') if line_content.strip() else "(empty)"
+                    if len(safe_line) > 80:
+                        safe_line = safe_line[:77] + "..."
+                    ocr_data.append([str(line_idx), safe_line])
+                
+                if len(lines) > 100:
+                    ocr_data.append(["...", f"+ {len(lines) - 100} more lines (truncated)"])
+                
+                ocr_table = Table(ocr_data, colWidths=[0.4*inch, 6.1*inch])
+                style_list = [
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3b82f6')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 7),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                    ('ALIGN', (0, 1), (0, -1), 'CENTER'),
+                    ('ALIGN', (1, 1), (1, -1), 'LEFT'),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 3),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+                    ('TOPPADDING', (0, 0), (-1, -1), 2),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+                ]
+                
+                for j in range(1, len(ocr_data)):
+                    if j % 2 == 1:
+                        style_list.append(('BACKGROUND', (0, j), (-1, j), colors.HexColor('#dbeafe')))
+                    else:
+                        style_list.append(('BACKGROUND', (0, j), (-1, j), colors.white))
+                
+                ocr_table.setStyle(TableStyle(style_list))
+                story.append(ocr_table)
+            else:
+                no_data = [["No OCR text extracted"]]
+                no_data_table = Table(no_data, colWidths=[6.5*inch])
+                no_data_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#fee2e2')),
+                    ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#991b1b')),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 9),
+                    ('PADDING', (0, 0), (-1, -1), 8),
+                ]))
+                story.append(no_data_table)
+            
+            # Page break between documents
+            if i < len(results):
                 story.append(PageBreak())
 
         doc.build(story)
