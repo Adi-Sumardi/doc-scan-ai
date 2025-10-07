@@ -1,0 +1,416 @@
+"""
+Batches Router
+Handles batch and result management endpoints
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, Form
+from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
+from typing import List
+from datetime import datetime
+from pathlib import Path
+import logging
+
+from database import get_db, Batch, DocumentFile
+from database import ScanResult as DBScanResult
+from models import User
+from auth import get_current_active_user
+from batch_processor import BatchProcessor
+from websocket_manager import manager
+
+logger = logging.getLogger(__name__)
+
+# Create router
+router = APIRouter(prefix="/api", tags=["batches"])
+
+# Initialize batch processor
+batch_processor = BatchProcessor()
+
+
+# ==================== Batch Status Endpoints ====================
+
+@router.get("/batches/{batch_id}")
+async def get_batch_status(
+    batch_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get batch processing status with comprehensive error handling"""
+    try:
+        # Validate batch_id format
+        if not batch_id or len(batch_id) < 10:
+            raise HTTPException(
+                status_code=400, 
+                detail={
+                    "error": "Invalid batch ID",
+                    "message": "Batch ID must be a valid UUID format",
+                    "error_code": "INVALID_BATCH_ID"
+                }
+            )
+        
+        # Get batch from database
+        try:
+            batch = db.query(Batch).filter(Batch.id == batch_id).first()
+        except Exception as e:
+            logger.error(f"Database error querying batch {batch_id}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "Database error",
+                    "message": "Failed to retrieve batch information. Please try again.",
+                    "error_code": "DATABASE_ERROR"
+                }
+            )
+        
+        if not batch:
+            raise HTTPException(
+                status_code=404, 
+                detail={
+                    "error": "Batch not found",
+                    "message": f"No batch found with ID {batch_id}. Please check the batch ID and try again.",
+                    "error_code": "BATCH_NOT_FOUND"
+                }
+            )
+        
+        # Verify ownership
+        if batch.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "Access denied",
+                    "message": "You don't have permission to access this batch.",
+                    "error_code": "ACCESS_DENIED"
+                }
+            )
+        
+        # Calculate processing progress
+        progress_percentage = 0
+        if batch.total_files > 0:
+            progress_percentage = (batch.processed_files / batch.total_files) * 100
+        
+        return {
+            "id": batch.id,
+            "status": batch.status,
+            "total_files": batch.total_files,
+            "processed_files": batch.processed_files,
+            "progress_percentage": round(progress_percentage, 1),
+            "created_at": batch.created_at.isoformat(),
+            "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
+            "error_message": batch.error_message,
+            "source": "database"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"🚨 Unexpected error getting batch status for {batch_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "error": "System error",
+                "message": "An unexpected error occurred while retrieving batch status. Please try again.",
+                "error_code": "SYSTEM_ERROR",
+                "batch_id": batch_id
+            }
+        )
+
+
+@router.get("/batches/{batch_id}/results")
+async def get_batch_results(
+    batch_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get scan results for a batch"""
+    try:
+        # Verify batch exists
+        batch = db.query(Batch).filter(Batch.id == batch_id).first()
+        if not batch:
+            raise HTTPException(status_code=404, detail="Batch not found")
+        
+        # Verify ownership
+        if batch.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this batch")
+        
+        # Get all results for this batch
+        results = db.query(DBScanResult).filter(DBScanResult.batch_id == batch_id).all()
+        
+        # Format results for API response
+        batch_results = []
+        for result in results:
+            result_data = {
+                "id": result.id,
+                "batch_id": result.batch_id,
+                "filename": result.original_filename,
+                "document_type": result.document_type,
+                "extracted_text": result.extracted_text,
+                "extracted_data": result.extracted_data,
+                "confidence": result.confidence,
+                "ocr_engine_used": result.ocr_engine_used,
+                "created_at": result.created_at.isoformat(),
+                "ocr_processing_time": result.ocr_processing_time
+            }
+            batch_results.append(result_data)
+        
+        logger.info(f"📊 Retrieved {len(batch_results)} results for batch {batch_id}")
+        return batch_results
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting batch results: {e}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving batch results: {str(e)}")
+
+
+@router.get("/batches")
+async def get_all_batches(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get all batches for current user"""
+    try:
+        # Filter batches by user_id
+        batches = db.query(Batch).filter(Batch.user_id == current_user.id).order_by(desc(Batch.created_at)).all()
+        
+        batch_list = []
+        for batch in batches:
+            batch_data = {
+                "id": batch.id,
+                "status": batch.status,
+                "total_files": batch.total_files,
+                "processed_files": batch.processed_files,
+                "created_at": batch.created_at.isoformat(),
+                "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
+                "error_message": batch.error_message
+            }
+            batch_list.append(batch_data)
+        
+        return batch_list if batch_list is not None else []
+        
+    except Exception as e:
+        logger.error(f"Error getting all batches: {e}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving batches: {str(e)}")
+
+
+@router.post("/batch/cancel")
+async def cancel_batch_processing(
+    batch_id: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Cancel ongoing batch processing"""
+    try:
+        # Verify batch exists and user owns it
+        batch = db.query(Batch).filter(Batch.id == batch_id).first()
+        if not batch:
+            raise HTTPException(status_code=404, detail="Batch not found")
+        
+        if batch.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to cancel this batch")
+        
+        # Check if batch is actually processing
+        if batch.status not in ["processing", "pending"]:
+            return {
+                "success": False,
+                "message": f"Batch is not in a cancellable state. Current status: {batch.status}"
+            }
+        
+        # Cancel the batch
+        success = batch_processor.cancel_batch(batch_id)
+        
+        if success:
+            # Update database status
+            batch.status = "cancelled"
+            db.commit()
+            
+            logger.info(f"✅ Cancelled batch {batch_id} by user {current_user.username}")
+            
+            # Notify via WebSocket
+            await manager.send_batch_progress(batch_id, {
+                "status": "cancelled",
+                "message": "Batch processing cancelled by user"
+            })
+            
+            return {
+                "success": True,
+                "message": "Batch processing cancelled successfully",
+                "batch_id": batch_id
+            }
+        else:
+            return {
+                "success": False,
+                "message": "Failed to cancel batch. It may have already completed."
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cancelling batch {batch_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to cancel batch: {str(e)}")
+
+
+# ==================== Result Management Endpoints ====================
+
+@router.get("/results")
+async def get_all_results(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get all scan results for current user"""
+    try:
+        # Join with Batch to filter by user_id
+        results = db.query(DBScanResult).join(
+            Batch, DBScanResult.batch_id == Batch.id
+        ).filter(
+            Batch.user_id == current_user.id
+        ).order_by(desc(DBScanResult.created_at)).all()
+        
+        results_list = []
+        for result in results:
+            # Parse extracted_data if it's a string
+            import json
+            extracted_data = result.extracted_data
+            if isinstance(extracted_data, str):
+                try:
+                    extracted_data = json.loads(extracted_data)
+                except:
+                    extracted_data = {}
+            elif not isinstance(extracted_data, dict):
+                extracted_data = {}
+            
+            result_data = {
+                "id": result.id,
+                "batch_id": result.batch_id,
+                "filename": result.original_filename,
+                "document_type": result.document_type,
+                "confidence_score": result.confidence,
+                "processing_time": result.total_processing_time,
+                "created_at": result.created_at.isoformat(),
+                "extracted_data": extracted_data
+            }
+            results_list.append(result_data)
+        
+        return results_list if results_list is not None else []
+        
+    except Exception as e:
+        logger.error(f"Error getting all results: {e}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving results: {str(e)}")
+
+
+@router.patch("/results/{result_id}")
+async def update_result(
+    result_id: str, 
+    updated_data: dict,
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_active_user)
+):
+    """Update edited OCR result data"""
+    try:
+        # Get scan result from database
+        result = db.query(DBScanResult).filter(DBScanResult.id == result_id).first()
+        if not result:
+            raise HTTPException(status_code=404, detail="Scan result not found")
+        
+        # Verify ownership through batch
+        batch = db.query(Batch).filter(Batch.id == result.batch_id).first()
+        if not batch:
+            raise HTTPException(status_code=404, detail="Associated batch not found")
+        
+        # Only allow user to edit their own results (or admin can edit all)
+        if batch.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to edit this result")
+        
+        # Store old data for history (optional - for version control)
+        old_data = result.extracted_data.copy() if result.extracted_data else {}
+        
+        # Update extracted_data with edited data
+        if result.extracted_data:
+            result.extracted_data.update(updated_data)
+        else:
+            result.extracted_data = updated_data
+        
+        # Update timestamp
+        from datetime import datetime as dt
+        result.updated_at = dt.utcnow()
+        
+        # Commit to database
+        db.commit()
+        db.refresh(result)
+        
+        logger.info(f"✅ Updated scan result {result_id} by user {current_user.username}")
+        
+        return {
+            "success": True,
+            "message": "Result updated successfully",
+            "result_id": result_id,
+            "updated_at": result.updated_at.isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating result {result_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update result: {str(e)}")
+
+
+@router.get("/results/{result_id}/file")
+async def get_result_file(
+    result_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Serve the original uploaded file for a scan result"""
+    try:
+        # Get scan result
+        result = db.query(DBScanResult).filter(DBScanResult.id == result_id).first()
+        if not result:
+            raise HTTPException(status_code=404, detail="Scan result not found")
+        
+        # Get document file info
+        doc_file = db.query(DocumentFile).filter(DocumentFile.id == result.document_file_id).first()
+        if not doc_file:
+            raise HTTPException(status_code=404, detail="Document file not found")
+        
+        # Verify ownership
+        batch = db.query(Batch).filter(Batch.id == result.batch_id).first()
+        if not batch:
+            raise HTTPException(status_code=404, detail="Associated batch not found")
+        
+        if batch.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to access this file")
+        
+        # Construct file path
+        file_path = Path(doc_file.file_path)
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Original file not found on disk")
+        
+        # Determine media type based on file extension
+        file_extension = file_path.suffix.lower()
+        media_type_map = {
+            '.pdf': 'application/pdf',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.tiff': 'image/tiff',
+            '.tif': 'image/tiff',
+            '.bmp': 'image/bmp',
+            '.gif': 'image/gif'
+        }
+        
+        media_type = media_type_map.get(file_extension, 'application/octet-stream')
+        
+        # Return the file
+        return FileResponse(
+            path=str(file_path),
+            filename=doc_file.name,
+            media_type=media_type
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error serving result file {result_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to serve file: {str(e)}")
