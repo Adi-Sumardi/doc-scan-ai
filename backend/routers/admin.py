@@ -11,8 +11,7 @@ import secrets
 import string
 import logging
 
-from database import get_db, Batch, DocumentFile
-from models import User
+from database import get_db, Batch, DocumentFile, User
 from auth import get_current_active_user, get_password_hash
 from audit_logger import log_user_status_change, log_password_reset
 from security import SecurityValidator
@@ -222,7 +221,8 @@ async def get_dashboard_stats(
     total_batches = db.query(Batch).count()
     completed_batches = db.query(Batch).filter(Batch.status == "completed").count()
     processing_batches = db.query(Batch).filter(Batch.status == "processing").count()
-    failed_batches = db.query(Batch).filter(Batch.status == "error").count()
+    partial_batches = db.query(Batch).filter(Batch.status == "partial").count()
+    failed_batches = db.query(Batch).filter(Batch.status.in_(["failed", "error"])).count()
     
     # Count files
     total_files = db.query(DocumentFile).count()
@@ -244,6 +244,7 @@ async def get_dashboard_stats(
             "total": total_batches,
             "completed": completed_batches,
             "processing": processing_batches,
+            "partial": partial_batches,
             "failed": failed_batches,
             "this_week": recent_batches
         },

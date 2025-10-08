@@ -14,17 +14,18 @@ import logging
 from pathlib import Path
 
 # Import config first
-from config import settings, get_upload_dir, get_results_dir, get_exports_dir
+try:  # Support running as package (`backend.main`) and as script (`python main.py`)
+    from config import settings, get_upload_dir, get_results_dir, get_exports_dir
+    from routers import auth, admin, health, documents, batches, exports
+    from database import Base, engine
+except ModuleNotFoundError:  # pragma: no cover - fallback for package context
+    from .config import settings, get_upload_dir, get_results_dir, get_exports_dir
+    from .routers import auth, admin, health, documents, batches, exports
+    from .database import Base, engine
 
-# Import routers
-from routers import auth, admin, health, documents, batches, exports
-
-# Import database initialization
-from database import Base, engine
-
-# Apply nest_asyncio for gRPC compatibility
-import nest_asyncio
-nest_asyncio.apply()
+# Apply nest_asyncio for gRPC compatibility (disabled for uvloop)
+# import nest_asyncio
+# nest_asyncio.apply()
 
 # Configure logging
 logging.basicConfig(
@@ -99,8 +100,12 @@ async def add_security_headers(request, call_next):
 def validate_environment():
     """Validate required directories and services"""
     from sqlalchemy import text
-    from database import SessionLocal
-    from ai_processor import RealOCRProcessor
+    try:
+        from database import SessionLocal
+        from ai_processor import RealOCRProcessor
+    except ModuleNotFoundError:  # pragma: no cover - package context fallback
+        from .database import SessionLocal
+        from .ai_processor import RealOCRProcessor
     
     # Check storage directories
     storage_dirs = {
@@ -151,9 +156,11 @@ UPLOAD_DIR = Path(get_upload_dir())
 RESULTS_DIR = Path(get_results_dir())
 EXPORTS_DIR = Path(get_exports_dir())
 
-# Initialize batch processor
-from batch_processor import BatchProcessor
-batch_processor = BatchProcessor()
+# Initialize batch processor (import ensures module setup)
+try:
+    from batch_processor import batch_processor
+except ModuleNotFoundError:  # pragma: no cover - package context fallback
+    from .batch_processor import batch_processor
 
 # ==================== Register Routers ====================
 
@@ -175,7 +182,10 @@ app.include_router(exports.router)
 # WebSocket routes must be registered directly (not through router)
 
 from fastapi import WebSocket
-from routers.health import websocket_general_handler, websocket_batch_handler
+try:
+    from routers.health import websocket_general_handler, websocket_batch_handler
+except ModuleNotFoundError:  # pragma: no cover - package context fallback
+    from .routers.health import websocket_general_handler, websocket_batch_handler
 
 @app.websocket("/ws")
 async def websocket_general(websocket: WebSocket):

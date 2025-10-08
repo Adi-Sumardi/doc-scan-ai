@@ -9,8 +9,8 @@ from datetime import timedelta, datetime
 import uuid
 import logging
 
-from database import get_db
-from models import User, UserRegister, UserLogin, UserResponse, Token
+from database import get_db, User
+from models import UserRegister, UserLogin, UserResponse, Token
 from auth import get_password_hash, verify_password, create_access_token, get_current_active_user
 from audit_logger import log_registration, log_login_success, log_login_failure
 from security import SecurityValidator

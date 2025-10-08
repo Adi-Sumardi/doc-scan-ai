@@ -12,21 +12,16 @@ from datetime import datetime
 from pathlib import Path
 import logging
 
-from database import get_db, Batch, DocumentFile
+from database import get_db, Batch, DocumentFile, User
 from database import ScanResult as DBScanResult
-from models import User
 from auth import get_current_active_user
-from batch_processor import BatchProcessor
+from batch_processor import batch_processor
 from websocket_manager import manager
 
 logger = logging.getLogger(__name__)
 
 # Create router
 router = APIRouter(prefix="/api", tags=["batches"])
-
-# Initialize batch processor
-batch_processor = BatchProcessor()
-
 
 # ==================== Batch Status Endpoints ====================
 

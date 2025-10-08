@@ -13,9 +13,14 @@ from dataclasses import dataclass
 import json
 import mimetypes
 
+from dotenv import load_dotenv
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Ensure environment variables from .env are available when this module is imported
+load_dotenv()
 
 @dataclass
 class CloudOCRResult:
@@ -69,18 +74,30 @@ class CloudAIProcessor:
                 creds_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
                 project_id = os.getenv('GOOGLE_CLOUD_PROJECT_ID')
                 location = os.getenv('GOOGLE_PROCESSOR_LOCATION')
+                processor_id = os.getenv('GOOGLE_PROCESSOR_ID')
+
+                if not all([creds_path, project_id, location, processor_id]):
+                    try:
+                        from config import settings as _settings
+                    except ModuleNotFoundError:  # pragma: no cover
+                        from .config import settings as _settings
+                    creds_path = creds_path or _settings.google_application_credentials
+                    project_id = project_id or _settings.google_cloud_project_id
+                    location = location or _settings.google_processor_location
+                    processor_id = processor_id or _settings.google_processor_id
                 
-                if creds_path and project_id and location:
+                if creds_path and project_id and location and processor_id:
                     # Load credentials from file
                     credentials = service_account.Credentials.from_service_account_file(creds_path)
                     
                     # The client options are important for specifying the regional endpoint
                     client_options = {"api_endpoint": f"{location}-documentai.googleapis.com"}
                     self.services['google'] = {
-                        'client': documentai.DocumentProcessorServiceAsyncClient(
-                            credentials=credentials,
-                            client_options=client_options
-                        )
+                        'credentials': credentials,
+                        'client_options': client_options,
+                        'project_id': project_id,
+                        'location': location,
+                        'processor_id': processor_id
                     }
                     logger.info("✅ Google Document AI initialized with explicit credentials")
                 else:
@@ -193,16 +210,17 @@ class CloudAIProcessor:
             
             start_time = asyncio.get_event_loop().time()
             
-            project_id = os.getenv('GOOGLE_CLOUD_PROJECT_ID')
-            location = os.getenv('GOOGLE_PROCESSOR_LOCATION', 'us')
-            processor_id = os.getenv('GOOGLE_PROCESSOR_ID')
+            service_info = self.services['google']
+            project_id = service_info.get('project_id')
+            location = service_info.get('location', 'us')
+            processor_id = service_info.get('processor_id')
             
             # Validate required configuration
             if not project_id:
                 raise Exception("GOOGLE_CLOUD_PROJECT_ID not configured")
             if not processor_id:
                 raise Exception("GOOGLE_PROCESSOR_ID not configured")
-            
+
             # The full resource name of the processor
             name = f"projects/{project_id}/locations/{location}/processors/{processor_id}"
             logger.info(f"📄 Processing with Google Document AI: {name}")
@@ -224,8 +242,19 @@ class CloudAIProcessor:
                 }
             }
             
-            # Process document
-            result = await self.services['google']['client'].process_document(request=request)
+            # Process document using a client bound to the current event loop
+            client = documentai.DocumentProcessorServiceAsyncClient(
+                credentials=service_info['credentials'],
+                client_options=service_info['client_options']
+            )
+            try:
+                result = await client.process_document(request=request)
+            finally:
+                transport = getattr(client, 'transport', None)
+                if transport and hasattr(transport, 'close'):
+                    maybe_coro = transport.close()
+                    if asyncio.iscoroutine(maybe_coro):
+                        await maybe_coro
             document = result.document
             
             # Extract text and confidence

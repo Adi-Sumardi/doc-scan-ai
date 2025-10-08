@@ -9,9 +9,8 @@ from sqlalchemy.orm import Session
 from pathlib import Path
 import logging
 
-from database import get_db, Batch, DocumentFile
+from database import get_db, Batch, DocumentFile, User
 from database import ScanResult as DBScanResult
-from models import User
 from auth import get_current_active_user
 from config import get_exports_dir
 from excel_template import create_batch_excel_export

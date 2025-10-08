@@ -20,18 +20,43 @@ SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production-
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Password hashing with bcrypt compatibility fix
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__rounds=12,
+    bcrypt__ident="2b"
+)
+
+# Validate bcrypt backend availability early so login failures become actionable
+try:
+    pwd_context.hash("_bcrypt_health_check_")
+except ValueError as exc:
+    logger.critical("Bcrypt backend is unavailable: %s", exc)
+    raise RuntimeError("Passlib bcrypt backend is not available. Ensure the bcrypt package is installed correctly.") from exc
 
 # OAuth2 scheme for JWT
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/login")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plain password against a hashed password"""
-    return pwd_context.verify(plain_password, hashed_password)
+    # Truncate password to 72 bytes for bcrypt compatibility
+    if isinstance(plain_password, str):
+        plain_password = plain_password[:72]
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except ValueError as exc:
+        logger.error("Password verification failed due to bcrypt backend issue: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Password hashing backend is misconfigured. Please contact the administrator."
+        ) from exc
 
 def get_password_hash(password: str) -> str:
     """Hash a password using bcrypt"""
+    # Truncate password to 72 bytes for bcrypt compatibility
+    if isinstance(password, str):
+        password = password[:72]
     return pwd_context.hash(password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

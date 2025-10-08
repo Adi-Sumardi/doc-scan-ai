@@ -14,12 +14,13 @@ import json
 import aiofiles
 import logging
 
-from database import SessionLocal, get_db, Batch, DocumentFile, ProcessingLog
+from database import SessionLocal, get_db, Batch, DocumentFile, ProcessingLog, User
 from database import ScanResult as DBScanResult
-from models import User, BatchResponse, DocumentFile as DocumentFileModel
+from models import BatchResponse, DocumentFile as DocumentFileModel
 from auth import get_current_active_user
 from security import file_security, SecurityValidator
 from ai_processor import process_document_ai
+from batch_processor import batch_processor
 from websocket_manager import manager
 from config import get_upload_dir
 
@@ -436,10 +437,41 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                 "batch_id": batch_id
             })
             return
+
+        if batch_processor.is_cancelled(batch_id):
+            logger.info(f"Batch {batch_id} was cancelled before processing started")
+            batch.status = "cancelled"
+            batch.completed_at = datetime.now()
+            db.commit()
+
+            await manager.send_batch_complete(batch_id, {
+                "status": "cancelled",
+                "total_files": len(file_paths),
+                "processed_files": 0,
+                "success_rate": 0,
+                "message": "Batch processing cancelled by user"
+            })
+            batch_processor.clear_cancel_request(batch_id)
+            return
         
         processed_count = 0
         
         for i, file_info in enumerate(file_paths):
+            if batch_processor.is_cancelled(batch_id):
+                logger.info(f"Batch {batch_id} cancellation detected before processing file {i + 1}")
+                batch.status = "cancelled"
+                batch.completed_at = datetime.now()
+                db.commit()
+
+                await manager.send_batch_complete(batch_id, {
+                    "status": "cancelled",
+                    "total_files": len(file_paths),
+                    "processed_files": processed_count,
+                    "success_rate": (processed_count / len(file_paths)) * 100 if file_paths else 0,
+                    "message": "Batch processing cancelled by user"
+                })
+                batch_processor.clear_cancel_request(batch_id)
+                return
             try:
                 # Send file processing started notification
                 await manager.send_file_progress(batch_id, {
@@ -510,6 +542,12 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                 elif not isinstance(extracted_data, dict):
                     logger.warning(f"extracted_data has unexpected type {type(extracted_data)} for {db_file.name}")
                     extracted_data = {"raw_text": str(extracted_data), "type_error": str(type(extracted_data))}
+
+                # Persist normalized extracted data back to result payload for downstream consumers
+                result["extracted_data"] = extracted_data
+
+                processing_info = extracted_data.get("processing_info", {}) if isinstance(extracted_data, dict) else {}
+                parsing_method = processing_info.get("parsing_method") or result.get("ocr_engine_used", "Google Document AI")
                 
                 # Create scan result in database
                 scan_result = DBScanResult(
@@ -521,7 +559,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                     extracted_text=result.get("raw_text", ""),
                     extracted_data=extracted_data,
                     confidence=result.get("confidence", 0.0),
-                    ocr_engine_used=result.get("extracted_data", {}).get("processing_info", {}).get("parsing_method", "Google Document AI"),
+                    ocr_engine_used=parsing_method,
                     total_processing_time=result.get("processing_time", 0.0)
                 )
                 db.add(scan_result)
@@ -632,6 +670,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
             logger.error(f"Batch {batch_id} failed - no files processed")
         
         db.commit()
+        batch_processor.clear_cancel_request(batch_id)
         
     except Exception as e:
         logger.error(f"Batch processing error for {batch_id}: {e}")
@@ -650,4 +689,5 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
         except:
             pass
     finally:
+        batch_processor.clear_cancel_request(batch_id)
         db.close()

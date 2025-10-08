@@ -9,7 +9,7 @@ from datetime import datetime
 import json
 import logging
 
-from models import User
+from database import User
 from auth import get_current_active_user
 from ai_processor import RealOCRProcessor
 from websocket_manager import manager

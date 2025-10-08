@@ -8,7 +8,7 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 from pathlib import Path
 
 from ai_processor import process_document_ai
@@ -24,6 +24,7 @@ class BatchProcessor:
     
     def __init__(self):
         self.batches: Dict[str, Dict[str, Any]] = {}
+        self._cancel_requests: Set[str] = set()
         logger.info("✅ Batch Processor initialized")
     
     async def create_batch(self, file_paths: List[str], document_type: str, user_id: Optional[str] = None) -> str:
@@ -95,6 +96,11 @@ class BatchProcessor:
         
         # Process each file
         for idx, file_info in enumerate(batch_info["files"]):
+            if self.is_cancelled(batch_id):
+                logger.info("🛑 Batch %s cancellation requested. Halting remaining files.", batch_id)
+                batch_info["status"] = "cancelled"
+                batch_info["updated_at"] = datetime.now().isoformat()
+                break
             try:
                 file_info["status"] = "processing"
                 
@@ -134,7 +140,11 @@ class BatchProcessor:
             batch_info["updated_at"] = datetime.now().isoformat()
         
         # Update final status
-        if batch_info["failed_files"] == 0:
+        if self.is_cancelled(batch_id):
+            batch_info["status"] = "cancelled"
+            batch_info["completed_at"] = datetime.now().isoformat()
+            logger.info(f"🛑 Batch {batch_id} marked as cancelled")
+        elif batch_info["failed_files"] == 0:
             batch_info["status"] = "completed"
         elif batch_info["processed_files"] == 0:
             batch_info["status"] = "failed"
@@ -144,7 +154,8 @@ class BatchProcessor:
         batch_info["completed_at"] = datetime.now().isoformat()
         
         logger.info(f"🏁 Batch {batch_id} processing completed: {batch_info['processed_files']} success, {batch_info['failed_files']} failed")
-        
+        self._cancel_requests.discard(batch_id)
+
         return self.get_batch_summary(batch_id)
     
     def get_batch_status(self, batch_id: str) -> Dict[str, Any]:
@@ -258,6 +269,24 @@ class BatchProcessor:
                 })
         
         return batches
+
+    def cancel_batch(self, batch_id: str) -> bool:
+        """Signal that a batch should be cancelled."""
+        self._cancel_requests.add(batch_id)
+
+        if batch_id in self.batches:
+            batch_info = self.batches[batch_id]
+            batch_info["status"] = "cancelled"
+            batch_info["updated_at"] = datetime.now().isoformat()
+        return True
+
+    def is_cancelled(self, batch_id: str) -> bool:
+        """Check whether a cancellation has been requested for a batch."""
+        return batch_id in self._cancel_requests
+
+    def clear_cancel_request(self, batch_id: str) -> None:
+        """Remove cancellation flag after the job has fully stopped."""
+        self._cancel_requests.discard(batch_id)
 
 
 # Global batch processor instance

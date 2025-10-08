@@ -1,14 +1,23 @@
 import os
-import magic
 import hashlib
 import mimetypes
 import re
 import html
+import logging
 from typing import Dict, List, Optional, Tuple
 from fastapi import HTTPException, UploadFile
-import logging
 from pathlib import Path
 from config import settings
+
+logger = logging.getLogger(__name__)
+
+try:
+    import magic  # type: ignore
+    MAGIC_AVAILABLE = True
+except ImportError:
+    magic = None  # type: ignore
+    MAGIC_AVAILABLE = False
+    logger.warning("python-magic not available - falling back to mimetypes-based detection")
 
 # Try to import clamd (optional)
 try:
@@ -16,16 +25,21 @@ try:
     CLAMD_AVAILABLE = True
 except ImportError:
     CLAMD_AVAILABLE = False
-    logger = logging.getLogger(__name__)
     logger.warning("clamd not available - virus scanning will be disabled")
-
-logger = logging.getLogger(__name__)
 
 class FileSecurityValidator:
     """Comprehensive file security validation system"""
     
     def __init__(self):
-        self.magic = magic.Magic(mime=True)
+        self.magic = None
+        self.magic_available = False
+        if MAGIC_AVAILABLE:
+            try:
+                self.magic = magic.Magic(mime=True)  # type: ignore[attr-defined]
+                self.magic_available = True
+            except (OSError, AttributeError) as exc:
+                logger.warning(f"python-magic failed to initialize: {exc}. Falling back to mimetypes detection.")
+                self.magic = None
         self.allowed_extensions = settings.allowed_extensions_list
         self.max_file_size = settings.max_file_size_mb * 1024 * 1024  # Convert to bytes
         self.enable_virus_scan = settings.enable_virus_scan
@@ -175,8 +189,20 @@ class FileSecurityValidator:
     def _validate_mime_type(self, content: bytes, filename: str) -> Dict[str, any]:
         """Validate MIME type matches file extension and is allowed"""
         try:
-            # Detect MIME type from content
-            detected_mime = self.magic.from_buffer(content)
+            detected_mime = None
+            detection_source = "magic"
+
+            if self.magic is not None:
+                try:
+                    detected_mime = self.magic.from_buffer(content)
+                except Exception as exc:
+                    logger.warning(f"python-magic MIME detection failed: {exc}. Falling back to mimetypes")
+
+            if not detected_mime:
+                detection_source = "fallback"
+                detected_mime, _ = mimetypes.guess_type(filename)
+                if not detected_mime:
+                    detected_mime = "application/octet-stream"
             
             # Expected MIME types for our allowed extensions
             expected_mimes = {
@@ -195,7 +221,7 @@ class FileSecurityValidator:
                 if detected_mime in expected_mimes[extension]:
                     return {
                         "passed": True,
-                        "message": "MIME type validation passed",
+                        "message": f"MIME type validation passed ({detection_source})",
                         "detected_mime": detected_mime,
                         "expected_mimes": expected_mimes[extension],
                         "extension": extension

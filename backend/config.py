@@ -1,10 +1,14 @@
 import os
+from pathlib import Path
 from typing import List, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 
-# Load environment variables from .env file at the very beginning
-load_dotenv()
+# Load environment variables from repository root and backend/.env
+load_dotenv()  # Attempt default location first for compatibility
+backend_env_path = Path(__file__).resolve().parent / ".env"
+if backend_env_path.exists():
+    load_dotenv(dotenv_path=backend_env_path)
 
 # Utility function for parsing boolean environment variables
 def parse_bool_env(value: str, default: bool = False) -> bool:
@@ -15,11 +19,11 @@ def parse_bool_env(value: str, default: bool = False) -> bool:
 
 class Settings(BaseSettings):
     
-    frontend_url: str
-    backend_url: str
-    upload_folder: str
-    export_folder: str
-    default_ocr_engine: str
+    frontend_url: str = "http://localhost:5173"
+    backend_url: str = "http://localhost:8000"
+    upload_folder: str = "uploads"
+    export_folder: str = "exports"
+    default_ocr_engine: str = "auto"
     enable_cloud_ocr: bool = False
     
     # Database Configuration
@@ -86,6 +90,18 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
+
+# Synchronize critical settings back into environment variables for SDKs that rely on them
+_google_env_map = {
+    'GOOGLE_APPLICATION_CREDENTIALS': settings.google_application_credentials,
+    'GOOGLE_CLOUD_PROJECT_ID': settings.google_cloud_project_id,
+    'GOOGLE_PROCESSOR_LOCATION': settings.google_processor_location,
+    'GOOGLE_PROCESSOR_ID': settings.google_processor_id,
+}
+
+for env_key, env_value in _google_env_map.items():
+    if env_value and not os.getenv(env_key):
+        os.environ[env_key] = env_value
 
 # Environment-specific configurations
 def get_database_url() -> str:
