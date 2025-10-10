@@ -6,8 +6,20 @@ Supports: Faktur Pajak, PPh21, PPh23, Rekening Koran, Invoice
 
 import re
 import logging
-from datetime import datetime
-from typing import Dict, Any, Optional
+from datetime import datetime, timezone
+from typing import Dict, Any, Optional, List
+
+import pandas as pd
+
+try:  # Optional heavy dependencies for table extraction
+    import pdfplumber  # type: ignore
+except ImportError:  # pragma: no cover - optional
+    pdfplumber = None  # type: ignore
+
+try:  # Tabula requires Java; wrap in optional block
+    import tabula  # type: ignore
+except ImportError:  # pragma: no cover - optional
+    tabula = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -24,30 +36,25 @@ class IndonesianTaxDocumentParser:
             logger.warning("⚠️ OCR Processor not available for document parser")
             self.ocr_processor = None
     
-    def parse_faktur_pajak(self, text: str) -> Dict[str, Any]:
-        """Parse Faktur Pajak with raw OCR text AND structured fields"""
+    def parse_faktur_pajak(self, text: str, file_path: Optional[str] = None) -> Dict[str, Any]:
+        """Parse Faktur Pajak - minimal structure for Smart Mapper"""
         try:
             lines = [line.strip() for line in text.split('\n') if line.strip()]
             
-            # Extract structured fields for table export
-            structured_fields = self.extract_structured_fields(text, "faktur_pajak")
-            
-            # Combined structure with both raw text and structured data
+            # Simple structure - Smart Mapper will handle the heavy lifting
             result = {
                 "document_type": "Faktur Pajak",
                 "raw_text": text,
                 "text_lines": lines,
-                "structured_data": structured_fields,  # NEW: for table exports
                 "extracted_content": {
                     "full_text": text,
                     "line_count": len(lines),
                     "character_count": len(text),
-                    "scan_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    "scan_timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
                 },
                 "processing_info": {
-                    "parsing_method": "hybrid_ocr_structured",
-                    "status": "Raw OCR text + Structured field extraction",
-                    "fields_extracted": len([v for v in structured_fields.values() if v])
+                    "parsing_method": "smart_mapper_ready",
+                    "status": "Ready for Smart Mapper AI processing"
                 }
             }
             
@@ -76,7 +83,7 @@ class IndonesianTaxDocumentParser:
                     "full_text": text,
                     "line_count": len(lines),
                     "character_count": len(text),
-                    "scan_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    "scan_timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
                 },
                 "processing_info": {
                     "parsing_method": "raw_ocr_output",
@@ -87,113 +94,15 @@ class IndonesianTaxDocumentParser:
             logger.error(f"❌ Raw text response creation failed for {doc_type_name}: {e}")
             return {"raw_text": text, "error": str(e)}
 
-    def _clean_company_name_advanced(self, raw_name: str) -> str:
-        """Advanced AI-powered company name cleaning"""
-        # Remove common prefixes and suffixes
-        cleaned = raw_name.strip()
-        
-        # Remove prefixes
-        prefixes_to_remove = [
-            r'^(?:Nama\s*:?\s*)',
-            r'^(?:PT\.?\s*)',
-            r'^(?:CV\.?\s*)',
-            r'^(?:UD\.?\s*)'
-        ]
-        
-        for prefix in prefixes_to_remove:
-            cleaned = re.sub(prefix, '', cleaned, flags=re.IGNORECASE).strip()
-        
-        # Remove trailing noise
-        suffixes_to_remove = [
-            r'\s*(?:NPWP|Alamat|Email).*$',
-            r'\s*\d+.*$',  # Remove trailing numbers
-            r'\s*[,.].*$'  # Remove trailing punctuation and text
-        ]
-        
-        for suffix in suffixes_to_remove:
-            cleaned = re.sub(suffix, '', cleaned, flags=re.IGNORECASE).strip()
-        
-        # Clean up multiple spaces
-        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-        
-        return cleaned
-    
-    def _is_valid_company_name_advanced(self, name: str) -> bool:
-        """Advanced validation for company names using AI patterns"""
-        if len(name) < 3:
-            return False
-            
-        # Reject generic terms
-        generic_terms = [
-            'barang kena pajak', 'jasa kena pajak', 'harga jual', 'penggantian',
-            'termin', 'uang muka', 'dpp', 'ppn', 'total', 'pajak pertambahan nilai',
-            'faktur pajak', 'nomor seri', 'tanggal faktur'
-        ]
-        
-        name_lower = name.lower()
-        for term in generic_terms:
-            if term in name_lower:
-                return False
-        
-        # Accept names with business indicators
-        business_indicators = [
-            'pt', 'cv', 'ud', 'tbk', 'persero', 'indonesia', 'nusantara', 
-            'abadi', 'mandiri', 'jaya', 'sukses', 'group', 'corp', 'ltd',
-            'telekomunikasi', 'telkom', 'mitratel'
-        ]
-        
-        if any(indicator in name_lower for indicator in business_indicators):
-            return True
-            
-        # Accept names that are mostly uppercase (likely company names)
-        if len([c for c in name if c.isupper()]) > len(name) * 0.5:
-            return True
-            
-        return len(name) > 5  # At least reasonable length
-    
-    def _is_seller_context_advanced(self, current_line: str, all_lines: list) -> bool:
-        """Advanced contextual analysis to determine if this is seller information"""
-        line_lower = current_line.lower()
-        
-        # Strong seller indicators
-        seller_indicators = [
-            'gedung', 'tower', 'landmark', 'plaza', 'building', 'kantor',
-            'head office', 'pusat', 'jl ', 'jalan', 'alamat penjual'
-        ]
-        
-        if any(indicator in line_lower for indicator in seller_indicators):
-            return True
-            
-        # Analyze surrounding context (2 lines before and after)
-        current_idx = -1
-        for i, line in enumerate(all_lines):
-            if current_line in line:
-                current_idx = i
-                break
-                
-        if current_idx >= 0:
-            context_start = max(0, current_idx - 2)
-            context_end = min(len(all_lines), current_idx + 3)
-            context = ' '.join(all_lines[context_start:context_end]).lower()
-            
-            # Count seller vs buyer indicators in context
-            seller_count = sum(1 for indicator in seller_indicators if indicator in context)
-            buyer_indicators = ['email', '@', '.co.id', 'pembeli', 'penerima', 'contact']
-            buyer_count = sum(1 for indicator in buyer_indicators if indicator in context)
-            
-            return seller_count > buyer_count
-            
-        return False  # Default to buyer if uncertain
+    # Legacy parsing methods removed - Smart Mapper AI handles all extraction
 
     def parse_pph21(self, text: str) -> Dict[str, Any]:
-        """Return raw OCR text for PPh21 without complex parsing."""
-        try:
-            return self._create_raw_text_response(text, "PPh 21")
-        except Exception as e:
-            logger.error(f"❌ Error parsing PPh 21: {e}")
-            return self._get_empty_pph21_result()
+        """Return raw OCR text for PPh21 - Smart Mapper will handle extraction."""
+        return self._create_raw_text_response(text, "PPh 21")
     
-    def _extract_pph21_data_ai(self, full_text: str, lines: list, result: dict):
+    # All legacy extraction methods removed - Smart Mapper handles everything
+    
+    def _OLD_extract_pph21_data_ai(self, full_text: str, lines: list, result: dict):
         """AI-powered PPh 21 data extraction with contextual analysis"""
         
         # 🔍 ADVANCED NOMOR DETECTION
@@ -288,12 +197,8 @@ class IndonesianTaxDocumentParser:
         }
 
     def parse_pph23(self, text: str) -> Dict[str, Any]:
-        """Return raw OCR text for PPh23 without complex parsing"""
-        try:
-            return self._create_raw_text_response(text, "PPh 23")
-        except Exception as e:
-            logger.error(f"❌ Error parsing PPh 23: {e}")
-            return self._get_empty_pph23_result()
+        """Return raw OCR text for PPh23 - Smart Mapper will handle extraction."""
+        return self._create_raw_text_response(text, "PPh 23")
 
     def _get_empty_pph23_result(self):
         """Return empty PPh 23 result structure"""
@@ -307,12 +212,8 @@ class IndonesianTaxDocumentParser:
         }
 
     def parse_rekening_koran(self, text: str) -> Dict[str, Any]:
-        """Return raw OCR text for Rekening Koran without complex parsing."""
-        try:
-            return self._create_raw_text_response(text, "Rekening Koran")
-        except Exception as e:
-            logger.error(f"❌ Error parsing Rekening Koran: {e}")
-            return self._get_empty_rekening_result()
+        """Return raw OCR text for Rekening Koran - Smart Mapper will handle extraction."""
+        return self._create_raw_text_response(text, "Rekening Koran")
     
     def _extract_rekening_data_ai(self, full_text: str, lines: list, result: dict):
         """AI-powered Rekening Koran data extraction with transaction analysis"""
@@ -540,6 +441,146 @@ class IndonesianTaxDocumentParser:
             "parsing_error": "Failed to parse Invoice document"
         }
 
+    # ------------------------------------------------------------------
+    # Legacy parsing helpers - kept for minimal fallback support
+    # Smart Mapper AI now handles primary extraction
+    # ------------------------------------------------------------------
+    def _build_key_value_dataframe(self, lines: List[str]) -> Optional[pd.DataFrame]:
+        """Convert colon-based lines into a pandas dataframe for flexible mapping."""
+        kv_rows = []
+        for line in lines:
+            if ':' not in line:
+                continue
+            key, value = line.split(':', 1)
+            key_clean = key.strip()
+            value_clean = value.strip()
+            if not key_clean or not value_clean:
+                continue
+            kv_rows.append({
+                'key': key_clean,
+                'value': value_clean
+            })
+
+        if not kv_rows:
+            return None
+
+        df = pd.DataFrame(kv_rows)
+        df['key_norm'] = df['key'].str.lower().str.strip()
+        df['value_norm'] = df['value'].str.strip()
+        return df
+
+    def _populate_from_dataframe(self, df: pd.DataFrame, result: Dict[str, str]) -> None:
+        """Populate structured fields using a dataframe mapping with regex fallbacks."""
+        field_map = {
+            'nama': ['nama penjual', 'pengusaha kena pajak', 'nama wajib pajak', 'nama'],
+            'alamat': ['alamat penjual', 'alamat wajib pajak', 'alamat'],
+            'npwp': ['npwp', 'nomor pokok wajib pajak'],
+            'nomor_faktur': ['nomor faktur', 'kode dan nomor seri faktur pajak', 'nomor seri'],
+            'tanggal': ['tanggal faktur', 'tanggal'],
+            'dpp': ['dpp', 'dasar pengenaan pajak', 'harga jual'],
+            'ppn': ['ppn', 'pajak pertambahan nilai'],
+            'total': ['total', 'jumlah', 'grand total', 'nilai total'],
+            'invoice': ['invoice', 'no invoice', 'referensi'],
+            'nama_barang_jasa': ['nama barang kena pajak', 'nama barang', 'nama jasa', 'deskripsi']
+        }
+
+        amount_fields = {'dpp', 'ppn', 'total'}
+
+        for field, keywords in field_map.items():
+            if result.get(field):
+                continue
+            mask = df['key_norm'].apply(lambda key: any(keyword in key for keyword in keywords))
+            if not mask.any():
+                continue
+            value = df.loc[mask, 'value_norm'].iloc[0]
+            if field in amount_fields:
+                formatted = self._format_amount_string(value)
+                if formatted:
+                    result[field] = formatted
+            elif field == 'npwp':
+                normalized = self._format_npwp(value)
+                result[field] = normalized if normalized else value
+            else:
+                result[field] = value
+
+    def _table_to_text(self, table: pd.DataFrame) -> str:
+        """Flatten a table dataframe into a searchable string."""
+        if table is None or table.empty:
+            return ""
+        table = table.fillna('')
+        rows = table.astype(str).apply(lambda row: ' '.join(cell.strip() for cell in row if cell), axis=1)
+        return ' '.join(row for row in rows if row).strip()
+
+    def _format_amount_string(self, raw_value: str) -> str:
+        cleaned = re.sub(r"[^0-9]", "", str(raw_value))
+        if not cleaned:
+            return ""
+        try:
+            return f"Rp {int(cleaned):,}"
+        except ValueError:
+            return str(raw_value).strip()
+
+    def _extract_from_pdf_tables(self, file_path: Optional[str]) -> Dict[str, str]:
+        """Use pdfplumber/tabula to enrich structured fields from table data."""
+        if not file_path:
+            return {}
+
+        aggregated_texts: List[str] = []
+
+        if pdfplumber is not None:
+            try:
+                with pdfplumber.open(file_path) as pdf:
+                    for page in pdf.pages:
+                        tables = page.extract_tables() or []
+                        for table in tables:
+                            df = pd.DataFrame(table)
+                            text_block = self._table_to_text(df)
+                            if text_block:
+                                aggregated_texts.append(text_block)
+            except Exception as exc:  # pragma: no cover - best effort
+                logger.debug(f"⚠️ pdfplumber table extraction failed: {exc}")
+
+        if not aggregated_texts and tabula is not None:
+            try:
+                dfs = tabula.read_pdf(file_path, pages='all', lattice=True, multiple_tables=True)  # type: ignore[arg-type]
+                for df in dfs:
+                    if isinstance(df, pd.DataFrame):
+                        text_block = self._table_to_text(df)
+                        if text_block:
+                            aggregated_texts.append(text_block)
+            except Exception as exc:  # pragma: no cover
+                logger.debug(f"⚠️ tabula table extraction failed: {exc}")
+
+        enriched: Dict[str, str] = {}
+        if not aggregated_texts:
+            return enriched
+
+        search_text = ' \n '.join(aggregated_texts)
+        amount_labels = {
+            'dpp': ('dpp', 'dasar pengenaan pajak', 'harga jual'),
+            'ppn': ('ppn', 'pajak pertambahan nilai'),
+            'total': ('total', 'jumlah', 'grand total'),
+        }
+
+        for field, labels in amount_labels.items():
+            if enriched.get(field):
+                continue
+            label_pattern = r'(?:' + '|'.join(labels) + r')\s*[:\-–]?\s*(?:Rp\.?\s*)?([0-9.,]+)'
+            match = re.search(label_pattern, search_text, re.IGNORECASE)
+            if match:
+                enriched[field] = self._format_amount_string(match.group(1))
+
+        if not enriched.get('nama_barang_jasa'):
+            desc_match = re.search(
+                r'(?:Nama\s+Barang\s+Kena\s+Pajak(?:\s*/\s*Jasa\s+Kena\s+Pajak)?)[\s:]+(.+?)(?:Harga|Total|Rp|\n|$)',
+                search_text,
+                re.IGNORECASE,
+            )
+            if desc_match:
+                enriched['nama_barang_jasa'] = desc_match.group(1).strip(' ,;')
+
+        return enriched
+
     # 🛠️ HELPER METHODS for AI-powered parsing
     def _clean_document_number(self, text: str) -> str:
         """Clean document numbers with AI patterns"""
@@ -567,6 +608,12 @@ class IndonesianTaxDocumentParser:
     def _clean_id_number(self, text: str) -> str:
         """Clean ID numbers (NPWP/NIK)"""
         return re.sub(r'[^\d]', '', text.strip())
+
+    def _format_npwp(self, value: str) -> str:
+        digits = re.sub(r'[^0-9]', '', str(value))
+        if len(digits) != 15:
+            return str(value).strip()
+        return f"{digits[0:2]}.{digits[2:5]}.{digits[5:8]}.{digits[8]}-{digits[9:12]}.{digits[12:15]}"
 
     def _clean_amount(self, text: str) -> int:
         """Clean monetary amounts"""
@@ -602,160 +649,7 @@ class IndonesianTaxDocumentParser:
         except:
             return 0
     
-    def extract_structured_fields(self, text: str, doc_type: str = "faktur_pajak") -> Dict[str, str]:
-        """
-        Extract structured fields from OCR text for table format export
-        Returns: Dict with keys: nama, tanggal, npwp, nomor_faktur, alamat, dpp, ppn, total, invoice, nama_barang_jasa
-        """
-        result = {
-            "nama": "",
-            "tanggal": "",
-            "npwp": "",
-            "nomor_faktur": "",
-            "alamat": "",
-            "dpp": "",
-            "ppn": "",
-            "total": "",
-            "invoice": "",
-            "nama_barang_jasa": ""
-        }
-        
-        try:
-            lines = [line.strip() for line in text.split('\n') if line.strip()]
-            full_text = ' '.join(lines)
-            
-            # Extract Nama (Nama Penjual / Nama Perusahaan)
-            nama_patterns = [
-                r'(?:Nama\s*[Pp]enjual|Nama|NAMA)\s*:?\s*([A-Z][A-Za-z\s\.]+(?:PT|CV|UD|Tbk)?[A-Za-z\s\.]*)',
-                r'(PT\s+[A-Z][A-Za-z\s]+)',
-                r'(CV\s+[A-Z][A-Za-z\s]+)',
-                r'([A-Z][A-Z\s]+(?:INDONESIA|NUSANTARA|TELEKOMUNIKASI|GRUP|GROUP))',
-            ]
-            for pattern in nama_patterns:
-                match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
-                if match:
-                    nama = match.group(1).strip()
-                    if len(nama) > 3 and not any(x in nama.lower() for x in ['barang', 'jasa', 'faktur', 'npwp']):
-                        result["nama"] = nama
-                        break
-            
-            # Extract Tanggal
-            tanggal_patterns = [
-                r'(?:Tanggal\s*[Ff]aktur|Tanggal|Tgl\.?)\s*:?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})',
-                r'(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})',
-                r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|Mei|Jun|Jul|Agt|Sep|Okt|Nov|Des)[a-z]*\s+\d{4})',
-            ]
-            for pattern in tanggal_patterns:
-                match = re.search(pattern, text, re.IGNORECASE)
-                if match:
-                    result["tanggal"] = match.group(1).strip()
-                    break
-            
-            # Extract NPWP
-            npwp_patterns = [
-                r'NPWP\s*:?\s*([\d\.\-]{15,20})',
-                r'(?:Nomor\s*Pokok\s*Wajib\s*Pajak|NPWP)[:\s]*([\d\.\-]{15,20})',
-                r'(\d{2}\.\d{3}\.\d{3}\.\d\-\d{3}\.\d{3})',
-            ]
-            for pattern in npwp_patterns:
-                match = re.search(pattern, text, re.IGNORECASE)
-                if match:
-                    result["npwp"] = match.group(1).strip()
-                    break
-            
-            # Extract Nomor Faktur
-            nomor_patterns = [
-                r'(?:Nomor\s*[Ff]aktur|No\.\s*[Ff]aktur|Nomor\s*Seri\s*Faktur\s*Pajak)\s*:?\s*([\d\.\-]+)',
-                r'(?:Kode\s*dan\s*Nomor\s*Seri|Nomor)\s*:?\s*(\d{3}\.\d{3}\-\d{2}\.\d{8})',
-                r'(\d{3}\.\d{3}\-\d{2}\.\d{8})',
-            ]
-            for pattern in nomor_patterns:
-                match = re.search(pattern, text, re.IGNORECASE)
-                if match:
-                    result["nomor_faktur"] = match.group(1).strip()
-                    break
-            
-            # Extract Alamat
-            alamat_patterns = [
-                r'(?:Alamat|Address)\s*:?\s*([A-Za-z0-9\s,\.]+(?:Gedung|Tower|Jl|Jalan|Jakarta|Indonesia)[A-Za-z0-9\s,\.]*)',
-                r'(Jl\.?\s+[A-Za-z0-9\s,\.]+\d+)',
-                r'(Gedung\s+[A-Za-z0-9\s,\.]+)',
-            ]
-            for pattern in alamat_patterns:
-                match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
-                if match:
-                    alamat = match.group(1).strip()
-                    if len(alamat) > 10:
-                        result["alamat"] = alamat[:100]  # Limit length
-                        break
-            
-            # Extract DPP (Dasar Pengenaan Pajak)
-            dpp_patterns = [
-                r'(?:DPP|Dasar\s*Pengenaan\s*Pajak|Harga\s*Jual)\s*:?\s*Rp\.?\s*([\d\.,]+)',
-                r'(?:DPP|Dasar\s*Pengenaan)\s*:?\s*([\d\.,]+)',
-            ]
-            for pattern in dpp_patterns:
-                match = re.search(pattern, text, re.IGNORECASE)
-                if match:
-                    amount_str = match.group(1).replace('.', '').replace(',', '')
-                    result["dpp"] = f"Rp {int(amount_str):,}" if amount_str.isdigit() else match.group(1)
-                    break
-            
-            # Extract PPN (Pajak Pertambahan Nilai)
-            ppn_patterns = [
-                r'(?:PPN|Pajak\s*Pertambahan\s*Nilai)\s*:?\s*Rp\.?\s*([\d\.,]+)',
-                r'(?:PPN|Pajak)\s*:?\s*([\d\.,]+)',
-            ]
-            for pattern in ppn_patterns:
-                match = re.search(pattern, text, re.IGNORECASE)
-                if match:
-                    amount_str = match.group(1).replace('.', '').replace(',', '')
-                    result["ppn"] = f"Rp {int(amount_str):,}" if amount_str.isdigit() else match.group(1)
-                    break
-            
-            # Extract Total / Jumlah
-            total_patterns = [
-                r'(?:Total|Jumlah|Grand\s*Total)\s*:?\s*Rp\.?\s*([\d\.,]+)',
-                r'(?:Total\s*Harga|Nilai\s*Total)\s*:?\s*([\d\.,]+)',
-            ]
-            for pattern in total_patterns:
-                match = re.search(pattern, text, re.IGNORECASE)
-                if match:
-                    amount_str = match.group(1).replace('.', '').replace(',', '')
-                    result["total"] = f"Rp {int(amount_str):,}" if amount_str.isdigit() else match.group(1)
-                    break
-            
-            # Extract Invoice Number (alternative to Nomor Faktur)
-            invoice_patterns = [
-                r'(?:Invoice|INV|No\.?\s*Invoice)\s*:?\s*#?\s*([A-Z0-9\-\/]+)',
-                r'(?:Invoice\s*Number|INV\s*No)\s*:?\s*([A-Z0-9\-\/]+)',
-            ]
-            for pattern in invoice_patterns:
-                match = re.search(pattern, text, re.IGNORECASE)
-                if match:
-                    result["invoice"] = match.group(1).strip()
-                    break
-            
-            # Extract Nama Barang/Jasa Kena Pajak
-            barang_patterns = [
-                r'(?:Nama\s*Barang\s*Kena\s*Pajak|Barang\s*Kena\s*Pajak|BKP)\s*:?\s*([A-Za-z0-9\s,\.]+)',
-                r'(?:Jasa\s*Kena\s*Pajak|JKP)\s*:?\s*([A-Za-z0-9\s,\.]+)',
-                r'(?:Deskripsi|Description|Item|Produk)\s*:?\s*([A-Za-z0-9\s,\.]+)',
-            ]
-            for pattern in barang_patterns:
-                match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
-                if match:
-                    barang = match.group(1).strip()
-                    if len(barang) > 3:
-                        result["nama_barang_jasa"] = barang[:150]  # Limit length
-                        break
-            
-            logger.info(f"✅ Structured fields extracted: {len([v for v in result.values() if v])} fields populated")
-            
-        except Exception as e:
-            logger.error(f"❌ Structured field extraction failed: {e}")
-        
-        return result
+    # Removed extract_structured_fields - Smart Mapper AI now handles all field extraction intelligently
 
 
 # Global parser instance

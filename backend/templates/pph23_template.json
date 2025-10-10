@@ -1,0 +1,105 @@
+{
+  "document_type": "pph23",
+  "version": "2025-01-01",
+  "description": "Structured PPh 23 (Bukti Potong Pajak Penghasilan Pasal 23) schema for Smart Mapper. Values should be strings unless explicitly noted.",
+  "sections": [
+    {
+      "name": "dokumen",
+      "description": "Informasi dokumen bukti potong",
+      "fields": [
+        {"name": "nomor", "label": "Nomor Bukti Potong", "required": true, "notes": "Nomor unik bukti pemotongan pajak"},
+        {"name": "masa_pajak", "label": "Masa Pajak", "required": true, "notes": "Format: MM/YYYY atau nama bulan tahun"},
+        {"name": "tanggal", "label": "Tanggal Potong", "required": true, "format": "YYYY-MM-DD"},
+        {"name": "sifat_pemotongan", "label": "Sifat Pemotongan", "required": false, "notes": "Final/Tidak Final"},
+        {"name": "status", "label": "Status Bukti Pemotongan", "required": false, "notes": "Normal/Pembetulan/Pembatalan"}
+      ]
+    },
+    {
+      "name": "penerima",
+      "description": "Identitas penerima penghasilan (wajib pajak yang dipotong)",
+      "fields": [
+        {"name": "npwp", "label": "NPWP/NIK Penerima", "required": true, "format": "NPWP atau NIK"},
+        {"name": "nama", "label": "Nama Penerima", "required": true},
+        {"name": "nitku", "label": "NITKU Penerima", "required": false, "notes": "Nomor Identitas Tempat Kegiatan Usaha. Contoh format: 0037868668075000000000 atau angka panjang 20+ digit. Cari di bagian A.3 atau 'NOMOR IDENTITAS TEMPAT KEGIATAN USAHA'"}
+      ]
+    },
+    {
+      "name": "pemotong",
+      "description": "Identitas pemotong pajak",
+      "fields": [
+        {"name": "npwp", "label": "NPWP/NIK Pemotong", "required": true, "format": "NPWP atau NIK"},
+        {"name": "nama", "label": "Nama Pemotong", "required": true},
+        {"name": "nitku", "label": "NITKU/Subunit Pemotong", "required": false, "notes": "Nomor Identitas Tempat Kegiatan Usaha atau Subunit Organisasi. Contoh format: 0023993926015000000143 atau angka panjang 20+ digit. Cari di bagian C.2 atau 'NOMOR IDENTITAS TEMPAT KEGIATAN USAHA (NITKU) / SUBUNIT ORGANISASI'"},
+        {"name": "penandatangan", "label": "Nama Penandatangan", "required": false}
+      ]
+    },
+    {
+      "name": "objek_pajak",
+      "description": "Detail objek pajak yang dipotong",
+      "fields": [
+        {"name": "jenis_pph", "label": "Jenis PPh", "required": false, "notes": "Default: PPh 23"},
+        {"name": "kode", "label": "Kode Objek Pajak", "required": true, "notes": "Kode jenis penghasilan (01-99)"},
+        {"name": "objek", "label": "Objek Pajak", "required": true, "notes": "Deskripsi jenis penghasilan yang dipotong"}
+      ]
+    },
+    {
+      "name": "financials",
+      "description": "Nilai finansial transaksi dan pajak",
+      "fields": [
+        {"name": "dpp", "label": "Dasar Pengenaan Pajak (Bruto)", "required": true, "format": "currency"},
+        {"name": "tarif", "label": "Tarif Pajak", "required": true, "notes": "Dalam persen (%) atau desimal"},
+        {"name": "pph", "label": "PPh Dipotong", "required": true, "format": "currency"}
+      ]
+    },
+    {
+      "name": "dokumen_dasar",
+      "description": "Informasi dokumen dasar pemotongan",
+      "fields": [
+        {"name": "jenis", "label": "Jenis Dokumen Dasar", "required": false, "notes": "Faktur/Invoice/Kontrak/Lainnya"},
+        {"name": "tanggal", "label": "Tanggal Dokumen Dasar", "required": false, "format": "YYYY-MM-DD"}
+      ]
+    }
+  ],
+  "output_schema": {
+    "dokumen": {
+      "nomor": "string",
+      "masa_pajak": "string",
+      "tanggal": "string",
+      "sifat_pemotongan": "string",
+      "status": "string"
+    },
+    "penerima": {
+      "npwp": "string",
+      "nama": "string",
+      "nitku": "string"
+    },
+    "pemotong": {
+      "npwp": "string",
+      "nama": "string",
+      "nitku": "string",
+      "penandatangan": "string"
+    },
+    "objek_pajak": {
+      "jenis_pph": "string",
+      "kode": "string",
+      "objek": "string"
+    },
+    "financials": {
+      "dpp": "string",
+      "tarif": "string",
+      "pph": "string"
+    },
+    "dokumen_dasar": {
+      "jenis": "string",
+      "tanggal": "string"
+    },
+    "notes": "string",
+    "confidence": "number"
+  },
+  "validation_rules": {
+    "normalize_npwp": true,
+    "currency_format": "Rp xxx.xxx",
+    "allowed_date_formats": ["DD/MM/YYYY", "DD-MM-YYYY", "YYYY-MM-DD"],
+    "tarif_validation": "Accept both percentage (2%) or decimal (0.02) format"
+  }
+}

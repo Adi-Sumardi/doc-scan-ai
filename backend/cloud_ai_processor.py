@@ -44,28 +44,9 @@ class CloudAIProcessor:
         logger.info("☁️ Cloud AI Processor initialized")
     
     def _init_cloud_services(self):
-        """Initialize cloud AI services"""
+        """Initialize cloud AI services - Google Document AI only"""
         try:
-            # 1. Azure Document Intelligence
-            try:
-                from azure.cognitiveservices.vision.computervision import ComputerVisionClient
-                from azure.cognitiveservices.vision.computervision.models import OperationStatusCodes
-                from msrest.authentication import CognitiveServicesCredentials
-                
-                # Initialize with environment variables
-                endpoint = os.getenv('AZURE_COGNITIVE_ENDPOINT')
-                key = os.getenv('AZURE_COGNITIVE_KEY')
-                
-                if endpoint and key:
-                    self.services['azure'] = ComputerVisionClient(endpoint, CognitiveServicesCredentials(key))
-                    logger.info("✅ Azure Document Intelligence initialized")
-                else:
-                    logger.warning("⚠️ Azure credentials not found")
-                    
-            except ImportError:
-                logger.warning("⚠️ Azure SDK not available")
-            
-            # 2. Google Document AI
+            # Google Document AI - Primary OCR Engine
             try:
                 from google.cloud import documentai_v1 as documentai
                 from google.oauth2 import service_account
@@ -107,33 +88,13 @@ class CloudAIProcessor:
                 logger.warning("⚠️ Google Cloud SDK not available")
             except Exception as e:
                 logger.error(f"❌ Failed to initialize Google Document AI: {e}")
-            
-            # 3. AWS Textract
-            try:
-                import boto3
-                
-                # Initialize with AWS credentials
-                access_key = os.getenv('AWS_ACCESS_KEY_ID')
-                secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
-                
-                if access_key and secret_key:
-                    self.services['aws'] = boto3.client(
-                        'textract',
-                        aws_access_key_id=access_key,
-                        aws_secret_access_key=secret_key,
-                        region_name=os.getenv('AWS_REGION', 'us-east-1')
-                    )
-                    logger.info("✅ AWS Textract initialized")
-                else:
-                    logger.warning("⚠️ AWS credentials not found")
-                    
-            except ImportError:
-                logger.warning("⚠️ AWS SDK not available")
                 
         except Exception as e:
             logger.error(f"❌ Cloud services initialization failed: {e}")
     
-    async def process_with_azure(self, file_path: str) -> CloudOCRResult:
+    # Azure and AWS methods removed - Google Document AI only
+    
+    async def _REMOVED_process_with_azure(self, file_path: str) -> CloudOCRResult:
         """Process document with Azure Document Intelligence"""
         try:
             if 'azure' not in self.services:
@@ -301,7 +262,7 @@ class CloudAIProcessor:
             logger.error(f"❌ Google processing failed: {e}")
             raise Exception(f"Google Document AI processing failed: {e}")
     
-    async def process_with_aws(self, file_path: str) -> CloudOCRResult:
+    async def _REMOVED_process_with_aws(self, file_path: str) -> CloudOCRResult:
         """Process document with AWS Textract"""
         try:
             if 'aws' not in self.services:
@@ -374,129 +335,21 @@ class CloudAIProcessor:
                 language_detected="unknown"
             )
     
-    async def process_ensemble_cloud(self, file_path: str) -> CloudOCRResult:
-        """Ensemble processing with multiple cloud services"""
-        try:
-            # Run all available services concurrently
-            tasks = []
-            
-            if 'azure' in self.services:
-                tasks.append(self.process_with_azure(file_path))
-            if 'google' in self.services:
-                tasks.append(self.process_with_google(file_path))
-            if 'aws' in self.services:
-                tasks.append(self.process_with_aws(file_path))
-            
-            if not tasks:
-                logger.error("❌ No cloud services available")
-                return CloudOCRResult(
-                    raw_text="",
-                    confidence=0.0,
-                    service_used="None",
-                    processing_time=0.0,
-                    extracted_fields={},
-                    raw_response={"error": "No services available"},
-                    document_type="unknown",
-                    language_detected="unknown"
-                )
-            
-            # Wait for all results
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Filter successful results
-            successful_results = [r for r in results if isinstance(r, CloudOCRResult) and r.confidence > 0]
-            
-            if not successful_results:
-                logger.error("❌ All cloud services failed")
-                return CloudOCRResult(
-                    raw_text="",
-                    confidence=0.0,
-                    service_used="All Failed",
-                    processing_time=0.0,
-                    extracted_fields={},
-                    raw_response={"error": "All services failed"},
-                    document_type="unknown",
-                    language_detected="unknown"
-                )
-            
-            # Select best result based on confidence
-            best_result = max(successful_results, key=lambda x: x.confidence)
-            
-            logger.info(f"✅ Best cloud result: {best_result.service_used} ({best_result.confidence:.1f}%)")
-            return best_result
-            
-        except Exception as e:
-            logger.error(f"❌ Ensemble cloud processing failed: {e}")
-            return CloudOCRResult(
-                raw_text="",
-                confidence=0.0,
-                service_used="Ensemble Failed",
-                processing_time=0.0,
-                extracted_fields={},
-                raw_response={"error": str(e)},
-                document_type="unknown",
-                language_detected="unknown"
-            )
+    async def _REMOVED_process_ensemble_cloud(self, file_path: str) -> CloudOCRResult:
+        """REMOVED: Ensemble processing - Only Google Document AI is used now"""
+        # This method has been deprecated as we now use only Google Document AI
+        # Redirect to Google-only processing
+        return await self.process_with_google(file_path)
     
-    def _extract_tax_fields_azure(self, text: str) -> Dict[str, Any]:
-        """Extract Indonesian tax document fields from Azure result"""
-        import re
-        
-        fields = {}
-        
-        # Nomor Faktur Pajak
-        nomor_pattern = r'(?:No\.|Nomor)\s*(?:Faktur|Pajak)?\s*:?\s*(\d{3}\.\d{3}-\d+)'
-        match = re.search(nomor_pattern, text, re.IGNORECASE)
-        if match:
-            fields['nomor_faktur'] = match.group(1)
-        
-        # NPWP
-        npwp_pattern = r'NPWP\s*:?\s*(\d{2}\.\d{3}\.\d{3}\.\d{1}-\d{3}\.\d{3})'
-        match = re.search(npwp_pattern, text)
-        if match:
-            fields['npwp'] = match.group(1)
-        
-        # DPP (Dasar Pengenaan Pajak)
-        dpp_pattern = r'DPP\s*:?\s*(?:Rp\.?\s*)?([0-9.,]+)'
-        match = re.search(dpp_pattern, text, re.IGNORECASE)
-        if match:
-            fields['dpp'] = match.group(1)
-        
-        # PPN
-        ppn_pattern = r'PPN\s*:?\s*(?:Rp\.?\s*)?([0-9.,]+)'
-        match = re.search(ppn_pattern, text, re.IGNORECASE)
-        if match:
-            fields['ppn'] = match.group(1)
-        
-        return fields
-    
-    def _get_text_from_relationships(self, block, block_map):
-        """Helper function for AWS Textract - optimized with dict lookup"""
-        text = ""
-        if 'Relationships' in block:
-            for relationship in block['Relationships']:
-                if relationship['Type'] == 'CHILD':
-                    for child_id in relationship['Ids']:
-                        child_block = block_map.get(child_id)
-                        if child_block and child_block['BlockType'] == 'WORD':
-                            text += child_block['Text'] + " "
-        return text.strip()
-    
-    def _get_value_from_key(self, key_block, block_map):
-        """Helper function for AWS Textract - optimized with dict lookup"""
-        if 'Relationships' in key_block:
-            for relationship in key_block['Relationships']:
-                if relationship['Type'] == 'VALUE':
-                    for value_id in relationship['Ids']:
-                        value_block = block_map.get(value_id)
-                        if value_block:
-                            return self._get_text_from_relationships(value_block, block_map)
-        return ""
+    # REMOVED: Azure and AWS helper methods
+    # These methods were used for Azure Document Intelligence and AWS Textract
+    # Now using only Google Document AI + Smart Mapper GPT
 
 # Example usage
 async def main():
     processor = CloudAIProcessor()
-    result = await processor.process_ensemble_cloud("sample.pdf")
+    # Now using only Google Document AI
+    result = await processor.process_with_google("sample.pdf")
     print(f"✅ Cloud processing: {result.service_used}")
     print(f"Confidence: {result.confidence:.1f}%")
     print(f"Extracted fields: {len(result.extracted_fields)}")

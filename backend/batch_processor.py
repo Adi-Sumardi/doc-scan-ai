@@ -7,7 +7,7 @@ Supports batch upload, batch processing, and batch export
 import asyncio
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Set
 from pathlib import Path
 
@@ -49,8 +49,8 @@ class BatchProcessor:
             "processed_files": 0,
             "failed_files": 0,
             "status": "pending",  # pending, processing, completed, failed
-            "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             "files": [],
             "results": [],
             "errors": []
@@ -90,7 +90,7 @@ class BatchProcessor:
         
         batch_info = self.batches[batch_id]
         batch_info["status"] = "processing"
-        batch_info["updated_at"] = datetime.now().isoformat()
+        batch_info["updated_at"] = datetime.now(timezone.utc).isoformat()
         
         logger.info(f"🚀 Starting batch processing for {batch_id}")
         
@@ -99,7 +99,7 @@ class BatchProcessor:
             if self.is_cancelled(batch_id):
                 logger.info("🛑 Batch %s cancellation requested. Halting remaining files.", batch_id)
                 batch_info["status"] = "cancelled"
-                batch_info["updated_at"] = datetime.now().isoformat()
+                batch_info["updated_at"] = datetime.now(timezone.utc).isoformat()
                 break
             try:
                 file_info["status"] = "processing"
@@ -116,7 +116,7 @@ class BatchProcessor:
                 result["filename"] = file_info["filename"]
                 result["document_type"] = file_info["document_type"]
                 result["batch_id"] = batch_id
-                result["processed_at"] = datetime.now().isoformat()
+                result["processed_at"] = datetime.now(timezone.utc).isoformat()
                 
                 # Store result
                 file_info["result"] = result
@@ -137,12 +137,12 @@ class BatchProcessor:
                 })
             
             # Update progress
-            batch_info["updated_at"] = datetime.now().isoformat()
+            batch_info["updated_at"] = datetime.now(timezone.utc).isoformat()
         
         # Update final status
         if self.is_cancelled(batch_id):
             batch_info["status"] = "cancelled"
-            batch_info["completed_at"] = datetime.now().isoformat()
+            batch_info["completed_at"] = datetime.now(timezone.utc).isoformat()
             logger.info(f"🛑 Batch {batch_id} marked as cancelled")
         elif batch_info["failed_files"] == 0:
             batch_info["status"] = "completed"
@@ -151,7 +151,7 @@ class BatchProcessor:
         else:
             batch_info["status"] = "partial"  # Some succeeded, some failed
         
-        batch_info["completed_at"] = datetime.now().isoformat()
+        batch_info["completed_at"] = datetime.now(timezone.utc).isoformat()
         
         logger.info(f"🏁 Batch {batch_id} processing completed: {batch_info['processed_files']} success, {batch_info['failed_files']} failed")
         self._cancel_requests.discard(batch_id)
@@ -277,7 +277,7 @@ class BatchProcessor:
         if batch_id in self.batches:
             batch_info = self.batches[batch_id]
             batch_info["status"] = "cancelled"
-            batch_info["updated_at"] = datetime.now().isoformat()
+            batch_info["updated_at"] = datetime.now(timezone.utc).isoformat()
         return True
 
     def is_cancelled(self, batch_id: str) -> bool:

@@ -36,32 +36,18 @@ const EditableOCRResult = ({
   const parseDataToFields = (data: ScanResult): OCRField[] => {
     const fields: OCRField[] = [];
 
-    // Raw text from extracted_data if available, otherwise from top level
-    const rawText = data.extracted_data?.raw_text || data.extracted_text;
-    if (rawText) {
-      fields.push({
-        key: 'raw_text', // Simplified key
-        label: 'Extracted Text',
-        value: rawText,
-        type: 'textarea',
-        editable: true,
-      });
-    }
-
-    // Extracted content
+    // Only show Smart Mapped data - skip raw_text, text_lines, and other legacy fields
     if (data.extracted_data) {
-      Object.keys(data.extracted_data).forEach(key => {
-        const value = data.extracted_data[key];
-        if (key !== 'raw_text') { // Avoid duplicating raw_text
-          fields.push({
-            key: key, // Use simple key
-            label: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-            value: typeof value === 'object' ? JSON.stringify(value, null, 2) : value,
-            type: typeof value === 'object' ? 'json' : 'text',
-            editable: true,
-          });
-        }
-      });
+      // Only include smart_mapped field
+      if (data.extracted_data.smart_mapped) {
+        fields.push({
+          key: 'smart_mapped',
+          label: 'Smart Mapped Data',
+          value: JSON.stringify(data.extracted_data.smart_mapped, null, 2),
+          type: 'json',
+          editable: true,
+        });
+      }
     }
 
     return fields;
@@ -116,7 +102,7 @@ const EditableOCRResult = ({
           <div>
             <h2 className="text-2xl font-bold flex items-center">
               <FileText className="w-6 h-6 mr-2" />
-              OCR Result
+              Extracted Data
             </h2>
             <p className="text-blue-100 text-sm mt-1">{result.filename}</p>
           </div>
@@ -168,21 +154,17 @@ const EditableOCRResult = ({
         </div>
       </div>
 
-      {/* Metadata */}
-      <div className="bg-gray-50 px-6 py-3 border-b border-gray-200 flex items-center justify-between text-sm">
-        <div className="flex items-center space-x-4">
-          <span className="text-gray-600">
-            Confidence: <span className="text-green-600 font-semibold">{((result.confidence_score || result.confidence || 0) * 100).toFixed(1)}%</span>
+      {/* Metadata - Smart Mapper and Document Type Only */}
+      <div className="bg-gray-50 px-6 py-3 border-b border-gray-200 text-sm">
+        <div className="flex items-center space-x-6">
+          <span className="flex items-center text-gray-600">
+            <span className="font-semibold text-blue-600 mr-2">Smart Mapped</span>
+            <span className="text-green-600 font-medium">✓ AI Processed</span>
           </span>
+          <span className="text-gray-400">|</span>
           <span className="text-gray-600">
-            Type: <span className="font-medium">{result.document_type}</span>
+            Document Type: <span className="font-medium text-gray-900">{result.document_type}</span>
           </span>
-          <span className="text-gray-600">
-            Processing: <span className="font-medium">{(result.processing_time || result.ocr_processing_time || 0).toFixed(2)}s</span>
-          </span>
-        </div>
-        <div className="text-gray-500">
-          {new Date(result.created_at).toLocaleString()}
         </div>
       </div>
 

@@ -10,6 +10,16 @@ const DataRow: React.FC<{ label: string; value: any; level?: number }> = ({ labe
   const isObject = typeof value === 'object' && value !== null && !Array.isArray(value);
   const isArray = Array.isArray(value);
 
+  // Sanitize string to prevent XSS (React auto-escapes, but add extra layer)
+  const sanitizeString = (str: string): string => {
+    // Remove potential script tags and dangerous content
+    return str
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+      .replace(/javascript:/gi, '')
+      .replace(/on\w+=/gi, '');
+  };
+
   const renderValue = (val: any) => {
     if (val === null || val === undefined) {
       return <span className="text-sm text-gray-400 italic">N/A</span>;
@@ -17,7 +27,9 @@ const DataRow: React.FC<{ label: string; value: any; level?: number }> = ({ labe
     if (typeof val === 'boolean') {
       return <span className={`text-sm font-medium ${val ? 'text-green-600' : 'text-red-600'}`}>{val ? 'Yes' : 'No'}</span>;
     }
-    return <span className="text-sm text-gray-800 text-right break-all">{String(val)}</span>;
+    // Sanitize string values before rendering
+    const strValue = typeof val === 'string' ? sanitizeString(val) : String(val);
+    return <span className="text-sm text-gray-800 text-right break-all">{strValue}</span>;
   };
 
   return (

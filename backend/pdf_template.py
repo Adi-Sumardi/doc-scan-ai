@@ -4,7 +4,7 @@ Professional PDF templates with logo, watermark, headers, and footers
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 from pathlib import Path
 
@@ -17,6 +17,14 @@ from reportlab.platypus.flowables import HRFlowable
 from reportlab.pdfgen import canvas
 
 logger = logging.getLogger(__name__)
+
+# Import FakturPajakExporter for Smart Mapper data conversion
+try:
+    from exporters.faktur_pajak_exporter import FakturPajakExporter
+except ImportError:
+    # Fallback if import fails
+    FakturPajakExporter = None
+    logger.warning("⚠️ FakturPajakExporter not available, Smart Mapper features disabled")
 
 
 class PDFHeader(object):
@@ -57,7 +65,7 @@ class PDFHeader(object):
         # Footer
         canvas_obj.setFont('Helvetica', 8)
         canvas_obj.setFillColor(colors.HexColor('#999999'))
-        footer_text = f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Doc-Scan AI System | Page {doc.page}"
+        footer_text = f"Generated on {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} | Doc-Scan AI System | Page {doc.page}"
         canvas_obj.drawString(0.5*inch, 0.5*inch, footer_text)
         
         canvas_obj.restoreState()
@@ -280,7 +288,7 @@ def create_batch_pdf_export(batch_results: List[Dict[str, Any]], output_path: st
         
         # Info section
         info = {
-            "Tanggal Export": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "Tanggal Export": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
             "Jumlah Dokumen": len(batch_results),
             "Tipe Dokumen": document_type.replace('_', ' ').title()
         }
@@ -290,21 +298,46 @@ def create_batch_pdf_export(batch_results: List[Dict[str, Any]], output_path: st
         pdf.add_section_header("📋 DAFTAR DOKUMEN")
         
         if document_type == 'faktur_pajak':
-            headers = ["No", "Filename", "Nama", "NPWP", "Total", "Conf%"]
-            col_widths = [0.4*inch, 2*inch, 1.8*inch, 1.5*inch, 1*inch, 0.6*inch]
+            headers = ["No", "Nama Penjual", "Tgl", "NPWP", "No. Faktur", "DPP", "PPN", "Total"]
+            col_widths = [0.3*inch, 1.8*inch, 0.8*inch, 1.2*inch, 1.2*inch, 0.9*inch, 0.9*inch, 0.9*inch]
             
             data = []
+            faktur_exporter = FakturPajakExporter() if FakturPajakExporter else None
+            
             for idx, result in enumerate(batch_results, start=1):
                 extracted_data = result.get('extracted_data', {})
-                structured_data = extracted_data.get('structured_data', {})
+                
+                # PRIORITY 1: Use Smart Mapper data if available (already clean from GPT-4o)
+                smart_mapped = extracted_data.get('smart_mapped', {})
+                if smart_mapped and faktur_exporter:
+                    logger.info(f"✅ PDF Row {idx}: Using Smart Mapper GPT data (CLEAN)")
+                    structured = faktur_exporter._convert_smart_mapped_to_structured(smart_mapped)
+                else:
+                    # FALLBACK: Use legacy structured_data with post-processing
+                    logger.info(f"⚠️ PDF Row {idx}: Using legacy parser")
+                    structured_data = extracted_data.get('structured_data', {})
+                    if faktur_exporter:
+                        structured = faktur_exporter._prepare_structured_fields(
+                            structured_data,
+                            extracted_data.get('raw_text', '')
+                        )
+                    else:
+                        structured = structured_data
+                
+                # Format currency for display (remove "Rp" prefix, keep numbers)
+                dpp_display = structured.get('dpp', 'N/A')
+                ppn_display = structured.get('ppn', 'N/A')
+                total_display = structured.get('total', 'N/A')
                 
                 data.append([
                     str(idx),
-                    result.get('filename', 'N/A')[:30],
-                    structured_data.get('nama', 'N/A')[:25],
-                    structured_data.get('npwp', 'N/A'),
-                    structured_data.get('total', 'N/A'),
-                    f"{result.get('confidence', 0):.0%}"
+                    (structured.get('nama', 'N/A') or 'N/A')[:20],
+                    (structured.get('tanggal', 'N/A') or 'N/A')[:10],
+                    (structured.get('npwp', 'N/A') or 'N/A')[:15],
+                    (structured.get('nomor_faktur', 'N/A') or 'N/A')[:15],
+                    str(dpp_display)[:12],
+                    str(ppn_display)[:12],
+                    str(total_display)[:12]
                 ])
         
         elif document_type == 'pph21':
@@ -338,14 +371,14 @@ def create_batch_pdf_export(batch_results: List[Dict[str, Any]], output_path: st
         
         pdf.add_data_table(headers, data, col_widths)
         
-        # Summary
-        total_confidence = sum(r.get('confidence', 0) for r in batch_results)
-        summary = {
-            "Total Dokumen Diproses": len(batch_results),
-            "Rata-rata Confidence": f"{(total_confidence / len(batch_results)):.1%}" if batch_results else "0%",
-            "Status Batch": "✓ Berhasil Diproses Semua"
-        }
-        pdf.add_summary_box(summary)
+        # Summary - REMOVED per user request
+        # total_confidence = sum(r.get('confidence', 0) for r in batch_results)
+        # summary = {
+        #     "Total Dokumen Diproses": len(batch_results),
+        #     "Rata-rata Confidence": f"{(total_confidence / len(batch_results)):.1%}" if batch_results else "0%",
+        #     "Status Batch": "✓ Berhasil Diproses Semua"
+        # }
+        # pdf.add_summary_box(summary)
         
         # Build PDF
         return pdf.build(

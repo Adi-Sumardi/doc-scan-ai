@@ -51,25 +51,55 @@ const ViewModal: React.FC<ViewModalProps> = ({ result, isOpen, onClose }) => {
     return <StructuredDataViewer data={data} />;
   };
 
+  // Handle escape key to close modal
+  React.useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape);
+      // Prevent body scroll when modal is open
+      document.body.style.overflow = 'hidden';
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+      document.body.style.overflow = 'unset';
+    };
+  }, [isOpen, onClose]);
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden">
+    <div
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
+    >
+      <div
+        className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between p-6 border-b">
           <div>
-            <h3 className="text-xl font-semibold text-gray-900">{result.original_filename}</h3>
+            <h3 id="modal-title" className="text-xl font-semibold text-gray-900">{result.original_filename}</h3>
             <p className="text-sm text-gray-600">
-              {documentTypeLabels[result.document_type] || result.document_type} • 
+              {documentTypeLabels[result.document_type] || result.document_type} •
               Confidence: {((result.confidence ?? result.confidence_score ?? 0) * 100).toFixed(1)}%
             </p>
           </div>
           <button
             onClick={onClose}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            aria-label="Close modal"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
-        
+
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
           {renderExtractedData()}
         </div>
@@ -218,7 +248,8 @@ const Documents = () => {
                   <button
                     onClick={() => handleDownload(result, 'excel')}
                     disabled={loading}
-                    className="flex-1 px-2 md:px-3 py-2 text-xs md:text-sm bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors font-medium"
+                    className="flex-1 px-2 md:px-3 py-2 text-xs md:text-sm bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label={`Download ${result.original_filename} as Excel`}
                   >
                     <Download className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
                     Excel
@@ -226,14 +257,16 @@ const Documents = () => {
                   <button
                     onClick={() => handleDownload(result, 'pdf')}
                     disabled={loading}
-                    className="flex-1 px-2 md:px-3 py-2 text-xs md:text-sm bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors font-medium"
+                    className="flex-1 px-2 md:px-3 py-2 text-xs md:text-sm bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label={`Download ${result.original_filename} as PDF`}
                   >
                     <Download className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
                     PDF
                   </button>
-                  <button 
+                  <button
                     onClick={() => handleViewDocument(result)}
                     className="px-2 md:px-3 py-2 text-xs md:text-sm bg-gray-50 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+                    aria-label={`View ${result.original_filename} details`}
                   >
                     <Eye className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
                   </button>

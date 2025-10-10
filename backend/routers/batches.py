@@ -11,12 +11,14 @@ from typing import List
 from datetime import datetime
 from pathlib import Path
 import logging
+import os
 
 from database import get_db, Batch, DocumentFile, User
 from database import ScanResult as DBScanResult
 from auth import get_current_active_user
 from batch_processor import batch_processor
 from websocket_manager import manager
+from config import get_upload_dir, get_results_dir
 
 logger = logging.getLogger(__name__)
 
@@ -295,59 +297,64 @@ async def get_all_results(
 
 @router.patch("/results/{result_id}")
 async def update_result(
-    result_id: str, 
+    result_id: str,
     updated_data: dict,
-    db: Session = Depends(get_db), 
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Update edited OCR result data"""
+    """Update edited OCR result data with transaction safety"""
     try:
+        # Validate updated_data is not empty
+        if not updated_data:
+            raise HTTPException(status_code=400, detail="No data provided for update")
+
         # Get scan result from database
         result = db.query(DBScanResult).filter(DBScanResult.id == result_id).first()
         if not result:
             raise HTTPException(status_code=404, detail="Scan result not found")
-        
+
         # Verify ownership through batch
         batch = db.query(Batch).filter(Batch.id == result.batch_id).first()
         if not batch:
             raise HTTPException(status_code=404, detail="Associated batch not found")
-        
+
         # Only allow user to edit their own results (or admin can edit all)
         if batch.user_id != current_user.id and not current_user.is_admin:
             raise HTTPException(status_code=403, detail="Not authorized to edit this result")
-        
+
         # Store old data for history (optional - for version control)
         old_data = result.extracted_data.copy() if result.extracted_data else {}
-        
+
         # Update extracted_data with edited data
         if result.extracted_data:
             result.extracted_data.update(updated_data)
         else:
             result.extracted_data = updated_data
-        
-        # Update timestamp
-        from datetime import datetime as dt
-        result.updated_at = dt.utcnow()
-        
-        # Commit to database
+
+        # Update timestamp with timezone-aware datetime
+        from datetime import datetime, timezone
+        result.updated_at = datetime.now(timezone.utc)
+
+        # Commit to database with explicit transaction
         db.commit()
         db.refresh(result)
-        
+
         logger.info(f"✅ Updated scan result {result_id} by user {current_user.username}")
-        
+
         return {
             "success": True,
             "message": "Result updated successfully",
             "result_id": result_id,
             "updated_at": result.updated_at.isoformat()
         }
-        
+
     except HTTPException:
+        db.rollback()
         raise
     except Exception as e:
         db.rollback()
         logger.error(f"Error updating result {result_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to update result: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update result. Please try again.")
 
 
 @router.get("/results/{result_id}/file")
@@ -376,9 +383,22 @@ async def get_result_file(
         if batch.user_id != current_user.id and not current_user.is_admin:
             raise HTTPException(status_code=403, detail="Not authorized to access this file")
         
-        # Construct file path
+        # Construct file path and validate it's within allowed directories
         file_path = Path(doc_file.file_path)
-        
+
+        # Security: Validate file path is within allowed directories
+        allowed_dirs = [Path(get_upload_dir()).resolve(), Path(get_results_dir()).resolve()]
+        file_path_resolved = file_path.resolve()
+
+        is_safe = any(
+            str(file_path_resolved).startswith(str(allowed_dir))
+            for allowed_dir in allowed_dirs
+        )
+
+        if not is_safe:
+            logger.warning(f"Path traversal attempt detected: {file_path}")
+            raise HTTPException(status_code=403, detail="Access to this file path is not allowed")
+
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Original file not found on disk")
         

@@ -66,7 +66,7 @@ class RedisCache:
             key = self._generate_key("ocr", file_hash)
             serialized_data = self._serialize_data({
                 "result": ocr_result,
-                "cached_at": datetime.now().isoformat(),
+                "cached_at": datetime.now(timezone.utc).isoformat(),
                 "file_hash": file_hash
             })
             
@@ -106,7 +106,7 @@ class RedisCache:
             key = self._generate_key("processed", batch_id, file_id)
             serialized_data = self._serialize_data({
                 "data": processed_data,
-                "cached_at": datetime.now().isoformat(),
+                "cached_at": datetime.now(timezone.utc).isoformat(),
                 "batch_id": batch_id,
                 "file_id": file_id
             })
@@ -147,7 +147,7 @@ class RedisCache:
             key = self._generate_key("batch_results", batch_id)
             serialized_data = self._serialize_data({
                 "results": results,
-                "cached_at": datetime.now().isoformat(),
+                "cached_at": datetime.now(timezone.utc).isoformat(),
                 "batch_id": batch_id,
                 "count": len(results)
             })
@@ -188,7 +188,7 @@ class RedisCache:
             key = self._generate_key("template", doc_type)
             serialized_data = self._serialize_data({
                 "template": template_data,
-                "cached_at": datetime.now().isoformat(),
+                "cached_at": datetime.now(timezone.utc).isoformat(),
                 "doc_type": doc_type
             })
             
@@ -228,7 +228,7 @@ class RedisCache:
             key = self._generate_key("batch_status", batch_id)
             serialized_data = self._serialize_data({
                 "status": status_data,
-                "cached_at": datetime.now().isoformat(),
+                "cached_at": datetime.now(timezone.utc).isoformat(),
                 "batch_id": batch_id
             })
             

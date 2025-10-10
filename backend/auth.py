@@ -78,6 +78,18 @@ def decode_access_token(token: str) -> Optional[dict]:
     except JWTError:
         return None
 
+def verify_token(token: str) -> Optional[dict]:
+    """Verify JWT token and return payload (for WebSocket auth)"""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_exp": True})
+        return payload
+    except jwt.ExpiredSignatureError:
+        logger.warning("Token expired during verification")
+        return None
+    except JWTError as e:
+        logger.error(f"Token verification failed: {e}")
+        return None
+
 def get_db():
     """Dependency to get database session"""
     db = SessionLocal()

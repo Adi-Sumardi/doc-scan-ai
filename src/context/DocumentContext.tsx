@@ -81,14 +81,15 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     const pollInterval = setInterval(async () => {
       try {
         const updatedBatch = await apiService.getBatchStatus(batchId);
-        
-        setBatches(prev => prev.map(batch => 
+
+        setBatches(prev => prev.map(batch =>
           batch.id === batchId ? updatedBatch : batch
         ));
-        
+
         if (updatedBatch.status === 'completed') {
           clearInterval(pollInterval);
-          
+          removePollingInterval(pollInterval);
+
           // Retry mechanism to ensure all results are loaded
           let attempts = 0;
           const maxAttempts = 5;
@@ -104,28 +105,35 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
               toast.error(`Polling failed for batch ${batchId.slice(-8)}. Please refresh the page.`, {
                 duration: 6000,
               });
-              // Stop polling if it fails repeatedly
-              clearInterval(pollInterval);
             }
           };
 
           await attemptLoad();
-
-          }
-         else if (updatedBatch.status === 'error' || updatedBatch.status === 'failed') {
+        }
+        else if (updatedBatch.status === 'error' || updatedBatch.status === 'failed') {
           clearInterval(pollInterval);
-         // Fix: Only remove results for the failed batch, not all results.
-         setScanResults(prev => prev.filter(r => r.batch_id !== batchId));
+          removePollingInterval(pollInterval);
+          // Fix: Only remove results for the failed batch, not all results.
+          setScanResults(prev => prev.filter(r => r.batch_id !== batchId));
         }
       } catch (error) {
         console.error('Polling error:', error);
         clearInterval(pollInterval);
+        removePollingInterval(pollInterval);
       }
     }, 2000); // Poll every 2 seconds
     pollingIntervalsRef.current.push(pollInterval);
-    
-    // Stop polling after 5 minutes
-    setTimeout(() => clearInterval(pollInterval), 300000);
+
+    // Stop polling after 5 minutes as a safety measure
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      removePollingInterval(pollInterval);
+    }, 300000);
+  };
+
+  // Helper function to remove interval from tracking array
+  const removePollingInterval = (interval: NodeJS.Timeout) => {
+    pollingIntervalsRef.current = pollingIntervalsRef.current.filter(i => i !== interval);
   };
 
   const refreshBatch = async (batchId: string) => {

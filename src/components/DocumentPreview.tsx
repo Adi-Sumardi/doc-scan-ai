@@ -61,14 +61,20 @@ const DocumentPreview = ({ resultId, fileName, fileType, boundingBoxes }: Docume
 
   useEffect(() => {
     let isMounted = true;
+    let currentObjectUrl: string | null = null;
+
     const fetchFile = async () => {
       setIsLoading(true);
       try {
         // Use the correct API function to get the original file content
         const blob = await apiService.getResultFileBlob(resultId);
         const url = URL.createObjectURL(blob);
+        currentObjectUrl = url;
         if (isMounted) {
           setObjectUrl(url);
+        } else {
+          // Cleanup if component unmounted during fetch
+          URL.revokeObjectURL(url);
         }
       } catch (error) {
         console.error("Failed to load document preview:", error);
@@ -76,9 +82,17 @@ const DocumentPreview = ({ resultId, fileName, fileType, boundingBoxes }: Docume
         if (isMounted) setIsLoading(false);
       }
     };
+
     fetchFile();
-    return () => { isMounted = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [resultId, fileType]);
+
+    // Cleanup function: revoke object URL when resultId changes or component unmounts
+    return () => {
+      isMounted = false;
+      if (currentObjectUrl) {
+        URL.revokeObjectURL(currentObjectUrl);
+      }
+    };
+  }, [resultId]);
 
   return (
     <div 

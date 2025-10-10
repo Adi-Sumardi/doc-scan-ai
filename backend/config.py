@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     enable_cloud_ocr: bool = False
     
     # Database Configuration
-    database_url: str = "mysql+pymysql://docuser:docpass123@localhost:3306/docscan_db"
+    database_url: str = os.getenv("DATABASE_URL", "")
     database_pool_size: int = 20
     database_max_overflow: int = 30
     
@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     
     # Production Settings
     environment: str = "development"
-    debug: bool = True
+    debug: bool = False
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"  # Changed to string
     
     # Monitoring
@@ -71,6 +71,13 @@ class Settings(BaseSettings):
     google_cloud_project_id: Optional[str] = None
     google_processor_location: Optional[str] = None
     google_processor_id: Optional[str] = None
+
+    # Smart Mapper Configuration
+    smart_mapper_enabled: bool = True
+    smart_mapper_provider: str = "openai"
+    smart_mapper_model: Optional[str] = None
+    smart_mapper_api_key: Optional[str] = None
+    smart_mapper_timeout: int = 60
     
     # Computed properties
     @property

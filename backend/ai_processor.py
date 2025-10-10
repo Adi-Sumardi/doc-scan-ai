@@ -30,6 +30,19 @@ try:
 except ImportError as e:
     logger.warning(f"⚠️ Modular exporter system not available: {e}")
 
+HAS_SMART_MAPPER = False
+try:
+    from smart_mapper import smart_mapper_service
+
+    HAS_SMART_MAPPER = getattr(smart_mapper_service, "enabled", False)
+    if HAS_SMART_MAPPER:
+        logger.info("✅ Smart Mapper service loaded")
+    else:
+        logger.warning("⚠️ Smart Mapper available but disabled")
+except ImportError as e:
+    smart_mapper_service = None  # type: ignore
+    logger.warning(f"⚠️ Smart Mapper service not available: {e}")
+
 
 # Global instances
 ocr_processor = RealOCRProcessor()
@@ -73,24 +86,110 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
         
         # STEP 2: Parse document based on type
         if document_type == 'faktur_pajak':
-            extracted_data = parser.parse_faktur_pajak(extracted_text)
-            # Merge structured fields from Cloud AI if available
-            if ocr_processor.use_cloud_ai and ocr_processor.get_last_ocr_metadata():
-                cloud_fields = ocr_processor.get_last_ocr_metadata().get('extracted_fields', {})
+            extracted_data = parser.parse_faktur_pajak(extracted_text, file_path=file_path)
+            # Merge structured fields from Google Document AI if available
+            ocr_metadata = ocr_processor.get_last_ocr_metadata()
+            if ocr_metadata:
+                cloud_fields = ocr_metadata.get('extracted_fields', {})
                 if cloud_fields:
                     logger.info("✅ Merging structured data from Google Document AI")
                     extracted_data['extracted_content']['structured_fields'] = cloud_fields
+            if HAS_SMART_MAPPER and smart_mapper_service and isinstance(extracted_data, dict):
+                template = smart_mapper_service.load_template(document_type)
+                ocr_metadata = ocr_processor.get_last_ocr_metadata()
+                ocr_meta_dict = ocr_metadata if isinstance(ocr_metadata, dict) else {}
+                raw_response = ocr_meta_dict.get('raw_response')
+                if template and raw_response:
+                    mapped = smart_mapper_service.map_document(
+                        doc_type=document_type,
+                        document_json=raw_response,
+                        template=template,
+                        extracted_fields=ocr_meta_dict.get('extracted_fields'),
+                        fallback_fields=extracted_data.get('structured_data'),
+                    )
+                    if mapped:
+                        extracted_data.setdefault('structured_data', {})
+                        extracted_data['structured_data']['smart_mapper'] = mapped
+                        extracted_data['smart_mapped'] = mapped
         elif document_type == 'pph21':
             extracted_data = parser.parse_pph21(extracted_text)
+            # Merge structured fields from Google Document AI if available
+            ocr_metadata = ocr_processor.get_last_ocr_metadata()
+            if ocr_metadata:
+                cloud_fields = ocr_metadata.get('extracted_fields', {})
+                if cloud_fields:
+                    logger.info("✅ Merging structured data from Google Document AI for PPh 21")
+                    extracted_data['extracted_content']['structured_fields'] = cloud_fields
+            # Apply Smart Mapper for PPh 21
+            if HAS_SMART_MAPPER and smart_mapper_service and isinstance(extracted_data, dict):
+                template = smart_mapper_service.load_template(document_type)
+                ocr_metadata = ocr_processor.get_last_ocr_metadata()
+                ocr_meta_dict = ocr_metadata if isinstance(ocr_metadata, dict) else {}
+                raw_response = ocr_meta_dict.get('raw_response')
+                if template and raw_response:
+                    logger.info("🤖 Applying Smart Mapper GPT-4o for PPh 21")
+                    mapped = smart_mapper_service.map_document(
+                        doc_type=document_type,
+                        document_json=raw_response,
+                        template=template,
+                        extracted_fields=ocr_meta_dict.get('extracted_fields'),
+                        fallback_fields=extracted_data.get('structured_data'),
+                    )
+                    if mapped:
+                        logger.info("✅ Smart Mapper PPh 21 successful!")
+                        extracted_data.setdefault('structured_data', {})
+                        extracted_data['structured_data']['smart_mapper'] = mapped
+                        extracted_data['smart_mapped'] = mapped
+                    else:
+                        logger.warning("⚠️ Smart Mapper PPh 21 returned no data")
+                else:
+                    if not template:
+                        logger.warning(f"⚠️ No template found for {document_type}")
+                    if not raw_response:
+                        logger.warning("⚠️ No raw OCR response available for Smart Mapper")
         elif document_type == 'pph23':
             extracted_data = parser.parse_pph23(extracted_text)
+            # Merge structured fields from Google Document AI if available
+            ocr_metadata = ocr_processor.get_last_ocr_metadata()
+            if ocr_metadata:
+                cloud_fields = ocr_metadata.get('extracted_fields', {})
+                if cloud_fields:
+                    logger.info("✅ Merging structured data from Google Document AI for PPh 23")
+                    extracted_data['extracted_content']['structured_fields'] = cloud_fields
+            # Apply Smart Mapper for PPh 23
+            if HAS_SMART_MAPPER and smart_mapper_service and isinstance(extracted_data, dict):
+                template = smart_mapper_service.load_template(document_type)
+                ocr_metadata = ocr_processor.get_last_ocr_metadata()
+                ocr_meta_dict = ocr_metadata if isinstance(ocr_metadata, dict) else {}
+                raw_response = ocr_meta_dict.get('raw_response')
+                if template and raw_response:
+                    logger.info("🤖 Applying Smart Mapper GPT-4o for PPh 23")
+                    mapped = smart_mapper_service.map_document(
+                        doc_type=document_type,
+                        document_json=raw_response,
+                        template=template,
+                        extracted_fields=ocr_meta_dict.get('extracted_fields'),
+                        fallback_fields=extracted_data.get('structured_data'),
+                    )
+                    if mapped:
+                        logger.info("✅ Smart Mapper PPh 23 successful!")
+                        extracted_data.setdefault('structured_data', {})
+                        extracted_data['structured_data']['smart_mapper'] = mapped
+                        extracted_data['smart_mapped'] = mapped
+                    else:
+                        logger.warning("⚠️ Smart Mapper PPh 23 returned no data")
+                else:
+                    if not template:
+                        logger.warning(f"⚠️ No template found for {document_type}")
+                    if not raw_response:
+                        logger.warning("⚠️ No raw OCR response available for Smart Mapper")
         elif document_type == 'rekening_koran':
             extracted_data = parser.parse_rekening_koran(extracted_text)
         elif document_type == 'invoice':
             extracted_data = parser.parse_invoice(extracted_text)
         else:
             logger.warning(f"⚠️ Unknown document type: {document_type}, defaulting to faktur_pajak")
-            extracted_data = parser.parse_faktur_pajak(extracted_text)
+            extracted_data = parser.parse_faktur_pajak(extracted_text, file_path=file_path)
         
         # STEP 3: Validate extracted data
         if not validate_extracted_data(extracted_data, document_type):

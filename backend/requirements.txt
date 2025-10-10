@@ -28,20 +28,14 @@ slowapi==0.1.9              # Rate limiting for authentication endpoints
 prometheus-client==0.21.1
 structlog==24.4.0
 
-# ===== ADVANCED OCR ENGINES =====
-paddleocr==2.7.3            # Stable version compatible with macOS
-easyocr==1.7.1              # Stable version
+# ===== OCR REMOVED =====
+# REMOVED: paddleocr, easyocr, rapidocr, pytesseract - Using only Google Document AI now
 nest-asyncio==1.6.0         # For running asyncio loops inside other loops (gRPC compatibility)
-pytesseract==0.3.10         # Stable version
-rapidocr-onnxruntime==1.3.18  # Stable version
-# surya-ocr==0.4.15           # Commented out, can be heavy for local dev
 
-# ===== COMPUTER VISION =====
-opencv-python==4.6.0.66
-opencv-contrib-python==4.6.0.66
-pillow==10.1.0
-scikit-image==0.22.0
-albumentations==1.3.1       # Version compatible with opencv 4.6
+# ===== IMAGE PROCESSING (MINIMAL) =====
+# REMOVED: opencv-python, opencv-contrib-python, scikit-image, albumentations
+# Google Document AI handles image preprocessing
+pillow==10.1.0              # Basic image handling only
 
 # ===== PDF PROCESSING =====
 PyPDF2==3.0.1
@@ -52,25 +46,11 @@ pymupdf==1.24.5             # Faster PDF processing
 pypdfium2==4.30.0
 # unstructured[pdf]==0.15.0   # Commented out, can be heavy
 
-# ===== DOCUMENT AI & TRANSFORMERS =====
-transformers==4.35.2
-torch==2.1.1
-torchvision==0.16.1
-safetensors==0.4.1
-tokenizers==0.15.0
-sentence-transformers==2.7.0
-# layoutparser[detectron2]==0.3.4 # Commented out, requires Detectron2 setup
-
-# ===== MACHINE LEARNING =====
-scikit-learn==1.3.2
-# xgboost==2.1.0              # Optional
-# lightgbm==4.5.0             # Optional
-# imbalanced-learn==0.14.0    # Optional
-
-# ===== PERFORMANCE OPTIMIZATION =====
-onnx==1.16.0                # Model optimization
-onnxruntime==1.16.3         # Use CPU version for compatibility
-huggingface-hub==0.35.0
+# ===== AI MODELS REMOVED =====
+# REMOVED: transformers, torch, torchvision, sentence-transformers
+# REMOVED: scikit-learn, xgboost, lightgbm
+# REMOVED: onnx, onnxruntime
+# Using only Google Document AI + LLM APIs (OpenAI/Anthropic) now
 
 # Scientific Computing
 numpy==1.26.2
@@ -79,10 +59,9 @@ pandas==2.1.3
 matplotlib==3.8.2
 seaborn==0.13.2
 
-# Image Processing
-imageio==2.37.0
-tifffile==2025.5.10
-opencv-python-headless==4.6.0.66
+# Image Processing (Minimal)
+# REMOVED: imageio, tifffile, opencv-python-headless
+# Google Document AI handles all image processing
 
 # Export Libraries
 openpyxl==3.1.5
@@ -95,10 +74,9 @@ tqdm==4.67.1
 joblib==1.5.2
 threadpoolctl==3.6.0
 
-# OCR-specific Dependencies
-python-bidi==0.4.2
-pyclipper==1.3.0.post6
-imutils==0.5.4
+# OCR-specific Dependencies REMOVED
+# REMOVED: python-bidi, pyclipper, imutils
+# No longer needed without local OCR engines
 
 # Cryptography and Security
 cryptography==46.0.1
@@ -114,12 +92,18 @@ urllib3==1.26.18  # Downgraded for google-auth compatibility (requires <2.0)
 certifi==2025.8.3
 regex==2025.9.1
 
-# ===== CLOUD AI SERVICES =====
-# Required for production OCR processing
-google-cloud-documentai==2.26.0      # Google Document AI - Primary OCR engine
-google-cloud-storage==2.10.0         # Google Cloud Storage integration
-google-auth==2.23.0                   # Google Cloud authentication
-# azure-cognitiveservices-vision-computervision==0.9.0  # Optional: Azure AI
+# ===== CLOUD AI SERVICES (CORE) =====
+# Google Document AI - Primary and ONLY OCR engine
+google-cloud-documentai==2.26.0      
+google-cloud-storage==2.10.0         
+google-auth==2.23.0                   
+
+# Smart Mapper LLM clients
+openai==1.50.2                        # For GPT-based field extraction
+anthropic==0.34.1                     # For Claude-based field extraction
+
+# REMOVED: Azure Cognitive Services, AWS Textract
+# Using only Google Document AI + Smart Mapper GPT/Claude now
 
 # ===== PRODUCTION DEPLOYMENT =====
 # Uncomment for production:

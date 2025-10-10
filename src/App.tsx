@@ -14,17 +14,19 @@ import UserActivities from './pages/UserActivities';
 import { DocumentProvider } from './context/DocumentContext';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import ErrorBoundary from './components/ErrorBoundary';
 import './App.css';
 
 function App() {
   return (
-    <AuthProvider>
-      <DocumentProvider>
-        <Router>
-          <div className="min-h-screen bg-gray-50">
-            <Navbar />
-            <main className="pt-20 p-6">
-              <Routes>
+    <ErrorBoundary>
+      <AuthProvider>
+        <DocumentProvider>
+          <Router>
+            <div className="min-h-screen bg-gray-50">
+              <Navbar />
+              <main className="pt-20 p-6">
+                <Routes>
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
@@ -71,6 +73,7 @@ function App() {
         </Router>
       </DocumentProvider>
     </AuthProvider>
+    </ErrorBoundary>
   );
 }
 

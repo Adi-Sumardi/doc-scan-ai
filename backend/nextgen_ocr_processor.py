@@ -10,7 +10,7 @@ import numpy as np
 import logging
 from typing import Dict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 
 logging.basicConfig(level=logging.INFO)
@@ -72,7 +72,7 @@ class NextGenerationOCRProcessor:
                 # If we get a substantial amount of text, we can skip OCR.
                 if direct_text and len(direct_text) > 200: # Threshold for meaningful text
                     logger.info("✅ Direct text extraction successful. Skipping image-based OCR.")
-                    processing_time = (datetime.now() - datetime.now()).total_seconds() # Placeholder, as it's very fast
+                    processing_time = (datetime.now(timezone.utc) - datetime.now(timezone.utc)).total_seconds() # Placeholder, as it's very fast
                     return NextGenOCRResult(
                         text=direct_text,
                         confidence=99.9, # Confidence is very high for direct extraction
@@ -84,7 +84,7 @@ class NextGenerationOCRProcessor:
                 logger.warning(f"⚠️ Direct PDF text extraction failed: {e}. Falling back to image-based OCR.")
         # --- END SMART PDF HANDLING ---
 
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
         
         try:
             # Validate file exists
@@ -130,7 +130,7 @@ class NextGenerationOCRProcessor:
             quality_score = self._calculate_quality(results)
             logger.info(f"📊 Quality score: {quality_score}")
             
-            processing_time = (datetime.now() - start_time).total_seconds()
+            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
             logger.info(f"⏱️ Processing time: {processing_time:.2f}s")
             
             # Log successful processing with details

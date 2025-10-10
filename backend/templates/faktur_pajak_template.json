@@ -1,0 +1,92 @@
+{
+  "document_type": "faktur_pajak",
+  "version": "2025-10-08",
+  "description": "Structured Faktur Pajak schema for Smart Mapper. Values should be strings unless explicitly noted.",
+  "sections": [
+    {
+      "name": "seller",
+      "description": "Informasi penjual diminta pada faktur pajak.",
+      "fields": [
+        {"name": "name", "label": "Nama Penjual", "required": true, "notes": "Gunakan nama badan usaha resmi."},
+        {"name": "npwp", "label": "NPWP Penjual", "required": true, "format": "NPWP"},
+        {"name": "address", "label": "Alamat Penjual", "required": false}
+      ]
+    },
+    {
+      "name": "buyer",
+      "description": "Informasi pembeli atau penerima BKP/JKP.",
+      "fields": [
+        {"name": "name", "label": "Nama Pembeli", "required": false},
+        {"name": "npwp", "label": "NPWP Pembeli", "required": false, "format": "NPWP"},
+        {"name": "address", "label": "Alamat Pembeli", "required": false}
+      ]
+    },
+    {
+      "name": "invoice",
+      "description": "Nomor dan tanggal faktur pajak.",
+      "fields": [
+        {"name": "number", "label": "Nomor Faktur Pajak", "required": true},
+        {"name": "issue_date", "label": "Tanggal Faktur", "required": true, "format": "YYYY-MM-DD"},
+        {"name": "reference", "label": "Nomor Invoice/Referensi", "required": false}
+      ]
+    },
+    {
+      "name": "financials",
+      "description": "Ringkasan nilai transaksi.",
+      "fields": [
+        {"name": "dpp", "label": "Dasar Pengenaan Pajak", "required": true, "format": "currency"},
+        {"name": "ppn", "label": "PPN", "required": true, "format": "currency"},
+        {"name": "pph", "label": "PPh", "required": false, "format": "currency"},
+        {"name": "total", "label": "Total", "required": true, "format": "currency"}
+      ]
+    },
+    {
+      "name": "items",
+      "description": "Daftar barang atau jasa pada faktur.",
+      "fields": [
+        {"name": "description", "label": "Deskripsi Barang/Jasa", "required": true},
+        {"name": "quantity", "label": "Jumlah", "required": false},
+        {"name": "unit_price", "label": "Harga Satuan", "required": false, "format": "currency"},
+        {"name": "total_price", "label": "Subtotal", "required": false, "format": "currency"}
+      ]
+    }
+  ],
+  "output_schema": {
+    "seller": {
+      "name": "string",
+      "npwp": "string",
+      "address": "string"
+    },
+    "buyer": {
+      "name": "string",
+      "npwp": "string",
+      "address": "string"
+    },
+    "invoice": {
+      "number": "string",
+      "issue_date": "string",
+      "reference": "string"
+    },
+    "financials": {
+      "dpp": "string",
+      "ppn": "string",
+      "pph": "string",
+      "total": "string"
+    },
+    "items": [
+      {
+        "description": "string",
+        "quantity": "string",
+        "unit_price": "string",
+        "total_price": "string"
+      }
+    ],
+    "notes": "string",
+    "confidence": "number"
+  },
+  "validation_rules": {
+    "normalize_npwp": true,
+    "currency_format": "Rp xxx.xxx",
+    "allowed_date_formats": ["DD/MM/YYYY", "DD-MM-YYYY", "YYYY-MM-DD"]
+  }
+}

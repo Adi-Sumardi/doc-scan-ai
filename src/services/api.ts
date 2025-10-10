@@ -170,7 +170,19 @@ export const apiService = {
     const hostname = window.location.hostname;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = hostname.includes('adilabs.id') ? window.location.host : 'localhost:8000';
-    return new WebSocket(`${protocol}//${host}/ws/batch/${batchId}`);
+
+    // Get token from localStorage for authentication
+    const token = localStorage.getItem('token');
+    const wsUrl = `${protocol}//${host}/ws/batch/${batchId}${token ? `?token=${token}` : ''}`;
+
+    const ws = new WebSocket(wsUrl);
+
+    // Add error handler
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    return ws;
   },
 
   downloadFile: (blob: Blob, filename: string) => {

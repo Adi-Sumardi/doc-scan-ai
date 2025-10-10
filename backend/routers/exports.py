@@ -78,17 +78,41 @@ async def export_result(
         
         # Create export
         if format == 'excel':
-            success = create_batch_excel_export(
-                batch_results=[result_data],
-                output_path=str(export_path),
-                document_type=result.document_type
-            )
+            # Use specialized exporter for PPh 23
+            if result.document_type in ['pph23', 'pph 23', 'pph_23']:
+                from exporters.pph23_exporter import PPh23Exporter
+                exporter = PPh23Exporter()
+                success = exporter.export_to_excel(result_data, str(export_path))
+            # Use specialized exporter for PPh 21
+            elif result.document_type in ['pph21', 'pph 21', 'pph_21']:
+                from exporters.pph21_exporter import PPh21Exporter
+                exporter = PPh21Exporter()
+                success = exporter.export_to_excel(result_data, str(export_path))
+            # Use specialized exporter for Faktur Pajak
+            elif result.document_type in ['faktur_pajak', 'faktur pajak']:
+                from exporters.faktur_pajak_exporter import FakturPajakExporter
+                exporter = FakturPajakExporter()
+                success = exporter.export_to_excel(result_data, str(export_path))
+            else:
+                # Generic table format for other types
+                success = create_batch_excel_export(
+                    batch_results=[result_data],
+                    output_path=str(export_path),
+                    document_type=result.document_type
+                )
         else:  # PDF
-            success = create_batch_pdf_export(
-                batch_results=[result_data],
-                output_path=str(export_path),
-                document_type=result.document_type
-            )
+            # For single Faktur Pajak, use document format (not table)
+            if result.document_type == 'faktur_pajak':
+                from exporters.faktur_pajak_exporter import FakturPajakExporter
+                exporter = FakturPajakExporter()
+                success = exporter.export_to_pdf(result_data, str(export_path))
+            else:
+                # For other document types, use batch format
+                success = create_batch_pdf_export(
+                    batch_results=[result_data],
+                    output_path=str(export_path),
+                    document_type=result.document_type
+                )
         
         if not success:
             raise HTTPException(status_code=500, detail=f"Failed to create {format.upper()} export")
@@ -164,17 +188,47 @@ async def export_batch(
         export_filename = f"batch_{batch_id[:8]}_results.{format if format == 'pdf' else 'xlsx'}"
         export_path = EXPORTS_DIR / export_filename
         
+        # Detect document type for specialized export
+        document_types = [r.get('document_type', '').lower() for r in results_data]
+        all_same_type = len(set(document_types)) == 1 and len(document_types) > 0
+        primary_doc_type = document_types[0] if all_same_type else None
+        
         # Create export
         if format == 'excel':
-            success = create_batch_excel_export(
-                batch_results=results_data,
-                output_path=str(export_path)
-            )
+            # Check if we should use specialized exporter for PPh 23
+            if all_same_type and primary_doc_type in ['pph23', 'pph 23']:
+                # Use PPh 23 specialized exporter
+                from exporters.pph23_exporter import PPh23Exporter
+                exporter = PPh23Exporter()
+                success = exporter.export_batch_to_excel(batch_id, results_data, str(export_path))
+            # Check if we should use specialized exporter for PPh 21
+            elif all_same_type and primary_doc_type in ['pph21', 'pph 21']:
+                # Use PPh 21 specialized exporter
+                from exporters.pph21_exporter import PPh21Exporter
+                exporter = PPh21Exporter()
+                success = exporter.batch_export_to_excel(batch_id, results_data, str(export_path))
+            else:
+                # Use generic table format for other types (including faktur_pajak)
+                success = create_batch_excel_export(
+                    batch_results=results_data,
+                    output_path=str(export_path),
+                    document_type=primary_doc_type if all_same_type else 'mixed'
+                )
         else:  # PDF
-            success = create_batch_pdf_export(
-                batch_results=results_data,
-                output_path=str(export_path)
-            )
+            # Check if all results are Faktur Pajak - use professional template
+            all_faktur_pajak = all(r.get('document_type') == 'faktur_pajak' for r in results_data)
+            
+            if all_faktur_pajak and len(results_data) > 0:
+                # Use professional document template for Faktur Pajak
+                from exporters.faktur_pajak_exporter import FakturPajakExporter
+                exporter = FakturPajakExporter()
+                success = exporter.export_batch_to_pdf(results_data, str(export_path))
+            else:
+                # Use table format for mixed or other document types
+                success = create_batch_pdf_export(
+                    batch_results=results_data,
+                    output_path=str(export_path)
+                )
 
         if not success:
             raise HTTPException(status_code=500, detail=f"Failed to create batch {format.upper()} export")

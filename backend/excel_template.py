@@ -4,7 +4,7 @@ Professional Excel templates with advanced styling, formulas, and formatting
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 from pathlib import Path
 
@@ -12,6 +12,11 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.drawing.image import Image as OpenpyxlImage
+
+try:
+    from .exporters.faktur_pajak_exporter import FakturPajakExporter
+except ImportError:  # Fallback when imported as top-level module
+    from exporters.faktur_pajak_exporter import FakturPajakExporter  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +230,7 @@ class EnhancedExcelTemplate:
         self.ws.merge_cells(f'A{footer_row}:J{footer_row}')
         
         footer_cell = self.ws[f'A{footer_row}']
-        footer_cell.value = f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Doc-Scan AI System"
+        footer_cell.value = f"Generated on {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} | Doc-Scan AI System"
         footer_cell.font = Font(name='Arial', size=9, italic=True, color='999999')
         footer_cell.alignment = Alignment(horizontal='center', vertical='center')
     
@@ -276,7 +281,7 @@ def create_batch_excel_export(batch_results: List[Dict[str, Any]], output_path: 
         
         # Info section
         info = {
-            "Tanggal Export": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "Tanggal Export": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
             "Jumlah Dokumen": len(batch_results),
             "Tipe Dokumen": document_type.replace('_', ' ').title()
         }
@@ -285,8 +290,19 @@ def create_batch_excel_export(batch_results: List[Dict[str, Any]], output_path: 
         
         # Table header
         if document_type == 'faktur_pajak':
-            headers = ["No", "Filename", "Nama Perusahaan", "NPWP", "Nomor Faktur", "Tanggal", "DPP", "PPN", "Total", "Confidence"]
-            widths = [5, 25, 30, 20, 20, 15, 15, 15, 15, 12]
+            headers = [
+                "Nama",
+                "Tgl",
+                "NPWP",
+                "Nomor Faktur",
+                "Alamat",
+                "DPP",
+                "PPN",
+                "Total",
+                "Invoice",
+                "Nama Barang Kena Pajak / Jasa Kena Pajak"
+            ]
+            widths = [25, 14, 22, 22, 45, 18, 18, 18, 18, 50]
         elif document_type == 'pph21':
             headers = ["No", "Filename", "Nomor", "Masa Pajak", "Nama", "NPWP/NIK", "Bruto", "PPh", "Confidence"]
             widths = [5, 25, 20, 15, 25, 20, 15, 15, 12]
@@ -303,22 +319,36 @@ def create_batch_excel_export(batch_results: List[Dict[str, Any]], output_path: 
         
         # Data rows
         total_confidence = 0
+        faktur_sanitizer = FakturPajakExporter() if document_type == 'faktur_pajak' else None
         for idx, result in enumerate(batch_results, start=1):
             extracted_data = result.get('extracted_data', {})
-            structured_data = extracted_data.get('structured_data', {})
             
             if document_type == 'faktur_pajak':
+                # PRIORITY 1: Use Smart Mapper data if available (already clean from GPT-4o)
+                smart_mapped = extracted_data.get('smart_mapped', {})
+                if smart_mapped and faktur_sanitizer:
+                    logger.info(f"✅ Row {idx}: Using Smart Mapper GPT data (CLEAN, NO POST-PROCESSING)")
+                    cleaned = faktur_sanitizer._convert_smart_mapped_to_structured(smart_mapped)
+                else:
+                    # FALLBACK: Use legacy structured_data with post-processing
+                    logger.info(f"⚠️ Row {idx}: Smart Mapper not available, using legacy parser")
+                    structured_data = extracted_data.get('structured_data', {})
+                    cleaned = faktur_sanitizer._prepare_structured_fields(
+                        structured_data,
+                        extracted_data.get('raw_text', '')
+                    ) if faktur_sanitizer else structured_data
+                
                 row_data = [
-                    idx,
-                    result.get('filename', 'N/A'),
-                    structured_data.get('nama', 'N/A'),
-                    structured_data.get('npwp', 'N/A'),
-                    structured_data.get('nomor_faktur', 'N/A'),
-                    structured_data.get('tanggal', 'N/A'),
-                    structured_data.get('dpp', 'N/A'),
-                    structured_data.get('ppn', 'N/A'),
-                    structured_data.get('total', 'N/A'),
-                    f"{result.get('confidence', 0):.1%}"
+                    cleaned.get('nama') or 'N/A',
+                    cleaned.get('tanggal') or 'N/A',
+                    cleaned.get('npwp') or 'N/A',
+                    cleaned.get('nomor_faktur') or 'N/A',
+                    cleaned.get('alamat') or 'N/A',
+                    cleaned.get('dpp') or 'N/A',
+                    cleaned.get('ppn') or 'N/A',
+                    cleaned.get('total') or 'N/A',
+                    cleaned.get('invoice') or 'N/A',
+                    cleaned.get('nama_barang_jasa') or 'N/A'
                 ]
             elif document_type == 'pph21':
                 row_data = [
@@ -355,13 +385,13 @@ def create_batch_excel_export(batch_results: List[Dict[str, Any]], output_path: 
             total_confidence += result.get('confidence', 0)
             current_row += 1
         
-        # Summary
-        summary = {
-            "Total Dokumen": len(batch_results),
-            "Rata-rata Confidence": f"{(total_confidence / len(batch_results)):.1%}" if batch_results else "0%",
-            "Status": "✓ Berhasil Diproses"
-        }
-        current_row = template.add_summary_section(current_row, summary)
+        # Summary - REMOVED per user request
+        # summary = {
+        #     "Total Dokumen": len(batch_results),
+        #     "Rata-rata Confidence": f"{(total_confidence / len(batch_results)):.1%}" if batch_results else "0%",
+        #     "Status": "✓ Berhasil Diproses"
+        # }
+        # current_row = template.add_summary_section(current_row, summary)
         
         # Footer
         template.add_footer(current_row)

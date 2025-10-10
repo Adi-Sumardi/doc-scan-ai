@@ -45,14 +45,69 @@ const documentTypes = [
 const Upload = () => {
   const navigate = useNavigate();
   const { uploadDocuments, loading } = useDocument();
-  const [selectedFiles, setSelectedFiles] = useState<{ [key: string]: File | null }>({});
+  const [selectedFiles, setSelectedFiles] = useState<{ [key: string]: File[] }>({});
   const [dragOver, setDragOver] = useState<string | null>(null);
 
-  const handleFileSelect = (documentType: string, file: File) => {
-    setSelectedFiles(prev => ({
-      ...prev,
-      [documentType]: file
-    }));
+  const handleFileSelect = (documentType: string, newFiles: File[]) => {
+    // File validation constants
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    const MAX_FILES = 10;
+    const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/tiff', 'application/pdf'];
+    const ALLOWED_EXTENSIONS = ['.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.tif'];
+
+    // Validate each file
+    const validFiles: File[] = [];
+    const rejectedFiles: string[] = [];
+
+    newFiles.forEach(file => {
+      // Check file size
+      if (file.size > MAX_FILE_SIZE) {
+        rejectedFiles.push(`${file.name} (exceeds 10MB limit)`);
+        return;
+      }
+
+      // Check file type
+      const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
+      const isValidType = ALLOWED_TYPES.includes(file.type) ||
+                          ALLOWED_EXTENSIONS.includes(fileExtension || '');
+
+      if (!isValidType) {
+        rejectedFiles.push(`${file.name} (invalid file type)`);
+        return;
+      }
+
+      validFiles.push(file);
+    });
+
+    // Show errors for rejected files
+    if (rejectedFiles.length > 0) {
+      toast.error(`Rejected files:\n${rejectedFiles.join('\n')}`, {
+        duration: 5000
+      });
+    }
+
+    // Add valid files
+    if (validFiles.length > 0) {
+      setSelectedFiles(prev => {
+        const existingFiles = prev[documentType] || [];
+        const combined = [...existingFiles, ...validFiles];
+
+        // Limit to MAX_FILES maximum
+        if (combined.length > MAX_FILES) {
+          toast.error(`Maximum ${MAX_FILES} files per document type. Only first ${MAX_FILES} files will be added.`);
+          return {
+            ...prev,
+            [documentType]: combined.slice(0, MAX_FILES)
+          };
+        }
+
+        toast.success(`${validFiles.length} file(s) added successfully`);
+        return {
+          ...prev,
+          [documentType]: combined
+        };
+      });
+    }
   };
 
   const handleFileDrop = (e: React.DragEvent, documentType: string) => {
@@ -61,32 +116,54 @@ const Upload = () => {
     
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
-      handleFileSelect(documentType, files[0]);
+      handleFileSelect(documentType, files);
     }
   };
 
-  const removeFile = (documentType: string) => {
+  const removeFile = (documentType: string, fileIndex?: number) => {
     setSelectedFiles(prev => {
-      const newFiles = { ...prev };
-      delete newFiles[documentType];
-      return newFiles;
+      if (fileIndex !== undefined) {
+        // Remove specific file
+        const files = prev[documentType] || [];
+        const newFiles = files.filter((_, index) => index !== fileIndex);
+        if (newFiles.length === 0) {
+          const { [documentType]: _, ...rest } = prev;
+          return rest;
+        }
+        return {
+          ...prev,
+          [documentType]: newFiles
+        };
+      } else {
+        // Remove all files for this document type
+        const { [documentType]: _, ...rest } = prev;
+        return rest;
+      }
     });
   };
 
 
   const handleSubmit = async () => {
-    const files = Object.entries(selectedFiles).filter(([_, file]) => file !== null);
+    const fileEntries = Object.entries(selectedFiles).filter(([_, files]) => files && files.length > 0);
     
-    if (files.length === 0) {
+    if (fileEntries.length === 0) {
       toast.error('Please select at least one file');
       return;
     }
 
     try {
-      const fileList = files.map(([_, file]) => file!);
-      const documentTypes = files.map(([type, _]) => type);
+      // Flatten all files with their document types
+      const fileList: File[] = [];
+      const documentTypesList: string[] = [];
       
-      const batch = await uploadDocuments(fileList, documentTypes);
+      fileEntries.forEach(([docType, files]) => {
+        files.forEach(file => {
+          fileList.push(file);
+          documentTypesList.push(docType);
+        });
+      });
+      
+      const batch = await uploadDocuments(fileList, documentTypesList);
       
       // Navigate to results immediately
       navigate(`/scan-results/${batch.id}`);
@@ -105,7 +182,7 @@ const Upload = () => {
           </div>
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Upload Documents</h1>
-            <p className="text-gray-600 mt-1">Upload up to 5 documents for AI-powered scanning</p>
+            <p className="text-gray-600 mt-1">Upload 1-10 files per document type for AI-powered scanning</p>
           </div>
         </div>
       </div>
@@ -202,27 +279,64 @@ const Upload = () => {
             </div>
             
             <div className="p-4">
-              {selectedFiles[docType.id] ? (
-                <div className="flex items-center justify-between p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border-2 border-green-300 shadow-md animate-scale-in hover:shadow-lg transition-all duration-300">
-                  <div className="flex items-center space-x-3">
-                    <div className="relative">
-                      <FileText className="w-6 h-6 text-green-600 animate-bounce-once" />
-                      <CheckCircle className="w-3 h-3 text-green-600 absolute -top-1 -right-1 animate-pulse" />
-                    </div>
-                    <div>
-                      <span className="text-sm font-semibold text-green-900 block">
-                        {selectedFiles[docType.id]!.name}
-                      </span>
-                      <span className="text-xs text-green-700">
-                        {(selectedFiles[docType.id]!.size / 1024).toFixed(1)} KB • Ready to scan
-                      </span>
-                    </div>
+              {selectedFiles[docType.id] && selectedFiles[docType.id].length > 0 ? (
+                <div className="space-y-2">
+                  {/* Files List */}
+                  <div className="max-h-48 overflow-y-auto space-y-2">
+                    {selectedFiles[docType.id].map((file, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border-2 border-green-300 shadow-sm animate-scale-in hover:shadow-md transition-all duration-300">
+                        <div className="flex items-center space-x-2 flex-1 min-w-0">
+                          <div className="relative flex-shrink-0">
+                            <FileText className="w-5 h-5 text-green-600" />
+                            <CheckCircle className="w-3 h-3 text-green-600 absolute -top-1 -right-1" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-semibold text-green-900 block truncate">
+                              {file.name}
+                            </span>
+                            <span className="text-xs text-green-700">
+                              {(file.size / 1024).toFixed(1)} KB
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => removeFile(docType.id, index)}
+                          className="text-red-500 hover:text-red-700 hover:bg-red-100 p-1.5 rounded-full transition-all duration-200 hover:scale-110 flex-shrink-0 ml-2"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
+                  
+                  {/* Add More Button */}
+                  {selectedFiles[docType.id].length < 10 && (
+                    <button
+                      onClick={() => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = '.pdf,.jpg,.jpeg,.png';
+                        input.multiple = true;
+                        input.onchange = (e) => {
+                          const files = Array.from((e.target as HTMLInputElement).files || []);
+                          if (files.length > 0) {
+                            handleFileSelect(docType.id, files);
+                          }
+                        };
+                        input.click();
+                      }}
+                      className="w-full py-2 px-3 text-sm border-2 border-dashed border-green-300 rounded-lg text-green-700 hover:bg-green-50 hover:border-green-400 transition-all duration-200 font-medium"
+                    >
+                      + Add More Files ({selectedFiles[docType.id].length}/10)
+                    </button>
+                  )}
+                  
+                  {/* Remove All Button */}
                   <button
                     onClick={() => removeFile(docType.id)}
-                    className="text-red-500 hover:text-red-700 hover:bg-red-100 p-2 rounded-full transition-all duration-200 hover:scale-110"
+                    className="w-full py-2 px-3 text-sm bg-red-50 border border-red-200 rounded-lg text-red-700 hover:bg-red-100 transition-all duration-200 font-medium"
                   >
-                    <X className="w-4 h-4" />
+                    Remove All
                   </button>
                 </div>
               ) : (
@@ -242,10 +356,11 @@ const Upload = () => {
                     const input = document.createElement('input');
                     input.type = 'file';
                     input.accept = '.pdf,.jpg,.jpeg,.png';
+                    input.multiple = true;
                     input.onchange = (e) => {
-                      const file = (e.target as HTMLInputElement).files?.[0];
-                      if (file) {
-                        handleFileSelect(docType.id, file);
+                      const files = Array.from((e.target as HTMLInputElement).files || []);
+                      if (files.length > 0) {
+                        handleFileSelect(docType.id, files);
                       }
                     };
                     input.click();
@@ -257,9 +372,9 @@ const Upload = () => {
                       : 'text-gray-400 group-hover:text-purple-500'
                   }`} />
                   <p className="text-sm text-gray-600 mb-1 font-medium">
-                    {dragOver === docType.id ? '🎯 Drop it here!' : 'Drop file here or click to browse'}
+                    {dragOver === docType.id ? '🎯 Drop files here!' : 'Drop files here or click to browse'}
                   </p>
-                  <p className="text-xs text-gray-500">PDF, JPG, PNG up to 10MB</p>
+                  <p className="text-xs text-gray-500">PDF, JPG, PNG • Max 10 files • Up to 10MB each</p>
                   
                   {/* Animated corners */}
                   {dragOver === docType.id && (
@@ -278,51 +393,54 @@ const Upload = () => {
       </div>
 
       {/* Submit Button with Enhanced Animation */}
-      {Object.keys(selectedFiles).length > 0 && (
-        <div className="flex justify-center animate-fade-in-up">
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className={`relative px-8 py-4 rounded-xl font-medium text-white overflow-hidden ${
-              loading
-                ? 'bg-gray-400 cursor-not-allowed'
-                : 'gradient-bg hover:shadow-2xl transform hover:scale-105 animate-glow'
-            } transition-all duration-300`}
-          >
-            {/* Animated background effect */}
-            {!loading && (
-              <div className="absolute inset-0 bg-gradient-to-r from-purple-600 via-blue-600 to-purple-600 animate-gradient opacity-0 hover:opacity-100 transition-opacity duration-300" />
-            )}
-            
-            {/* Button content */}
-            <div className="relative z-10 flex items-center space-x-3">
-              {loading ? (
-                <>
-                  <div className="flex space-x-1">
-                    {[...Array(3)].map((_, i) => (
-                      <div 
-                        key={i}
-                        className="w-2 h-2 bg-white rounded-full animate-bounce"
-                        style={{ animationDelay: `${i * 0.15}s` }}
-                      />
-                    ))}
-                  </div>
-                  <span className="animate-pulse">Processing...</span>
-                  <Zap className="w-5 h-5 animate-pulse" />
-                </>
-              ) : (
-                <>
-                  <Brain className="w-5 h-5 animate-pulse-slow" />
-                  <span className="font-bold">
-                    Start AI Processing ({Object.keys(selectedFiles).length} {Object.keys(selectedFiles).length === 1 ? 'file' : 'files'})
-                  </span>
-                  <Zap className="w-5 h-5 animate-pulse-slow" />
-                </>
+      {Object.keys(selectedFiles).length > 0 && (() => {
+        const totalFiles = Object.values(selectedFiles).reduce((sum, files) => sum + files.length, 0);
+        return (
+          <div className="flex justify-center animate-fade-in-up">
+            <button
+              onClick={handleSubmit}
+              disabled={loading}
+              className={`relative px-8 py-4 rounded-xl font-medium text-white overflow-hidden ${
+                loading
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'gradient-bg hover:shadow-2xl transform hover:scale-105 animate-glow'
+              } transition-all duration-300`}
+            >
+              {/* Animated background effect */}
+              {!loading && (
+                <div className="absolute inset-0 bg-gradient-to-r from-purple-600 via-blue-600 to-purple-600 animate-gradient opacity-0 hover:opacity-100 transition-opacity duration-300" />
               )}
-            </div>
-          </button>
-        </div>
-      )}
+              
+              {/* Button content */}
+              <div className="relative z-10 flex items-center space-x-3">
+                {loading ? (
+                  <>
+                    <div className="flex space-x-1">
+                      {[...Array(3)].map((_, i) => (
+                        <div 
+                          key={i}
+                          className="w-2 h-2 bg-white rounded-full animate-bounce"
+                          style={{ animationDelay: `${i * 0.15}s` }}
+                        />
+                      ))}
+                    </div>
+                    <span className="animate-pulse">Processing...</span>
+                    <Zap className="w-5 h-5 animate-pulse" />
+                  </>
+                ) : (
+                  <>
+                    <Brain className="w-5 h-5 animate-pulse-slow" />
+                    <span className="font-bold">
+                      Start AI Processing ({totalFiles} {totalFiles === 1 ? 'file' : 'files'})
+                    </span>
+                    <Zap className="w-5 h-5 animate-pulse-slow" />
+                  </>
+                )}
+              </div>
+            </button>
+          </div>
+        );
+      })()}
     </div>
   );
 };

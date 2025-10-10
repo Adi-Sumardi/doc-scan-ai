@@ -3,11 +3,11 @@ Documents Router
 Handles document upload and batch processing
 """
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from typing import List
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import uuid
 import json
@@ -23,8 +23,13 @@ from ai_processor import process_document_ai
 from batch_processor import batch_processor
 from websocket_manager import manager
 from config import get_upload_dir
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 logger = logging.getLogger(__name__)
+
+# Rate limiter
+limiter = Limiter(key_func=get_remote_address)
 
 # Create router
 router = APIRouter(prefix="/api", tags=["documents"])
@@ -36,7 +41,9 @@ UPLOAD_DIR = Path(get_upload_dir())
 # ==================== Document Upload Endpoint ====================
 
 @router.post("/upload", response_model=BatchResponse)
+@limiter.limit("10/minute")  # Rate limit: 10 uploads per minute per IP
 async def upload_documents(
+    request: Request,
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
     document_types: List[str] = Form(...),
@@ -109,7 +116,7 @@ async def upload_documents(
             db_batch = Batch(
                 id=batch_id,
                 status="processing",
-                created_at=datetime.now(),
+                created_at=datetime.now(timezone.utc),
                 user_id=current_user.id
             )
             db.add(db_batch)
@@ -367,7 +374,7 @@ async def upload_documents(
             id=batch_id,
             files=file_objects,
             status="processing",
-            created_at=datetime.now().isoformat(),
+            created_at=datetime.now(timezone.utc).isoformat(),
             total_files=len(file_paths),
             processed_files=0,
             completed_at=None,
@@ -408,7 +415,7 @@ async def upload_documents(
                 "error": "System error",
                 "message": "An unexpected error occurred while processing your upload. Please try again.",
                 "error_code": "SYSTEM_ERROR",
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
         )
 
@@ -441,7 +448,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
         if batch_processor.is_cancelled(batch_id):
             logger.info(f"Batch {batch_id} was cancelled before processing started")
             batch.status = "cancelled"
-            batch.completed_at = datetime.now()
+            batch.completed_at = datetime.now(timezone.utc)
             db.commit()
 
             await manager.send_batch_complete(batch_id, {
@@ -460,7 +467,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
             if batch_processor.is_cancelled(batch_id):
                 logger.info(f"Batch {batch_id} cancellation detected before processing file {i + 1}")
                 batch.status = "cancelled"
-                batch.completed_at = datetime.now()
+                batch.completed_at = datetime.now(timezone.utc)
                 db.commit()
 
                 await manager.send_batch_complete(batch_id, {
@@ -500,7 +507,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                 
                 # Update file status to processing
                 db_file.status = "processing"
-                db_file.processing_start = datetime.now()
+                db_file.processing_start = datetime.now(timezone.utc)
                 db.commit()
                 
                 # Log processing start
@@ -566,7 +573,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                 
                 # Update file status
                 db_file.status = "completed"
-                db_file.processing_end = datetime.now()
+                db_file.processing_end = datetime.now(timezone.utc)
                 db_file.result_id = scan_result.id
                 
                 processed_count += 1
@@ -622,7 +629,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                 # Update file status to failed
                 if 'db_file' in locals() and db_file:
                     db_file.status = "failed"
-                    db_file.processing_end = datetime.now()
+                    db_file.processing_end = datetime.now(timezone.utc)
                     
                 # Log error
                 log_entry = ProcessingLog(
@@ -636,7 +643,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
         # Update batch final status
         if processed_count == len(file_paths):
             batch.status = "completed"
-            batch.completed_at = datetime.now()
+            batch.completed_at = datetime.now(timezone.utc)
             await manager.send_batch_complete(batch_id, {
                 "status": "completed",
                 "total_files": len(file_paths),
@@ -647,7 +654,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
             logger.info(f"Batch {batch_id} completed successfully")
         elif processed_count > 0:
             batch.status = "partial"
-            batch.completed_at = datetime.now()
+            batch.completed_at = datetime.now(timezone.utc)
             success_rate = (processed_count / len(file_paths)) * 100
             await manager.send_batch_complete(batch_id, {
                 "status": "partial",
@@ -660,7 +667,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
         else:
             batch.status = "failed"
             batch.error_message = "No files processed successfully"
-            batch.completed_at = datetime.now()
+            batch.completed_at = datetime.now(timezone.utc)
             await manager.send_batch_error(batch_id, {
                 "error": "No files processed successfully",
                 "total_files": len(file_paths),
@@ -684,7 +691,7 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
             if batch:
                 batch.status = "failed"
                 batch.error_message = str(e)
-                batch.completed_at = datetime.now()
+                batch.completed_at = datetime.now(timezone.utc)
                 db.commit()
         except:
             pass
