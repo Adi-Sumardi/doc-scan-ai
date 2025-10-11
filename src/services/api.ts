@@ -33,13 +33,13 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     console.log(`[API Request] ${config.method?.toUpperCase()} ${config.url}`);
-    
-    // Add JWT token to requests if available
-    const token = localStorage.getItem('access_token');
+
+    // Add JWT token to requests if available (check both 'token' and 'access_token')
+    const token = localStorage.getItem('token') || localStorage.getItem('access_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    
+
     return config;
   },
   (error) => {
@@ -56,28 +56,54 @@ api.interceptors.response.use(
   },
   (error) => {
     console.error('[API Response Error]', error.response?.data || error.message);
-    
-    // Handle 401 Unauthorized - auto logout
+
+    // Handle 401 Unauthorized - auto logout and cleanup
     if (error.response?.status === 401) {
       console.warn('🔒 401 Unauthorized - Token expired or invalid');
-      
-      // Clear token from localStorage
+
+      // Clear all auth-related data from localStorage
+      localStorage.removeItem('token');
       localStorage.removeItem('access_token');
-      
+      localStorage.removeItem('user');
+
+      // Clear sessionStorage as well
+      sessionStorage.clear();
+
       // Redirect to login page if not already there
-      if (!window.location.pathname.includes('/login') && 
+      if (!window.location.pathname.includes('/login') &&
           !window.location.pathname.includes('/register')) {
         console.log('🔄 Redirecting to login page...');
-        window.location.href = '/login';
+
+        // Save current path to redirect back after login
+        const currentPath = window.location.pathname + window.location.search;
+        if (currentPath !== '/' && currentPath !== '/login') {
+          localStorage.setItem('redirectAfterLogin', currentPath);
+        }
+
+        // Redirect with a small delay to allow cleanup
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 100);
       }
     }
-    
+
+    // Handle 403 Forbidden
+    if (error.response?.status === 403) {
+      console.warn('🚫 403 Forbidden - Access denied');
+    }
+
     // Handle network errors
     if (error.message === 'Network Error') {
       console.error('❌ Network Error - Check if backend is running');
       error.message = 'Cannot connect to server. Please check your connection.';
     }
-    
+
+    // Handle timeout errors
+    if (error.code === 'ECONNABORTED') {
+      console.error('⏱️ Request Timeout');
+      error.message = 'Request timeout. Please try again.';
+    }
+
     return Promise.reject(error);
   }
 );

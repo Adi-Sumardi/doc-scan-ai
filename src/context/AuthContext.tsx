@@ -94,8 +94,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Load token from localStorage on mount
   useEffect(() => {
-    const storedToken = localStorage.getItem('access_token');
+    // Check both 'token' and 'access_token' for backward compatibility
+    const storedToken = localStorage.getItem('token') || localStorage.getItem('access_token');
     if (storedToken) {
+      // Normalize to 'token' key
+      localStorage.setItem('token', storedToken);
+      localStorage.removeItem('access_token'); // Clean up old key
+
       // Set token first (synchronously in effect)
       setToken(storedToken);
       // Then fetch user info
@@ -145,12 +150,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
       
       toast.error(errorMessage);
-      
+
       // Token might be invalid, clear everything
+      localStorage.removeItem('token');
       localStorage.removeItem('access_token');
       setToken(null);
       setUser(null);
-      
+
       // If it's a 401, user will be redirected by axios interceptor
     } finally {
       setIsLoading(false);
@@ -165,26 +171,35 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         username,
         password
       });
-      
+
       const { access_token } = response.data;
-      
-      // Set token to localStorage first
-      localStorage.setItem('access_token', access_token);
-      
+
+      // Set token to localStorage (normalize to 'token' key)
+      localStorage.setItem('token', access_token);
+      localStorage.removeItem('access_token'); // Clean up old key
+
       // Then set to state
       setToken(access_token);
-      
+
       // Fetch user info with the new token
       await fetchUserInfo(access_token);
+
+      // Check if there's a redirect path saved
+      const redirectPath = localStorage.getItem('redirectAfterLogin');
+      if (redirectPath) {
+        localStorage.removeItem('redirectAfterLogin');
+        // Will be handled by the component that uses this
+        return redirectPath;
+      }
     } catch (error: any) {
       console.error('Login failed:', error);
-      
+
       // Extract detailed error message
-      const errorMessage = error.response?.data?.detail 
-        || error.response?.data?.message 
-        || error.message 
+      const errorMessage = error.response?.data?.detail
+        || error.response?.data?.message
+        || error.message
         || 'Login failed. Please check your credentials.';
-      
+
       throw new Error(errorMessage);
     }
   };
@@ -220,11 +235,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       clearTimeout(inactivityTimerRef.current);
       inactivityTimerRef.current = null;
     }
-    
+
     setUser(null);
     setToken(null);
+
+    // Clear all auth-related data
+    localStorage.removeItem('token');
     localStorage.removeItem('access_token');
-    
+    localStorage.removeItem('user');
+    sessionStorage.clear();
+
     console.log('🚪 User logged out');
   };
 
