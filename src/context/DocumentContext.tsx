@@ -433,12 +433,20 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       // Remove all results associated with this batch
       setScanResults(prev => prev.filter(result => result.batch_id !== batchId));
 
-      toast.success(`Batch #${batchId.slice(-8)} deleted successfully`);
+      console.log(`✅ Batch #${batchId.slice(-8)} deleted successfully`);
     } catch (error: any) {
       console.error('Delete batch error:', error);
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to delete batch';
+
+      // Check if it's a 405 Method Not Allowed error
+      if (error.response?.status === 405) {
+        const errorMsg = 'Backend endpoint DELETE /api/batches/{batchId} belum tersedia. Hubungi administrator.';
+        toast.error(errorMsg);
+        throw new Error(errorMsg);
+      }
+
+      const errorMessage = error.response?.data?.detail || error.message || 'Gagal menghapus batch';
       toast.error(errorMessage);
-      throw error;
+      throw new Error(errorMessage);
     } finally {
       setLoading(false);
     }

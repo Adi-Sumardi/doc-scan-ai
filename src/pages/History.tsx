@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useDocument } from '../context/DocumentContext';
 import { useNavigate } from 'react-router-dom';
+import Swal from 'sweetalert2';
 import {
   Clock,
   CheckCircle,
@@ -70,17 +71,63 @@ const History = () => {
   };
 
   const handleDelete = async (batch: any) => {
-    const confirmed = window.confirm(
-      `Are you sure you want to delete batch #${batch.id.slice(-8)}?\n\nThis action cannot be undone.`
-    );
+    const result = await Swal.fire({
+      title: 'Delete Batch?',
+      html: `
+        <div class="text-left">
+          <p class="mb-2">Anda yakin ingin menghapus batch ini?</p>
+          <div class="bg-gray-100 p-3 rounded-lg mb-3">
+            <p class="font-semibold text-gray-900">Batch #${batch.id.slice(-8)}</p>
+            <p class="text-sm text-gray-600">${batch.total_files} files</p>
+            <p class="text-sm text-red-600">Status: ${batch.status}</p>
+          </div>
+          <p class="text-red-600 font-semibold">⚠️ Tindakan ini tidak dapat dibatalkan!</p>
+        </div>
+      `,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#dc2626',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Ya, Hapus!',
+      cancelButtonText: 'Batal',
+      reverseButtons: true
+    });
 
-    if (!confirmed) return;
+    if (!result.isConfirmed) return;
 
     try {
       setDeletingBatchId(batch.id);
+
+      // Show loading
+      Swal.fire({
+        title: 'Menghapus...',
+        html: 'Mohon tunggu, batch sedang dihapus...',
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
+
       await deleteBatch(batch.id);
-    } catch (error) {
-      // Error already handled in deleteBatch with toast
+
+      // Show success
+      Swal.fire({
+        title: 'Berhasil!',
+        html: `Batch #${batch.id.slice(-8)} telah dihapus.`,
+        icon: 'success',
+        confirmButtonColor: '#059669',
+        timer: 2000,
+        timerProgressBar: true
+      });
+    } catch (error: any) {
+      // Show error
+      Swal.fire({
+        title: 'Gagal!',
+        html: `Gagal menghapus batch.<br><small class="text-gray-600">${error.message || 'Terjadi kesalahan'}</small>`,
+        icon: 'error',
+        confirmButtonColor: '#dc2626'
+      });
       console.error('Failed to delete batch:', error);
     } finally {
       setDeletingBatchId(null);
