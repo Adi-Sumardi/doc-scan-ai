@@ -20,6 +20,7 @@ interface DocumentContextType {
   exportBatch: (batchId: string, format: 'excel' | 'pdf') => Promise<void>;
   saveToGoogleDrive: (resultId: string, format: 'excel' | 'pdf') => Promise<void>;
   updateResult: (resultId: string, updatedData: any) => Promise<void>;
+  deleteBatch: (batchId: string) => Promise<void>;
   loading: boolean;
 }
 
@@ -419,6 +420,30 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const deleteBatch = async (batchId: string): Promise<void> => {
+    try {
+      setLoading(true);
+
+      // Call API to delete batch
+      await apiService.deleteBatch(batchId);
+
+      // Remove batch from local state
+      setBatches(prev => prev.filter(batch => batch.id !== batchId));
+
+      // Remove all results associated with this batch
+      setScanResults(prev => prev.filter(result => result.batch_id !== batchId));
+
+      toast.success(`Batch #${batchId.slice(-8)} deleted successfully`);
+    } catch (error: any) {
+      console.error('Delete batch error:', error);
+      const errorMessage = error.response?.data?.detail || error.message || 'Failed to delete batch';
+      toast.error(errorMessage);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <DocumentContext.Provider value={{
       batches,
@@ -432,6 +457,7 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       exportBatch,
       saveToGoogleDrive,
       updateResult,
+      deleteBatch,
       loading
     }}>
       {children}

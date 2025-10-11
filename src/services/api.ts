@@ -158,6 +158,10 @@ export const apiService = {
     return response.data;
   },
 
+  deleteBatch: async (batchId: string): Promise<void> => {
+    await api.delete(`/api/batches/${batchId}`);
+  },
+
   getResultById: async (resultId: string): Promise<ScanResult> => {
     const response = await api.get(`/api/results/${resultId}`);
     return response.data;

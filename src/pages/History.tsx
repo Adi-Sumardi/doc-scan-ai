@@ -1,23 +1,25 @@
 import { useState } from 'react';
 import { useDocument } from '../context/DocumentContext';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Clock, 
-  CheckCircle, 
-  AlertCircle, 
+import {
+  Clock,
+  CheckCircle,
+  AlertCircle,
   FileText,
   Calendar,
   Eye,
   ArrowRight,
   Search,
-  Filter
+  Filter,
+  Trash2
 } from 'lucide-react';
 
 const History = () => {
   const navigate = useNavigate();
-  const { batches } = useDocument();
+  const { batches, deleteBatch, loading } = useDocument();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [deletingBatchId, setDeletingBatchId] = useState<string | null>(null);
 
   const safeBatches = Array.isArray(batches) ? batches : [];
 
@@ -56,15 +58,33 @@ const History = () => {
 
   const calculateProcessingTime = (batch: any) => {
     if (!batch.completed_at) return 'In progress...';
-    
+
     const startTime = new Date(batch.created_at);
     const endTime = new Date(batch.completed_at);
     const diffMs = endTime.getTime() - startTime.getTime();
     const diffSeconds = Math.floor(diffMs / 1000);
-    
+
     if (diffSeconds < 60) return `${diffSeconds}s`;
     const diffMinutes = Math.floor(diffSeconds / 60);
     return `${diffMinutes}m ${diffSeconds % 60}s`;
+  };
+
+  const handleDelete = async (batch: any) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete batch #${batch.id.slice(-8)}?\n\nThis action cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setDeletingBatchId(batch.id);
+      await deleteBatch(batch.id);
+    } catch (error) {
+      // Error already handled in deleteBatch with toast
+      console.error('Failed to delete batch:', error);
+    } finally {
+      setDeletingBatchId(null);
+    }
   };
 
   return (
@@ -195,16 +215,31 @@ const History = () => {
                     <td className="px-3 md:px-6 py-4 text-sm text-gray-600 hidden xl:table-cell">
                       {calculateProcessingTime(batch)}
                     </td>
-                    <td className="px-3 md:px-6 py-4 text-right">
-                      <button
-                        onClick={() => navigate(`/scan-results/${batch.id}`)}
-                        className="inline-flex items-center px-2 md:px-3 py-2 border border-transparent text-xs md:text-sm leading-4 font-medium rounded-md text-blue-600 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
-                      >
-                        <Eye className="w-3 h-3 md:w-4 md:h-4 mr-1" />
-                        <span className="hidden sm:inline">View Results</span>
-                        <span className="sm:hidden">View</span>
-                        <ArrowRight className="w-3 h-3 md:w-4 md:h-4 ml-1" />
-                      </button>
+                    <td className="px-3 md:px-6 py-4">
+                      <div className="flex items-center justify-end gap-2">
+                        {(batch.status === 'error' || batch.status === 'failed') && (
+                          <button
+                            onClick={() => handleDelete(batch)}
+                            disabled={deletingBatchId === batch.id || loading}
+                            className="inline-flex items-center px-2 md:px-3 py-2 border border-transparent text-xs md:text-sm leading-4 font-medium rounded-md text-red-600 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Delete batch"
+                          >
+                            <Trash2 className="w-3 h-3 md:w-4 md:h-4" />
+                            <span className="hidden sm:inline ml-1">
+                              {deletingBatchId === batch.id ? 'Deleting...' : 'Delete'}
+                            </span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => navigate(`/scan-results/${batch.id}`)}
+                          className="inline-flex items-center px-2 md:px-3 py-2 border border-transparent text-xs md:text-sm leading-4 font-medium rounded-md text-blue-600 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                        >
+                          <Eye className="w-3 h-3 md:w-4 md:h-4 mr-1" />
+                          <span className="hidden sm:inline">View Results</span>
+                          <span className="sm:hidden">View</span>
+                          <ArrowRight className="w-3 h-3 md:w-4 md:h-4 ml-1" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
