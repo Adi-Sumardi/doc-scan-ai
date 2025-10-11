@@ -15,7 +15,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   token: string | null;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<string | undefined>;
   register: (username: string, email: string, password: string, full_name?: string) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
