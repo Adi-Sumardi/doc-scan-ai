@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useCallback } from 'react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 
@@ -46,8 +46,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Inactivity timeout: 30 minutes
   const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
 
-  // Reset inactivity timer
-  const resetInactivityTimer = () => {
+  // Memoize logout to prevent dependency issues
+  const logout = useCallback(() => {
+    // Clear inactivity timer
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = null;
+    }
+
+    setUser(null);
+    setToken(null);
+
+    // Clear all auth-related data
+    localStorage.removeItem('token');
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('user');
+    sessionStorage.clear();
+
+    console.log('🚪 User logged out');
+  }, []);
+
+  // Reset inactivity timer with stable logout reference
+  const resetInactivityTimer = useCallback(() => {
     // Clear existing timer
     if (inactivityTimerRef.current) {
       clearTimeout(inactivityTimerRef.current);
@@ -60,7 +80,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         logout();
       }, INACTIVITY_TIMEOUT);
     }
-  };
+  }, [token, logout, INACTIVITY_TIMEOUT]);
 
   // Track user activity
   useEffect(() => {
@@ -68,7 +88,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     // Events that indicate user activity
     const activityEvents = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
-    
+
     const handleActivity = () => {
       resetInactivityTimer();
     };
@@ -90,7 +110,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         clearTimeout(inactivityTimerRef.current);
       }
     };
-  }, [token]);
+  }, [token, resetInactivityTimer]);
 
   // Load token from localStorage on mount
   useEffect(() => {
@@ -174,9 +194,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       const { access_token } = response.data;
 
-      // Set token to localStorage (normalize to 'token' key)
-      localStorage.setItem('token', access_token);
-      localStorage.removeItem('access_token'); // Clean up old key
+      // Set token to localStorage with error handling (normalize to 'token' key)
+      try {
+        localStorage.setItem('token', access_token);
+        localStorage.removeItem('access_token'); // Clean up old key
+      } catch (storageError) {
+        // If localStorage is full or disabled, fallback to sessionStorage
+        console.warn('localStorage unavailable, using sessionStorage:', storageError);
+        try {
+          sessionStorage.setItem('token', access_token);
+        } catch (sessionError) {
+          console.error('Both localStorage and sessionStorage failed:', sessionError);
+          // Continue anyway - token will be in memory
+        }
+      }
 
       // Then set to state
       setToken(access_token);
@@ -213,39 +244,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         password,
         full_name
       });
-      
+
       // Auto-login after registration
       await login(username, password);
     } catch (error: any) {
       console.error('Registration failed:', error);
-      
+
       // Extract detailed error message
-      const errorMessage = error.response?.data?.detail 
-        || error.response?.data?.message 
-        || error.message 
+      const errorMessage = error.response?.data?.detail
+        || error.response?.data?.message
+        || error.message
         || 'Registration failed. Please try again.';
-      
+
       throw new Error(errorMessage);
     }
-  };
-
-  const logout = () => {
-    // Clear inactivity timer
-    if (inactivityTimerRef.current) {
-      clearTimeout(inactivityTimerRef.current);
-      inactivityTimerRef.current = null;
-    }
-
-    setUser(null);
-    setToken(null);
-
-    // Clear all auth-related data
-    localStorage.removeItem('token');
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user');
-    sessionStorage.clear();
-
-    console.log('🚪 User logged out');
   };
 
   const value: AuthContextType = {

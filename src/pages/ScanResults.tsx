@@ -47,7 +47,7 @@ const ScanResults = () => {
 
   // Reset activeTab if results change to prevent out-of-bounds access
   useEffect(() => {
-    if (activeTab >= resultsForBatch.length) {
+    if (resultsForBatch.length > 0 && activeTab >= resultsForBatch.length) {
       setActiveTab(0);
     }
   }, [resultsForBatch, activeTab]);
@@ -254,8 +254,8 @@ const ScanResults = () => {
                   <div className="flex items-center space-x-3">
                     <FileText className="w-6 h-6 text-blue-600" />
                     <div>
-                      <h4 className="font-medium text-gray-900">{scanResults[activeTab]?.filename}</h4>
-                      <p className="text-sm text-gray-600">Confidence: {((scanResults[activeTab]?.confidence || scanResults[activeTab]?.confidence_score || 0) * 100).toFixed(1)}%</p>
+                      <h4 className="font-medium text-gray-900">{scanResults[activeTab]?.filename || 'Unknown'}</h4>
+                      <p className="text-sm text-gray-600">Confidence: {((scanResults[activeTab]?.confidence ?? scanResults[activeTab]?.confidence_score ?? 0) * 100).toFixed(1)}%</p>
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">

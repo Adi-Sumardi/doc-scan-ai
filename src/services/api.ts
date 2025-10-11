@@ -1,7 +1,13 @@
 import axios from 'axios';
 
-// Tentukan base URL otomatis: dev / prod
+// Tentukan base URL otomatis: dev / prod dengan environment variable support
 const getApiBaseUrl = (): string => {
+  // Check environment variable first
+  if (import.meta.env.VITE_API_URL) {
+    console.log('Using API URL from environment:', import.meta.env.VITE_API_URL);
+    return import.meta.env.VITE_API_URL;
+  }
+
   const hostname = window.location.hostname;
 
   // Production environment
@@ -192,20 +198,62 @@ export const apiService = {
     return response.data;
   },
 
-  createWebSocketConnection: (batchId: string): WebSocket => {
+  createWebSocketConnection: (batchId: string, onReconnect?: () => void): WebSocket => {
     const hostname = window.location.hostname;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = hostname.includes('adilabs.id') ? window.location.host : 'localhost:8000';
 
-    // Get token from localStorage for authentication
-    const token = localStorage.getItem('token');
-    const wsUrl = `${protocol}//${host}/ws/batch/${batchId}${token ? `?token=${token}` : ''}`;
+    // Use environment variable or current host for production
+    let host: string;
+    if (hostname.includes('adilabs.id')) {
+      host = window.location.host;
+    } else if (import.meta.env.VITE_WS_URL) {
+      host = import.meta.env.VITE_WS_URL;
+    } else {
+      host = 'localhost:8000';
+    }
+
+    // SECURITY FIX: Don't send token in URL - send it after connection opens
+    const wsUrl = `${protocol}//${host}/ws/batch/${batchId}`;
 
     const ws = new WebSocket(wsUrl);
 
-    // Add error handler
+    // Send token securely after connection opens
+    ws.onopen = () => {
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      if (token) {
+        // Send authentication message
+        ws.send(JSON.stringify({ type: 'auth', token }));
+      }
+      console.log('✅ WebSocket connected');
+    };
+
+    // Enhanced error handler with reconnection logic
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+    const reconnectDelay = 2000; // Start with 2 seconds
+
     ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
+      console.error('❌ WebSocket error:', error);
+    };
+
+    ws.onclose = (event) => {
+      console.warn('🔌 WebSocket closed:', event.code, event.reason);
+
+      // Only attempt reconnection if it wasn't a normal closure
+      if (event.code !== 1000 && reconnectAttempts < maxReconnectAttempts) {
+        reconnectAttempts++;
+        const delay = reconnectDelay * Math.pow(2, reconnectAttempts - 1); // Exponential backoff
+
+        console.log(`🔄 Attempting reconnection ${reconnectAttempts}/${maxReconnectAttempts} in ${delay}ms...`);
+
+        setTimeout(() => {
+          if (onReconnect) {
+            onReconnect();
+          }
+        }, delay);
+      } else if (reconnectAttempts >= maxReconnectAttempts) {
+        console.error('❌ Max reconnection attempts reached');
+      }
     };
 
     return ws;

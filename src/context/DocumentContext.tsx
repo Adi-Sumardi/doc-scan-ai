@@ -30,6 +30,8 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(false);
   const notifiedBatchesRef = useRef<Set<string>>(new Set());
   const pollingIntervalsRef = useRef<NodeJS.Timeout[]>([]);
+  const pollingTimeoutsRef = useRef<NodeJS.Timeout[]>([]); // Track timeouts too
+  const isMountedRef = useRef(true); // Track mount status
 
   // Load initial data
   React.useEffect(() => {
@@ -37,10 +39,18 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Cleanup polling intervals on unmount to prevent memory leaks
+  // Cleanup polling intervals and timeouts on unmount to prevent memory leaks
   React.useEffect(() => {
+    isMountedRef.current = true;
+
     return () => {
+      isMountedRef.current = false;
+      // Clear all intervals
       pollingIntervalsRef.current.forEach(clearInterval);
+      pollingIntervalsRef.current = [];
+      // Clear all timeouts
+      pollingTimeoutsRef.current.forEach(clearTimeout);
+      pollingTimeoutsRef.current = [];
     };
   }, []);
 
@@ -79,12 +89,21 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
   const pollBatchStatus = async (batchId: string) => {
     const pollInterval = setInterval(async () => {
+      // Check if component is still mounted
+      if (!isMountedRef.current) {
+        clearInterval(pollInterval);
+        return;
+      }
+
       try {
         const updatedBatch = await apiService.getBatchStatus(batchId);
 
-        setBatches(prev => prev.map(batch =>
-          batch.id === batchId ? updatedBatch : batch
-        ));
+        // Only update state if still mounted
+        if (isMountedRef.current) {
+          setBatches(prev => prev.map(batch =>
+            batch.id === batchId ? updatedBatch : batch
+          ));
+        }
 
         if (updatedBatch.status === 'completed') {
           clearInterval(pollInterval);
@@ -94,17 +113,24 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
           let attempts = 0;
           const maxAttempts = 5;
           const attemptLoad = async () => {
+            if (!isMountedRef.current) return; // Don't continue if unmounted
+
             const results = await apiService.getBatchResults(batchId);
             if (Array.isArray(results) && results.length >= updatedBatch.total_files) {
-              updateResultsForBatch(batchId, results);
-              handleBatchCompletion(batchId);
+              if (isMountedRef.current) {
+                updateResultsForBatch(batchId, results);
+                handleBatchCompletion(batchId);
+              }
             } else if (attempts < maxAttempts) {
               attempts++;
-              setTimeout(attemptLoad, 2000); // Wait 2 seconds and retry
+              const retryTimeout = setTimeout(attemptLoad, 2000);
+              pollingTimeoutsRef.current.push(retryTimeout); // Track timeout
             } else {
-              toast.error(`Polling failed for batch ${batchId.slice(-8)}. Please refresh the page.`, {
-                duration: 6000,
-              });
+              if (isMountedRef.current) {
+                toast.error(`Polling failed for batch ${batchId.slice(-8)}. Please refresh the page.`, {
+                  duration: 6000,
+                });
+              }
             }
           };
 
@@ -114,7 +140,9 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
           clearInterval(pollInterval);
           removePollingInterval(pollInterval);
           // Fix: Only remove results for the failed batch, not all results.
-          setScanResults(prev => prev.filter(r => r.batch_id !== batchId));
+          if (isMountedRef.current) {
+            setScanResults(prev => prev.filter(r => r.batch_id !== batchId));
+          }
         }
       } catch (error) {
         console.error('Polling error:', error);
@@ -125,10 +153,11 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     pollingIntervalsRef.current.push(pollInterval);
 
     // Stop polling after 5 minutes as a safety measure
-    setTimeout(() => {
+    const stopTimeout = setTimeout(() => {
       clearInterval(pollInterval);
       removePollingInterval(pollInterval);
     }, 300000);
+    pollingTimeoutsRef.current.push(stopTimeout); // Track this timeout too
   };
 
   // Helper function to remove interval from tracking array
@@ -278,7 +307,7 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const updateResult = async (resultId: string, updatedData: any) => {
+  const updateResult = async (resultId: string, updatedData: any): Promise<void> => {
     try {
       // Validation: Check if resultId is valid
       if (!resultId || typeof resultId !== 'string') {
@@ -309,26 +338,32 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
       setLoading(true);
       const response = await apiService.updateResult(resultId, sanitizedData);
-      
-      // Update local state with new data
-      setScanResults(prev => prev.map(result => 
-        result.id === resultId 
-          ? { 
-              ...result, 
-              extracted_data: { ...result.extracted_data, ...sanitizedData },
-              updated_at: response.updated_at 
-            }
-          : result
-      ));
-      
-      toast.success('✅ Result updated successfully!');
+
+      // Update local state with new data only if mounted
+      if (isMountedRef.current) {
+        setScanResults(prev => prev.map(result =>
+          result.id === resultId
+            ? {
+                ...result,
+                extracted_data: { ...result.extracted_data, ...sanitizedData },
+                updated_at: response.updated_at
+              }
+            : result
+        ));
+
+        toast.success('✅ Result updated successfully!');
+      }
     } catch (error: any) {
       console.error('Update result error:', error);
       const errorMessage = error.message || error.response?.data?.detail || 'Failed to update result';
-      toast.error(errorMessage);
-      throw error;
+      if (isMountedRef.current) {
+        toast.error(errorMessage);
+      }
+      // Don't re-throw - handle error gracefully
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   };
 

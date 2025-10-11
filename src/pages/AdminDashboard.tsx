@@ -104,9 +104,25 @@ const AdminDashboard = () => {
 
   const handleResetPassword = async () => {
     if (!selectedUser) return;
-    
-    if (!newPassword || newPassword.length < 6) {
-      toast.error('Password must be at least 6 characters');
+
+    // Enhanced password validation
+    if (!newPassword || newPassword.length < 8) {
+      toast.error('Password must be at least 8 characters');
+      return;
+    }
+
+    if (!/[A-Z]/.test(newPassword)) {
+      toast.error('Password must contain at least one uppercase letter');
+      return;
+    }
+
+    if (!/[a-z]/.test(newPassword)) {
+      toast.error('Password must contain at least one lowercase letter');
+      return;
+    }
+
+    if (!/[0-9]/.test(newPassword)) {
+      toast.error('Password must contain at least one number');
       return;
     }
 
@@ -426,10 +442,11 @@ const AdminDashboard = () => {
                 Reset password for user: <span className="font-bold text-gray-900">{selectedUser.username}</span>
               </p>
               <input
-                type="text"
+                type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Enter new password (min 6 chars)"
+                placeholder="Enter new password (min 8 chars)"
+                minLength={8}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
               />
             </div>

@@ -45,17 +45,8 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
     setParticles(newParticles);
   }, []);
 
-  // Animate particles
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setParticles(prev => prev.map(p => ({
-        ...p,
-        x: (p.x + p.speedX + 100) % 100,
-        y: (p.y + p.speedY + 100) % 100
-      })));
-    }, 50);
-    return () => clearInterval(interval);
-  }, []);
+  // Animate particles using CSS animations instead of setState for better performance
+  // Removed setInterval-based animation to reduce re-renders
 
   // Smooth progress animation
   useEffect(() => {
@@ -98,12 +89,12 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
 
   return (
     <div className={`bg-white rounded-lg p-8 shadow-sm border relative overflow-hidden ${className}`}>
-      {/* Animated Background Particles */}
+      {/* Animated Background Particles - Using CSS animations for better performance */}
       <div ref={canvasRef} className="absolute inset-0 pointer-events-none overflow-hidden">
         {particles.map(particle => (
           <div
             key={particle.id}
-            className="absolute rounded-full transition-all duration-300"
+            className="absolute rounded-full animate-pulse"
             style={{
               left: `${particle.x}%`,
               top: `${particle.y}%`,
@@ -112,7 +103,8 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
               backgroundColor: particle.color,
               opacity: particle.opacity,
               boxShadow: `0 0 ${particle.size * 2}px ${particle.color}`,
-              animation: 'float 3s ease-in-out infinite'
+              animation: `float ${3 + particle.id * 0.5}s ease-in-out infinite, pulse ${2 + particle.id * 0.3}s ease-in-out infinite`,
+              animationDelay: `${particle.id * 0.1}s`
             }}
           />
         ))}

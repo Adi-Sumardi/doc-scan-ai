@@ -119,13 +119,32 @@ const Upload = () => {
         return;
       }
 
-      // Check file type
-      const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
-      const isValidType = ALLOWED_TYPES.includes(file.type) ||
-                          ALLOWED_EXTENSIONS.includes(fileExtension || '');
+      // Enhanced file type validation - check MIME type first
+      const isValidMimeType = ALLOWED_TYPES.includes(file.type);
 
-      if (!isValidType) {
+      // Check extension - only get the last extension to prevent bypass
+      const nameParts = file.name.split('.');
+      const fileExtension = nameParts.length > 1 ? '.' + nameParts[nameParts.length - 1].toLowerCase() : '';
+      const isValidExtension = ALLOWED_EXTENSIONS.includes(fileExtension);
+
+      // Reject if filename has multiple extensions (e.g., file.pdf.exe)
+      const hasMultipleExtensions = nameParts.length > 2 &&
+        nameParts.slice(1, -1).some(part => ALLOWED_EXTENSIONS.includes('.' + part.toLowerCase()));
+
+      if (hasMultipleExtensions) {
+        rejectedFiles.push(`${file.name} (suspicious file name)`);
+        return;
+      }
+
+      // Both MIME type and extension must be valid
+      if (!isValidMimeType || !isValidExtension) {
         rejectedFiles.push(`${file.name} (invalid file type)`);
+        return;
+      }
+
+      // Additional check: file size must be > 0
+      if (file.size === 0) {
+        rejectedFiles.push(`${file.name} (empty file)`);
         return;
       }
 
