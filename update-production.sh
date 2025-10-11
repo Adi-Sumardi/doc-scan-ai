@@ -182,11 +182,39 @@ else
 fi
 
 ###########################################
-# Step 6: Restart Backend Service
+# Step 6: Build Frontend (for Nginx)
 ###########################################
 
 echo ""
-print_status "Step 6: Restarting backend service..."
+print_status "Step 6: Building frontend assets for Nginx..."
+
+if [ -f "package.json" ]; then
+    print_status "Installing/updating Node packages..."
+    npm install --silent 2>&1 | grep -v "npm WARN" || true
+
+    print_status "Building frontend with Vite..."
+    npm run build
+
+    if [ -d "dist" ]; then
+        print_success "✓ Frontend built successfully (dist/ created)"
+
+        # Show dist size
+        dist_size=$(du -sh dist | cut -f1)
+        print_success "✓ Dist folder size: $dist_size"
+    else
+        print_error "Frontend build failed - dist/ not found"
+        exit 1
+    fi
+else
+    print_warning "No package.json found, skipping frontend build"
+fi
+
+###########################################
+# Step 7: Restart Backend Service
+###########################################
+
+echo ""
+print_status "Step 7: Restarting backend service..."
 
 # Check if PM2 is being used
 if command_exists pm2; then
@@ -210,11 +238,39 @@ else
 fi
 
 ###########################################
-# Step 7: Wait for Service to Start
+# Step 8: Reload Nginx
 ###########################################
 
 echo ""
-print_status "Step 7: Waiting for backend to start..."
+print_status "Step 8: Reloading Nginx to serve new frontend..."
+
+if command_exists nginx; then
+    # Test Nginx configuration first
+    if sudo nginx -t 2>/dev/null; then
+        sudo nginx -s reload
+        print_success "✓ Nginx reloaded successfully"
+    else
+        print_error "Nginx configuration test failed"
+        print_warning "Please check Nginx config: sudo nginx -t"
+    fi
+elif command_exists systemctl; then
+    # Try via systemctl
+    if sudo systemctl reload nginx 2>/dev/null; then
+        print_success "✓ Nginx reloaded via systemctl"
+    else
+        print_warning "Could not reload Nginx via systemctl"
+    fi
+else
+    print_warning "Nginx not found - please reload manually"
+    print_status "Run: sudo nginx -s reload"
+fi
+
+###########################################
+# Step 9: Wait for Service to Start
+###########################################
+
+echo ""
+print_status "Step 9: Waiting for backend to start..."
 
 max_attempts=30
 attempt=0
@@ -240,11 +296,11 @@ done
 echo ""
 
 ###########################################
-# Step 8: Run Quick Tests
+# Step 10: Run Quick Tests
 ###########################################
 
 echo ""
-print_status "Step 8: Running quick health checks..."
+print_status "Step 10: Running quick health checks..."
 
 # Test backend API
 if curl -s "$backend_url/api/health" | grep -q "ok\|healthy" 2>/dev/null; then
@@ -275,6 +331,8 @@ echo "📋 Update Summary:"
 echo "  • Backup location: $backup_dir"
 echo "  • New commit: $(git log -1 --oneline)"
 echo "  • Templates verified: ✓"
+echo "  • Frontend built: ✓"
+echo "  • Nginx reloaded: ✓"
 echo "  • Backend restarted: ✓"
 echo ""
 echo "🧪 Test Checklist:"
