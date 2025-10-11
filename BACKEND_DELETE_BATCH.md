@@ -1,6 +1,12 @@
-# Backend: Add Delete Batch Endpoint
+# Backend: Delete Batch Endpoint ✅
 
-## Issue
+## Status: COMPLETED ✅
+
+**Implementation Date**: 2025-10-11
+
+DELETE endpoint `/api/batches/{batch_id}` telah diimplementasikan di `backend/routers/batches.py:250-350`
+
+## Previous Issue (RESOLVED)
 Frontend sudah mengirim request `DELETE /api/batches/{batch_id}` tapi backend mengembalikan **405 Method Not Allowed**.
 
 Frontend membutuhkan endpoint untuk menghapus batch yang error/failed.
@@ -97,9 +103,9 @@ curl -X DELETE http://localhost:8000/api/batches/{batch_id} \
 4. **Cascade Delete**: Pastikan results dan files terkait ikut terhapus
 5. **Audit Log**: Catat siapa yang menghapus batch (optional)
 
-## Current Frontend Implementation
+## Current Implementation Status
 
-Frontend sudah siap dengan:
+### Frontend ✅
 - ✅ API call ke `DELETE /api/batches/{batch_id}`
 - ✅ SweetAlert2 confirmation dialog
 - ✅ Loading state saat delete
@@ -107,11 +113,28 @@ Frontend sudah siap dengan:
 - ✅ Auto-remove dari UI setelah berhasil
 - ✅ Hanya muncul untuk batch error/failed
 
-Yang perlu ditambahkan di backend:
-- ❌ DELETE endpoint `/api/batches/{batch_id}`
+### Backend ✅
+- ✅ DELETE endpoint `/api/batches/{batch_id}` (backend/routers/batches.py:250-350)
+- ✅ Authentication & Authorization checks
+- ✅ Only error/failed batches can be deleted
+- ✅ Owner or admin verification
+- ✅ Physical file deletion from disk
+- ✅ Cascade delete: scan_results → document_files → batch
+- ✅ Transaction safety with rollback
+- ✅ Comprehensive logging
+- ✅ Indonesian error messages
 
-## Priority
-**HIGH** - Fitur sudah ada di UI tapi backend belum support.
+## Deployment Required
+
+Backend code sudah committed dan pushed ke GitHub. Deploy ke production dengan:
+
+```bash
+cd /var/www/docscan
+sudo -u docScan git pull origin master
+sudo systemctl restart docscan-backend
+```
+
+Atau gunakan script: `bash deploy-backend-delete.sh`
 
 ## Testing After Implementation
 
