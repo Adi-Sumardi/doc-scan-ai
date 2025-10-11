@@ -45,6 +45,15 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, isAuthenticated]);
 
+  // Debug: Log batches state changes
+  React.useEffect(() => {
+    console.log('📊 Batches state updated. Total:', batches.length);
+    if (batches.length > 0) {
+      console.log('First batch:', batches[0]);
+      console.log('Last batch:', batches[batches.length - 1]);
+    }
+  }, [batches]);
+
   // Cleanup polling intervals and timeouts on unmount to prevent memory leaks
   React.useEffect(() => {
     isMountedRef.current = true;
@@ -200,7 +209,13 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
       if (batchesPromise.status === 'fulfilled' && Array.isArray(batchesPromise.value)) {
         console.log(`✅ Loaded ${batchesPromise.value.length} batches`);
+        console.log('Batches data:', batchesPromise.value);
         setBatches(batchesPromise.value);
+
+        // Debug: Log state after update
+        setTimeout(() => {
+          console.log('🔍 Batches state after update check');
+        }, 100);
       } else if (batchesPromise.status === 'rejected') {
         console.error('❌ Failed to load batches:', batchesPromise.reason);
       }
