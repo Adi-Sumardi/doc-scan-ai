@@ -247,6 +247,109 @@ async def cancel_batch_processing(
         raise HTTPException(status_code=500, detail=f"Failed to cancel batch: {str(e)}")
 
 
+@router.delete("/batches/{batch_id}")
+async def delete_batch(
+    batch_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Delete a batch and all associated data (files, results, etc.)
+    Only allowed for error/failed batches by the owner or admin
+    """
+    try:
+        # Verify batch exists
+        batch = db.query(Batch).filter(Batch.id == batch_id).first()
+        if not batch:
+            raise HTTPException(
+                status_code=404,
+                detail="Batch tidak ditemukan"
+            )
+
+        # Verify ownership - only batch owner or admin can delete
+        if batch.user_id != current_user.id and not current_user.is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail="Anda tidak memiliki izin untuk menghapus batch ini"
+            )
+
+        # Security: Only allow deletion of error/failed batches
+        # Prevent accidental deletion of successful batches
+        if batch.status not in ["error", "failed"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Hanya batch dengan status 'error' atau 'failed' yang dapat dihapus. Status saat ini: {batch.status}"
+            )
+
+        logger.info(f"🗑️ Deleting batch {batch_id} (status: {batch.status}) by user {current_user.username}")
+
+        # Get all document files associated with this batch for cleanup
+        document_files = db.query(DocumentFile).filter(DocumentFile.batch_id == batch_id).all()
+
+        # Delete physical files from disk
+        upload_dir = Path(get_upload_dir())
+        deleted_files_count = 0
+
+        for doc_file in document_files:
+            try:
+                file_path = Path(doc_file.file_path)
+                if file_path.exists():
+                    # Security: Verify file is within upload directory
+                    file_path_resolved = file_path.resolve()
+                    if str(file_path_resolved).startswith(str(upload_dir.resolve())):
+                        os.remove(file_path)
+                        deleted_files_count += 1
+                        logger.debug(f"Deleted file: {file_path}")
+                    else:
+                        logger.warning(f"Skipped file outside upload dir: {file_path}")
+            except Exception as e:
+                # Log error but continue deletion process
+                logger.error(f"Error deleting file {doc_file.file_path}: {e}")
+
+        # Database cascade delete (configured in models):
+        # 1. Delete scan results (ON DELETE CASCADE from scan_results.batch_id)
+        # 2. Delete document files (ON DELETE CASCADE from document_files.batch_id)
+        # 3. Delete batch
+
+        # Explicitly delete scan results first for cleaner logging
+        deleted_results = db.query(DBScanResult).filter(DBScanResult.batch_id == batch_id).delete()
+
+        # Delete document files records
+        deleted_doc_files = db.query(DocumentFile).filter(DocumentFile.batch_id == batch_id).delete()
+
+        # Finally delete the batch itself
+        db.delete(batch)
+
+        # Commit transaction
+        db.commit()
+
+        logger.info(
+            f"✅ Successfully deleted batch {batch_id}: "
+            f"{deleted_doc_files} document files, "
+            f"{deleted_results} scan results, "
+            f"{deleted_files_count} physical files"
+        )
+
+        return {
+            "success": True,
+            "message": "Batch berhasil dihapus",
+            "batch_id": batch_id,
+            "deleted_files": deleted_doc_files,
+            "deleted_results": deleted_results
+        }
+
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"🚨 Error deleting batch {batch_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Gagal menghapus batch: {str(e)}"
+        )
+
+
 # ==================== Result Management Endpoints ====================
 
 @router.get("/results")
