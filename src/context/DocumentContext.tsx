@@ -85,12 +85,18 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     try {
       setLoading(true);
       const batch = await apiService.uploadDocuments(files, documentTypes);
-      
-      setBatches(prev => [batch, ...prev]);
-      
+
+      // Update batches - add new batch at the beginning
+      setBatches(prev => {
+        console.log('📝 Adding new batch to state. Prev length:', prev.length);
+        const newBatches = [batch, ...prev];
+        console.log('📝 New batches length:', newBatches.length);
+        return newBatches;
+      });
+
       // Start polling for updates
       pollBatchStatus(batch.id);
-      
+
       toast.success(`Batch ${batch.id.slice(-8)} created with ${files.length} files`);
       return batch;
     } catch (error) {
@@ -115,9 +121,14 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
         // Only update state if still mounted
         if (isMountedRef.current) {
-          setBatches(prev => prev.map(batch =>
-            batch.id === batchId ? updatedBatch : batch
-          ));
+          setBatches(prev => {
+            console.log(`🔄 Polling update for batch ${batchId.slice(-8)}. Current batches:`, prev.length);
+            const updated = prev.map(batch =>
+              batch.id === batchId ? updatedBatch : batch
+            );
+            console.log(`🔄 After polling update, batches:`, updated.length);
+            return updated;
+          });
         }
 
         if (updatedBatch.status === 'completed') {
@@ -201,6 +212,14 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   const refreshAllData = async () => {
     try {
       setLoading(true);
+
+      // Clear all polling intervals before refreshing to prevent conflicts
+      console.log('🧹 Clearing all polling intervals before refresh');
+      pollingIntervalsRef.current.forEach(clearInterval);
+      pollingIntervalsRef.current = [];
+      pollingTimeoutsRef.current.forEach(clearTimeout);
+      pollingTimeoutsRef.current = [];
+
       // Use Promise.allSettled to handle partial failures gracefully
       const [batchesPromise, resultsPromise] = await Promise.allSettled([
         apiService.getAllBatches(),
