@@ -18,7 +18,8 @@
       "fields": [
         {"name": "name", "label": "Nama Pembeli", "required": false},
         {"name": "npwp", "label": "NPWP Pembeli", "required": false, "format": "NPWP"},
-        {"name": "address", "label": "Alamat Pembeli", "required": false}
+        {"name": "address", "label": "Alamat Pembeli", "required": false},
+        {"name": "email", "label": "Email Pembeli", "required": false, "notes": "Email pembeli BKP atau penerima JKP jika tersedia di dokumen"}
       ]
     },
     {
@@ -60,7 +61,8 @@
     "buyer": {
       "name": "string",
       "npwp": "string",
-      "address": "string"
+      "address": "string",
+      "email": "string"
     },
     "invoice": {
       "number": "string",

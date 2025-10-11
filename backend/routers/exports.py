@@ -93,6 +93,16 @@ async def export_result(
                 from exporters.faktur_pajak_exporter import FakturPajakExporter
                 exporter = FakturPajakExporter()
                 success = exporter.export_to_excel(result_data, str(export_path))
+            # Use specialized exporter for Invoice
+            elif result.document_type in ['invoice', 'invoice document']:
+                from exporters.invoice_exporter import InvoiceExporter
+                exporter = InvoiceExporter()
+                success = exporter.export_to_excel(result_data, str(export_path))
+            # Use specialized exporter for Rekening Koran
+            elif result.document_type in ['rekening_koran', 'rekening koran']:
+                from exporters.rekening_koran_exporter import RekeningKoranExporter
+                exporter = RekeningKoranExporter()
+                success = exporter.export_to_excel(result_data, str(export_path))
             else:
                 # Generic table format for other types
                 success = create_batch_excel_export(
@@ -101,13 +111,33 @@ async def export_result(
                     document_type=result.document_type
                 )
         else:  # PDF
-            # For single Faktur Pajak, use document format (not table)
+            # Use specialized exporter for Faktur Pajak
             if result.document_type == 'faktur_pajak':
                 from exporters.faktur_pajak_exporter import FakturPajakExporter
                 exporter = FakturPajakExporter()
                 success = exporter.export_to_pdf(result_data, str(export_path))
+            # Use specialized exporter for PPh 23
+            elif result.document_type in ['pph23', 'pph 23', 'pph_23']:
+                from exporters.pph23_exporter import PPh23Exporter
+                exporter = PPh23Exporter()
+                success = exporter.export_to_pdf(result_data, str(export_path))
+            # Use specialized exporter for PPh 21
+            elif result.document_type in ['pph21', 'pph 21', 'pph_21']:
+                from exporters.pph21_exporter import PPh21Exporter
+                exporter = PPh21Exporter()
+                success = exporter.export_to_pdf(result_data, str(export_path))
+            # Use specialized exporter for Rekening Koran
+            elif result.document_type in ['rekening_koran', 'rekening koran']:
+                from exporters.rekening_koran_exporter import RekeningKoranExporter
+                exporter = RekeningKoranExporter()
+                success = exporter.export_to_pdf(result_data, str(export_path))
+            # Use specialized exporter for Invoice
+            elif result.document_type in ['invoice', 'invoice document']:
+                from exporters.invoice_exporter import InvoiceExporter
+                exporter = InvoiceExporter()
+                success = exporter.export_to_pdf(result_data, str(export_path))
             else:
-                # For other document types, use batch format
+                # For other document types, use batch format (table)
                 success = create_batch_pdf_export(
                     batch_results=[result_data],
                     output_path=str(export_path),
@@ -207,6 +237,18 @@ async def export_batch(
                 from exporters.pph21_exporter import PPh21Exporter
                 exporter = PPh21Exporter()
                 success = exporter.batch_export_to_excel(batch_id, results_data, str(export_path))
+            # Check if we should use specialized exporter for Invoice
+            elif all_same_type and primary_doc_type in ['invoice', 'invoice document']:
+                # Use Invoice specialized exporter
+                from exporters.invoice_exporter import InvoiceExporter
+                exporter = InvoiceExporter()
+                success = exporter.batch_export_to_excel(batch_id, results_data, str(export_path))
+            # Check if we should use specialized exporter for Rekening Koran
+            elif all_same_type and primary_doc_type in ['rekening_koran', 'rekening koran']:
+                # Use Rekening Koran specialized exporter
+                from exporters.rekening_koran_exporter import RekeningKoranExporter
+                exporter = RekeningKoranExporter()
+                success = exporter.batch_export_to_excel(batch_id, results_data, str(export_path))
             else:
                 # Use generic table format for other types (including faktur_pajak)
                 success = create_batch_excel_export(
@@ -215,19 +257,38 @@ async def export_batch(
                     document_type=primary_doc_type if all_same_type else 'mixed'
                 )
         else:  # PDF
-            # Check if all results are Faktur Pajak - use professional template
-            all_faktur_pajak = all(r.get('document_type') == 'faktur_pajak' for r in results_data)
-            
-            if all_faktur_pajak and len(results_data) > 0:
+            # Use specialized batch exporters for each document type
+            if all_same_type and primary_doc_type == 'faktur_pajak' and len(results_data) > 0:
                 # Use professional document template for Faktur Pajak
                 from exporters.faktur_pajak_exporter import FakturPajakExporter
                 exporter = FakturPajakExporter()
                 success = exporter.export_batch_to_pdf(results_data, str(export_path))
+            elif all_same_type and primary_doc_type in ['pph23', 'pph 23'] and len(results_data) > 0:
+                # Use PPh 23 specialized batch exporter (formal format, no table)
+                from exporters.pph23_exporter import PPh23Exporter
+                exporter = PPh23Exporter()
+                success = exporter.batch_export_to_pdf(batch_id, results_data, str(export_path))
+            elif all_same_type and primary_doc_type in ['pph21', 'pph 21'] and len(results_data) > 0:
+                # Use PPh 21 specialized batch exporter (formal format, no table)
+                from exporters.pph21_exporter import PPh21Exporter
+                exporter = PPh21Exporter()
+                success = exporter.batch_export_to_pdf(batch_id, results_data, str(export_path))
+            elif all_same_type and primary_doc_type in ['rekening_koran', 'rekening koran'] and len(results_data) > 0:
+                # Use Rekening Koran specialized batch exporter (formal format, no table)
+                from exporters.rekening_koran_exporter import RekeningKoranExporter
+                exporter = RekeningKoranExporter()
+                success = exporter.batch_export_to_pdf(batch_id, results_data, str(export_path))
+            elif all_same_type and primary_doc_type in ['invoice', 'invoice document'] and len(results_data) > 0:
+                # Use Invoice specialized batch exporter (formal format, no table)
+                from exporters.invoice_exporter import InvoiceExporter
+                exporter = InvoiceExporter()
+                success = exporter.batch_export_to_pdf(batch_id, results_data, str(export_path))
             else:
                 # Use table format for mixed or other document types
                 success = create_batch_pdf_export(
                     batch_results=results_data,
-                    output_path=str(export_path)
+                    output_path=str(export_path),
+                    document_type=primary_doc_type if all_same_type else 'mixed'
                 )
 
         if not success:

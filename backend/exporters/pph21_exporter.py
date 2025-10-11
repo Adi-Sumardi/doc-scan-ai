@@ -159,12 +159,20 @@ class PPh21Exporter(BaseExporter):
             ws = wb.active
             ws.title = "PPh 21"
             
-            # Convert smart_mapped data to structured format
+            # Get structured data from result
             extracted_data = result.get('extracted_data', {})
-            if 'smart_mapped' in extracted_data:
+
+            # Priority: smart_mapped > structured_data > extracted_data itself
+            # Note: For PPh21, smart_mapped is preferred as it has better AI mapping
+            if 'smart_mapped' in extracted_data and extracted_data['smart_mapped']:
                 structured = self._convert_smart_mapped_to_structured(extracted_data['smart_mapped'])
+                logger.info("✅ Using smart_mapped data for PPh 21 PDF export")
+            elif 'structured_data' in extracted_data:
+                structured = extracted_data['structured_data']
+                logger.info("✅ Using structured_data for PPh 21 PDF export")
             else:
                 structured = extracted_data
+                logger.info("⚠️ Using raw extracted_data for PPh 21 PDF export")
             
             # Styles
             header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
@@ -245,16 +253,24 @@ class PPh21Exporter(BaseExporter):
             from reportlab.lib import colors
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib.units import inch, mm
-            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
             from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
             from datetime import datetime, timezone
 
-            # Convert smart_mapped data to structured format
+            # Get structured data from result
             extracted_data = result.get('extracted_data', {})
-            if 'smart_mapped' in extracted_data:
+
+            # Priority: smart_mapped > structured_data > extracted_data itself
+            # Note: For PPh21, smart_mapped is preferred as it has better AI mapping
+            if 'smart_mapped' in extracted_data and extracted_data['smart_mapped']:
                 structured = self._convert_smart_mapped_to_structured(extracted_data['smart_mapped'])
+                logger.info("✅ Using smart_mapped data for PPh 21 PDF export")
+            elif 'structured_data' in extracted_data:
+                structured = extracted_data['structured_data']
+                logger.info("✅ Using structured_data for PPh 21 PDF export")
             else:
                 structured = extracted_data
+                logger.info("⚠️ Using raw extracted_data for PPh 21 PDF export")
 
             # Create PDF document
             doc = SimpleDocTemplate(
@@ -287,136 +303,81 @@ class PPh21Exporter(BaseExporter):
             section_style = ParagraphStyle(
                 'SectionHeader',
                 parent=styles['Heading2'],
-                fontSize=12,
-                textColor=colors.white,
-                spaceAfter=3*mm,
-                spaceBefore=5*mm,
-                backColor=colors.HexColor('#4472C4'),
-                borderPadding=2*mm,
+                fontSize=11,
+                textColor=colors.HexColor('#1F4E78'),
+                spaceAfter=2*mm,
+                spaceBefore=6*mm,
                 fontName='Helvetica-Bold',
-                leftIndent=2*mm,
-                rightIndent=2*mm
+                borderWidth=0,
+                borderPadding=0
             )
 
-            # Label style
-            label_style = ParagraphStyle(
-                'Label',
+            # Field style (Label: Value on same line)
+            field_style = ParagraphStyle(
+                'Field',
                 parent=styles['Normal'],
-                fontSize=10,
+                fontSize=9,
                 textColor=colors.HexColor('#333333'),
-                fontName='Helvetica-Bold',
-                spaceAfter=1*mm
-            )
-
-            # Value style
-            value_style = ParagraphStyle(
-                'Value',
-                parent=styles['Normal'],
-                fontSize=10,
-                textColor=colors.HexColor('#000000'),
-                spaceAfter=3*mm,
-                leftIndent=5*mm
+                spaceAfter=2*mm,
+                leading=12
             )
 
             # Add title
             story.append(Paragraph("BUKTI PEMOTONGAN PPh PASAL 21", title_style))
             story.append(Paragraph("INCOME TAX ARTICLE 21 WITHHOLDING CERTIFICATE",
                                  ParagraphStyle('Subtitle', parent=styles['Normal'],
-                                              fontSize=10, alignment=TA_CENTER,
+                                              fontSize=9, alignment=TA_CENTER,
                                               textColor=colors.HexColor('#666666'))))
-            story.append(Spacer(1, 8*mm))
+            story.append(Spacer(1, 10*mm))
 
             # Section 1: Informasi Dokumen
             story.append(Paragraph("INFORMASI DOKUMEN", section_style))
-            story.append(Paragraph(f"<b>Nomor Bukti Potong:</b>", label_style))
-            story.append(Paragraph(structured.get('nomor', 'N/A'), value_style))
-
-            story.append(Paragraph(f"<b>Masa Pajak:</b>", label_style))
-            story.append(Paragraph(structured.get('masa_pajak', 'N/A'), value_style))
-
-            story.append(Paragraph(f"<b>Tanggal Pemotongan:</b>", label_style))
-            story.append(Paragraph(structured.get('tanggal_potong', 'N/A'), value_style))
-
-            story.append(Paragraph(f"<b>Sifat Pemotongan:</b>", label_style))
-            story.append(Paragraph(structured.get('sifat_pemotongan', 'N/A'), value_style))
-
-            story.append(Paragraph(f"<b>Status Bukti Pemotongan:</b>", label_style))
-            story.append(Paragraph(structured.get('status', 'N/A'), value_style))
+            story.append(Paragraph(f"<b>Nomor Bukti Potong:</b> {structured.get('nomor', 'N/A')}", field_style))
+            story.append(Paragraph(f"<b>Masa Pajak:</b> {structured.get('masa_pajak', 'N/A')}", field_style))
+            story.append(Paragraph(f"<b>Tanggal Pemotongan:</b> {structured.get('tanggal_potong', 'N/A')}", field_style))
+            story.append(Paragraph(f"<b>Sifat Pemotongan:</b> {structured.get('sifat_pemotongan', 'N/A')}", field_style))
+            story.append(Paragraph(f"<b>Status:</b> {structured.get('status', 'N/A')}", field_style))
 
             # Section 2: Identitas Penerima Penghasilan
             story.append(Paragraph("IDENTITAS PENERIMA PENGHASILAN", section_style))
-            story.append(Paragraph(f"<b>Nama:</b>", label_style))
-            story.append(Paragraph(structured.get('penerima_nama', 'N/A'), value_style))
-
-            story.append(Paragraph(f"<b>NPWP/NIK:</b>", label_style))
-            story.append(Paragraph(structured.get('penerima_npwp', 'N/A'), value_style))
-
-            story.append(Paragraph(f"<b>NITKU:</b>", label_style))
-            story.append(Paragraph(structured.get('penerima_nitku', 'N/A'), value_style))
+            story.append(Paragraph(f"<b>Nama:</b> {structured.get('penerima_nama', 'N/A')}", field_style))
+            story.append(Paragraph(f"<b>NPWP/NIK:</b> {structured.get('penerima_npwp', 'N/A')}", field_style))
+            story.append(Paragraph(f"<b>NITKU:</b> {structured.get('penerima_nitku', 'N/A')}", field_style))
 
             # Section 3: Objek Pajak
             story.append(Paragraph("OBJEK PAJAK", section_style))
-            story.append(Paragraph(f"<b>Jenis PPh:</b>", label_style))
-            story.append(Paragraph(structured.get('jenis_pph', 'PPh 21'), value_style))
-
-            story.append(Paragraph(f"<b>Kode Objek Pajak:</b>", label_style))
-            story.append(Paragraph(structured.get('kode_objek', 'N/A'), value_style))
-
-            story.append(Paragraph(f"<b>Uraian Objek Pajak:</b>", label_style))
-            story.append(Paragraph(structured.get('objek_pajak', 'N/A'), value_style))
+            story.append(Paragraph(f"<b>Jenis PPh:</b> {structured.get('jenis_pph', 'PPh 21')}", field_style))
+            story.append(Paragraph(f"<b>Kode Objek Pajak:</b> {structured.get('kode_objek', 'N/A')}", field_style))
+            story.append(Paragraph(f"<b>Uraian Objek Pajak:</b> {structured.get('objek_pajak', 'N/A')}", field_style))
 
             # Section 4: Perhitungan Pajak
             story.append(Paragraph("PERHITUNGAN PAJAK", section_style))
+            story.append(Paragraph(f"<b>Penghasilan Bruto:</b> Rp {structured.get('penghasilan_bruto', 'N/A')}", field_style))
+            story.append(Paragraph(f"<b>Dasar Pengenaan Pajak (DPP):</b> Rp {structured.get('dpp', 'N/A')}", field_style))
+            story.append(Paragraph(f"<b>Tarif:</b> {structured.get('tarif', 'N/A')}", field_style))
 
-            # Create calculation box
-            calc_data = [
-                ['Penghasilan Bruto', ':', f"Rp {structured.get('penghasilan_bruto', 'N/A')}"],
-                ['Dasar Pengenaan Pajak (DPP)', ':', f"Rp {structured.get('dpp', 'N/A')}"],
-                ['Tarif', ':', structured.get('tarif', 'N/A')],
-                ['PPh Dipotong', ':', f"Rp {structured.get('pph', 'N/A')}"]
-            ]
-
-            calc_table = Table(calc_data, colWidths=[50*mm, 5*mm, 80*mm])
-            calc_table.setStyle(TableStyle([
-                ('FONT', (0, 0), (-1, -1), 'Helvetica', 10),
-                ('FONT', (0, 0), (0, -1), 'Helvetica-Bold', 10),
-                ('FONT', (2, -1), (2, -1), 'Helvetica-Bold', 11),
-                ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#333333')),
-                ('TEXTCOLOR', (2, -1), (2, -1), colors.HexColor('#1F4E78')),
-                ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#F0F0F0')),
-                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-                ('ALIGN', (2, 0), (2, -1), 'RIGHT'),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('LEFTPADDING', (0, 0), (-1, -1), 3*mm),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 3*mm),
-                ('TOPPADDING', (0, 0), (-1, -1), 2*mm),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 2*mm),
-                ('LINEBELOW', (0, -1), (-1, -1), 1.5, colors.HexColor('#4472C4')),
-            ]))
-            story.append(calc_table)
-            story.append(Spacer(1, 5*mm))
+            # PPh Dipotong - highlighted
+            pph_style = ParagraphStyle(
+                'PPh',
+                parent=field_style,
+                fontSize=10,
+                fontName='Helvetica-Bold',
+                textColor=colors.HexColor('#1F4E78'),
+                spaceAfter=4*mm
+            )
+            story.append(Paragraph(f"<b>PPh Dipotong:</b> Rp {structured.get('pph', 'N/A')}", pph_style))
 
             # Section 5: Dokumen Dasar
             story.append(Paragraph("DOKUMEN DASAR PEMOTONGAN", section_style))
-            story.append(Paragraph(f"<b>Jenis Dokumen:</b>", label_style))
-            story.append(Paragraph(structured.get('dokumen_dasar_jenis', 'N/A'), value_style))
-
-            story.append(Paragraph(f"<b>Tanggal Dokumen:</b>", label_style))
-            story.append(Paragraph(structured.get('dokumen_dasar_tanggal', 'N/A'), value_style))
+            story.append(Paragraph(f"<b>Jenis Dokumen:</b> {structured.get('dokumen_dasar_jenis', 'N/A')}", field_style))
+            story.append(Paragraph(f"<b>Tanggal Dokumen:</b> {structured.get('dokumen_dasar_tanggal', 'N/A')}", field_style))
 
             # Section 6: Identitas Pemotong
             story.append(Paragraph("IDENTITAS PEMOTONG PAJAK", section_style))
-            story.append(Paragraph(f"<b>Nama:</b>", label_style))
-            story.append(Paragraph(structured.get('pemotong_nama', 'N/A'), value_style))
-
-            story.append(Paragraph(f"<b>NPWP/NIK:</b>", label_style))
-            story.append(Paragraph(structured.get('pemotong_npwp', 'N/A'), value_style))
-
-            story.append(Paragraph(f"<b>NITKU/Subunit:</b>", label_style))
-            story.append(Paragraph(structured.get('pemotong_nitku', 'N/A'), value_style))
-
-            story.append(Paragraph(f"<b>Nama Penandatangan:</b>", label_style))
-            story.append(Paragraph(structured.get('penandatangan', 'N/A'), value_style))
+            story.append(Paragraph(f"<b>Nama:</b> {structured.get('pemotong_nama', 'N/A')}", field_style))
+            story.append(Paragraph(f"<b>NPWP/NIK:</b> {structured.get('pemotong_npwp', 'N/A')}", field_style))
+            story.append(Paragraph(f"<b>NITKU/Subunit:</b> {structured.get('pemotong_nitku', 'N/A')}", field_style))
+            story.append(Paragraph(f"<b>Nama Penandatangan:</b> {structured.get('penandatangan', 'N/A')}", field_style))
 
             # Footer
             story.append(Spacer(1, 10*mm))
@@ -535,7 +496,7 @@ class PPh21Exporter(BaseExporter):
             from reportlab.lib import colors
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib.units import inch, mm
-            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
             from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
             from datetime import datetime, timezone
 
@@ -570,51 +531,37 @@ class PPh21Exporter(BaseExporter):
             section_style = ParagraphStyle(
                 'SectionHeader',
                 parent=styles['Heading2'],
-                fontSize=12,
-                textColor=colors.white,
-                spaceAfter=3*mm,
-                spaceBefore=5*mm,
-                backColor=colors.HexColor('#4472C4'),
-                borderPadding=2*mm,
+                fontSize=11,
+                textColor=colors.HexColor('#1F4E78'),
+                spaceAfter=2*mm,
+                spaceBefore=6*mm,
                 fontName='Helvetica-Bold',
-                leftIndent=2*mm,
-                rightIndent=2*mm
+                borderWidth=0,
+                borderPadding=0
             )
 
-            # Label style
-            label_style = ParagraphStyle(
-                'Label',
+            # Field style (Label: Value on same line)
+            field_style = ParagraphStyle(
+                'Field',
                 parent=styles['Normal'],
-                fontSize=10,
+                fontSize=9,
                 textColor=colors.HexColor('#333333'),
-                fontName='Helvetica-Bold',
-                spaceAfter=1*mm
+                spaceAfter=2*mm,
+                leading=12
             )
 
-            # Value style
-            value_style = ParagraphStyle(
-                'Value',
-                parent=styles['Normal'],
-                fontSize=10,
-                textColor=colors.HexColor('#000000'),
-                spaceAfter=3*mm,
-                leftIndent=5*mm
-            )
-
-            # Document number style
+            # Document number style (simple - no background)
             doc_number_style = ParagraphStyle(
                 'DocNumber',
                 parent=styles['Heading2'],
-                fontSize=14,
+                fontSize=13,
                 textColor=colors.HexColor('#1F4E78'),
-                spaceAfter=3*mm,
+                spaceAfter=4*mm,
                 spaceBefore=8*mm,
                 fontName='Helvetica-Bold',
                 alignment=TA_CENTER,
-                borderWidth=1,
-                borderColor=colors.HexColor('#4472C4'),
-                borderPadding=3*mm,
-                backColor=colors.HexColor('#F0F8FF')
+                borderWidth=0,
+                borderPadding=0
             )
 
             # Add batch title
@@ -627,12 +574,19 @@ class PPh21Exporter(BaseExporter):
 
             # Process each result
             for idx, result in enumerate(results, start=1):
-                # Convert smart_mapped data to structured format
+                # Get structured data from result
                 extracted_data = result.get('extracted_data', {})
-                if 'smart_mapped' in extracted_data:
+
+                # Priority: smart_mapped > structured_data > extracted_data itself
+                if 'smart_mapped' in extracted_data and extracted_data['smart_mapped']:
                     structured = self._convert_smart_mapped_to_structured(extracted_data['smart_mapped'])
+                    logger.info(f"✅ Using smart_mapped data for PPh 21 batch item {idx}")
+                elif 'structured_data' in extracted_data:
+                    structured = extracted_data['structured_data']
+                    logger.info(f"✅ Using structured_data for PPh 21 batch item {idx}")
                 else:
                     structured = extracted_data
+                    logger.info(f"⚠️ Using raw extracted_data for PPh 21 batch item {idx}")
 
                 # Document separator
                 story.append(Paragraph(f"DOKUMEN {idx} dari {len(results)}", doc_number_style))
@@ -640,59 +594,41 @@ class PPh21Exporter(BaseExporter):
 
                 # Section 1: Informasi Dokumen
                 story.append(Paragraph("INFORMASI DOKUMEN", section_style))
-                story.append(Paragraph(f"<b>Nomor Bukti Potong:</b>", label_style))
-                story.append(Paragraph(structured.get('nomor', 'N/A'), value_style))
-
-                story.append(Paragraph(f"<b>Masa Pajak:</b>", label_style))
-                story.append(Paragraph(structured.get('masa_pajak', 'N/A'), value_style))
-
-                story.append(Paragraph(f"<b>Tanggal Pemotongan:</b>", label_style))
-                story.append(Paragraph(structured.get('tanggal_potong', 'N/A'), value_style))
+                story.append(Paragraph(f"<b>Nomor Bukti Potong:</b> {structured.get('nomor', 'N/A')}", field_style))
+                story.append(Paragraph(f"<b>Masa Pajak:</b> {structured.get('masa_pajak', 'N/A')}", field_style))
+                story.append(Paragraph(f"<b>Tanggal Pemotongan:</b> {structured.get('tanggal_potong', 'N/A')}", field_style))
 
                 # Section 2: Identitas Penerima (Compact)
                 story.append(Paragraph("PENERIMA PENGHASILAN", section_style))
-                story.append(Paragraph(f"<b>Nama:</b>", label_style))
-                story.append(Paragraph(structured.get('penerima_nama', 'N/A'), value_style))
-
-                story.append(Paragraph(f"<b>NPWP/NIK:</b>", label_style))
-                story.append(Paragraph(structured.get('penerima_npwp', 'N/A'), value_style))
+                story.append(Paragraph(f"<b>Nama:</b> {structured.get('penerima_nama', 'N/A')}", field_style))
+                story.append(Paragraph(f"<b>NPWP/NIK:</b> {structured.get('penerima_npwp', 'N/A')}", field_style))
 
                 # Section 3: Objek Pajak (Compact)
                 story.append(Paragraph("OBJEK PAJAK", section_style))
-                story.append(Paragraph(f"<b>Kode:</b> {structured.get('kode_objek', 'N/A')}", value_style))
-                story.append(Paragraph(f"<b>Uraian:</b> {structured.get('objek_pajak', 'N/A')}", value_style))
+                story.append(Paragraph(f"<b>Kode:</b> {structured.get('kode_objek', 'N/A')}", field_style))
+                story.append(Paragraph(f"<b>Uraian:</b> {structured.get('objek_pajak', 'N/A')}", field_style))
 
-                # Section 4: Perhitungan Pajak (Compact table)
-                story.append(Paragraph("PERHITUNGAN", section_style))
-                calc_data = [
-                    ['Penghasilan Bruto', ':', f"Rp {structured.get('penghasilan_bruto', 'N/A')}"],
-                    ['DPP', ':', f"Rp {structured.get('dpp', 'N/A')}"],
-                    ['Tarif', ':', structured.get('tarif', 'N/A')],
-                    ['PPh Dipotong', ':', f"Rp {structured.get('pph', 'N/A')}"]
-                ]
+                # Section 4: Perhitungan Pajak (simple format - no table)
+                story.append(Paragraph("PERHITUNGAN PAJAK", section_style))
+                story.append(Paragraph(f"<b>Penghasilan Bruto:</b> Rp {structured.get('penghasilan_bruto', 'N/A')}", field_style))
+                story.append(Paragraph(f"<b>Dasar Pengenaan Pajak (DPP):</b> Rp {structured.get('dpp', 'N/A')}", field_style))
+                story.append(Paragraph(f"<b>Tarif:</b> {structured.get('tarif', 'N/A')}", field_style))
 
-                calc_table = Table(calc_data, colWidths=[40*mm, 5*mm, 70*mm])
-                calc_table.setStyle(TableStyle([
-                    ('FONT', (0, 0), (-1, -1), 'Helvetica', 9),
-                    ('FONT', (0, 0), (0, -1), 'Helvetica-Bold', 9),
-                    ('FONT', (2, -1), (2, -1), 'Helvetica-Bold', 10),
-                    ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#333333')),
-                    ('TEXTCOLOR', (2, -1), (2, -1), colors.HexColor('#1F4E78')),
-                    ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#F0F0F0')),
-                    ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-                    ('ALIGN', (2, 0), (2, -1), 'RIGHT'),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('LEFTPADDING', (0, 0), (-1, -1), 2*mm),
-                    ('RIGHTPADDING', (0, 0), (-1, -1), 2*mm),
-                    ('TOPPADDING', (0, 0), (-1, -1), 1.5*mm),
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5*mm),
-                ]))
-                story.append(calc_table)
+                # PPh Dipotong - highlighted
+                pph_highlight = ParagraphStyle(
+                    'PPh',
+                    parent=field_style,
+                    fontSize=10,
+                    fontName='Helvetica-Bold',
+                    textColor=colors.HexColor('#1F4E78'),
+                    spaceAfter=4*mm
+                )
+                story.append(Paragraph(f"<b>PPh Dipotong:</b> Rp {structured.get('pph', 'N/A')}", pph_highlight))
 
                 # Section 5: Pemotong (Compact)
                 story.append(Paragraph("PEMOTONG PAJAK", section_style))
-                story.append(Paragraph(f"<b>Nama:</b> {structured.get('pemotong_nama', 'N/A')}", value_style))
-                story.append(Paragraph(f"<b>NPWP:</b> {structured.get('pemotong_npwp', 'N/A')}", value_style))
+                story.append(Paragraph(f"<b>Nama:</b> {structured.get('pemotong_nama', 'N/A')}", field_style))
+                story.append(Paragraph(f"<b>NPWP:</b> {structured.get('pemotong_npwp', 'N/A')}", field_style))
 
                 # Add page break between documents (except last one)
                 if idx < len(results):

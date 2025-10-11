@@ -5,42 +5,95 @@ import { Upload as UploadIcon, FileText, X, Brain, Zap, CheckCircle } from 'luci
 import toast from 'react-hot-toast';
 
 const documentTypes = [
-  { 
-    id: 'faktur_pajak', 
-    label: 'Faktur Pajak', 
+  {
+    id: 'faktur_pajak',
+    label: 'Faktur Pajak',
     icon: '📋',
     accuracy: '99.6%',
     description: 'Optimized for Indonesian tax invoices'
   },
-  { 
-    id: 'pph21', 
-    label: 'Bukti Potong PPh 21', 
+  {
+    id: 'pph21',
+    label: 'Bukti Potong PPh 21',
     icon: '📄',
     accuracy: '95%+',
     description: 'Income tax withholding certificates'
   },
-  { 
-    id: 'pph23', 
-    label: 'Bukti Potong PPh 23', 
+  {
+    id: 'pph23',
+    label: 'Bukti Potong PPh 23',
     icon: '📄',
     accuracy: '95%+',
     description: 'Service tax withholding certificates'
   },
-  { 
-    id: 'rekening_koran', 
-    label: 'Rekening Koran', 
+  {
+    id: 'rekening_koran',
+    label: 'Rekening Koran',
     icon: '🏦',
     accuracy: '90%+',
     description: 'Bank account statements'
   },
-  { 
-    id: 'invoice', 
-    label: 'Invoice', 
+  {
+    id: 'invoice',
+    label: 'Invoice',
     icon: '🧾',
     accuracy: '85%+',
     description: 'General business invoices'
   }
 ];
+
+// Separate component for Submit Button to avoid React warnings
+const SubmitButton: React.FC<{
+  loading: boolean;
+  totalFiles: number;
+  onSubmit: () => void;
+}> = ({ loading, totalFiles, onSubmit }) => {
+  return (
+    <div className="flex justify-center animate-fade-in-up">
+      <button
+        onClick={onSubmit}
+        disabled={loading}
+        className={`relative px-8 py-4 rounded-xl font-medium text-white overflow-hidden ${
+          loading
+            ? 'bg-gray-400 cursor-not-allowed'
+            : 'gradient-bg hover:shadow-2xl transform hover:scale-105 animate-glow'
+        } transition-all duration-300`}
+      >
+        {/* Animated background effect */}
+        {!loading && (
+          <div className="absolute inset-0 bg-gradient-to-r from-purple-600 via-blue-600 to-purple-600 animate-gradient opacity-0 hover:opacity-100 transition-opacity duration-300" />
+        )}
+
+        {/* Button content */}
+        <div className="relative z-10 flex items-center space-x-3">
+          {loading ? (
+            <>
+              <div className="flex space-x-1">
+                {[...Array(3)].map((_, i) => (
+                  <div
+                    key={i}
+                    className="w-2 h-2 bg-white rounded-full animate-bounce"
+                    style={{ animationDelay: `${i * 0.15}s` }}
+                  />
+                ))}
+              </div>
+              <span className="animate-pulse">Processing...</span>
+              <Zap className="w-5 h-5 animate-pulse" />
+            </>
+          ) : (
+            <>
+              <Brain className="w-5 h-5 animate-pulse-slow" />
+              <span className="font-bold">
+                Start AI Processing ({totalFiles} {totalFiles === 1 ? 'file' : 'files'})
+              </span>
+              <Zap className="w-5 h-5 animate-pulse-slow" />
+            </>
+          )}
+        </div>
+      </button>
+    </div>
+  );
+};
 
 const Upload = () => {
   const navigate = useNavigate();
@@ -393,54 +446,13 @@ const Upload = () => {
       </div>
 
       {/* Submit Button with Enhanced Animation */}
-      {Object.keys(selectedFiles).length > 0 && (() => {
-        const totalFiles = Object.values(selectedFiles).reduce((sum, files) => sum + files.length, 0);
-        return (
-          <div className="flex justify-center animate-fade-in-up">
-            <button
-              onClick={handleSubmit}
-              disabled={loading}
-              className={`relative px-8 py-4 rounded-xl font-medium text-white overflow-hidden ${
-                loading
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'gradient-bg hover:shadow-2xl transform hover:scale-105 animate-glow'
-              } transition-all duration-300`}
-            >
-              {/* Animated background effect */}
-              {!loading && (
-                <div className="absolute inset-0 bg-gradient-to-r from-purple-600 via-blue-600 to-purple-600 animate-gradient opacity-0 hover:opacity-100 transition-opacity duration-300" />
-              )}
-              
-              {/* Button content */}
-              <div className="relative z-10 flex items-center space-x-3">
-                {loading ? (
-                  <>
-                    <div className="flex space-x-1">
-                      {[...Array(3)].map((_, i) => (
-                        <div 
-                          key={i}
-                          className="w-2 h-2 bg-white rounded-full animate-bounce"
-                          style={{ animationDelay: `${i * 0.15}s` }}
-                        />
-                      ))}
-                    </div>
-                    <span className="animate-pulse">Processing...</span>
-                    <Zap className="w-5 h-5 animate-pulse" />
-                  </>
-                ) : (
-                  <>
-                    <Brain className="w-5 h-5 animate-pulse-slow" />
-                    <span className="font-bold">
-                      Start AI Processing ({totalFiles} {totalFiles === 1 ? 'file' : 'files'})
-                    </span>
-                    <Zap className="w-5 h-5 animate-pulse-slow" />
-                  </>
-                )}
-              </div>
-            </button>
-          </div>
-        );
-      })()}
+      {Object.keys(selectedFiles).length > 0 && (
+        <SubmitButton
+          loading={loading}
+          totalFiles={Object.values(selectedFiles).reduce((sum, files) => sum + files.length, 0)}
+          onSubmit={handleSubmit}
+        />
+      )}
     </div>
   );
 };

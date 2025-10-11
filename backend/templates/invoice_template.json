@@ -1,0 +1,326 @@
+{
+  "document_type": "invoice",
+  "version": "2025-01-11-v2",
+  "description": "UNIVERSAL Invoice schema for Smart Mapper. Designed to work with ALL types of invoices (Commercial Invoice, Tax Invoice, Proforma Invoice, Billing Invoice, Service Invoice, Purchase Order Invoice, etc.). Values should be strings unless explicitly noted.",
+  "important_note": "This template is FLEXIBLE - it will work even if some fields are missing. Focus on extracting whatever information IS available in the invoice.",
+  "sections": [
+    {
+      "name": "invoice_info",
+      "description": "Core invoice information - Extract whatever invoice details you can find",
+      "flexible": true,
+      "fields": [
+        {"name": "invoice_number", "label": "Nomor Invoice", "required": false, "notes": "Invoice number. Look for: 'Invoice No', 'Invoice Number', 'No. Invoice', 'INV-', 'Bill No', 'Billing Number'. Can be formats like: 'INV-2025-001', 'BL-001234', etc."},
+        {"name": "invoice_type", "label": "Jenis Invoice", "required": false, "notes": "Type of invoice: 'Commercial Invoice', 'Tax Invoice', 'Proforma Invoice', 'Billing Invoice', 'Service Invoice', 'Purchase Order Invoice', 'Credit Note', 'Debit Note', etc."},
+        {"name": "tanggal", "label": "Tanggal Invoice", "required": false, "format": "flexible", "notes": "Invoice date. Formats: 'DD/MM/YYYY', 'DD-MM-YYYY', 'YYYY-MM-DD', 'DD MMM YYYY', etc. Look for: 'Invoice Date', 'Date', 'Tanggal', 'Issue Date', 'Bill Date'"},
+        {"name": "tgl_invoice", "label": "Tanggal Invoice (alias)", "required": false, "format": "flexible", "notes": "Alias for tanggal - same field"},
+        {"name": "due_date", "label": "Tanggal Jatuh Tempo", "required": false, "format": "flexible", "notes": "Payment due date. Look for: 'Due Date', 'Payment Due', 'Jatuh Tempo', 'Tanggal Bayar'"},
+        {"name": "currency", "label": "Mata Uang", "required": false, "notes": "Currency: 'IDR', 'USD', 'EUR', 'SGD', 'Rupiah', 'Dollar', etc. Default: IDR"},
+        {"name": "payment_terms", "label": "Syarat Pembayaran", "required": false, "notes": "Payment terms: 'Net 30', 'COD', 'Cash On Delivery', 'Transfer', 'Due on Receipt', etc."},
+        {"name": "reference", "label": "Referensi", "required": false, "notes": "Reference number or code if any"}
+      ]
+    },
+    {
+      "name": "purchase_order",
+      "description": "Purchase Order information (if this invoice is related to a PO)",
+      "flexible": true,
+      "fields": [
+        {"name": "po_number", "label": "Nomor PO", "required": false, "notes": "Purchase Order number. Look for: 'PO Number', 'PO No', 'Purchase Order', 'P.O.', 'Order No'"},
+        {"name": "tgl_po", "label": "Tanggal PO", "required": false, "format": "flexible", "notes": "PO date. Look for: 'PO Date', 'Order Date', 'Tanggal PO'"}
+      ]
+    },
+    {
+      "name": "vendor",
+      "description": "Vendor/Seller/From information - who issued the invoice",
+      "flexible": true,
+      "fields": [
+        {"name": "nama", "label": "Nama Vendor/Penjual", "required": false, "notes": "Vendor name. Look for: 'From:', 'Seller:', 'Vendor:', 'Bill From:', 'Company Name:', 'Perusahaan:', etc. Usually at top of document."},
+        {"name": "alamat", "label": "Alamat Vendor", "required": false, "notes": "Vendor address. Can be multi-line address."},
+        {"name": "kota", "label": "Kota Vendor", "required": false, "notes": "Vendor city"},
+        {"name": "negara", "label": "Negara Vendor", "required": false, "notes": "Vendor country"},
+        {"name": "telepon", "label": "Telepon Vendor", "required": false, "notes": "Vendor phone number"},
+        {"name": "email", "label": "Email Vendor", "required": false, "notes": "Vendor email address"},
+        {"name": "npwp", "label": "NPWP Vendor", "required": false, "format": "NPWP", "notes": "Vendor tax ID (NPWP for Indonesia, Tax ID for others)"},
+        {"name": "tax_id", "label": "Tax ID Vendor", "required": false, "notes": "International tax ID if not NPWP"}
+      ]
+    },
+    {
+      "name": "customer",
+      "description": "Customer/Buyer/Bill To information - who receives the invoice",
+      "flexible": true,
+      "fields": [
+        {"name": "nama", "label": "Nama Customer/Pembeli", "required": false, "notes": "Customer name. Look for: 'To:', 'Bill To:', 'Customer:', 'Buyer:', 'Pelanggan:', 'Sold To:', etc."},
+        {"name": "alamat", "label": "Alamat Customer", "required": false, "notes": "Customer address. Can be multi-line."},
+        {"name": "kota", "label": "Kota Customer", "required": false, "notes": "Customer city"},
+        {"name": "negara", "label": "Negara Customer", "required": false, "notes": "Customer country"},
+        {"name": "telepon", "label": "Telepon Customer", "required": false, "notes": "Customer phone"},
+        {"name": "email", "label": "Email Customer", "required": false, "notes": "Customer email"},
+        {"name": "npwp", "label": "NPWP Customer", "required": false, "format": "NPWP", "notes": "Customer NPWP or Tax ID"},
+        {"name": "tax_id", "label": "Tax ID Customer", "required": false, "notes": "International tax ID"}
+      ]
+    },
+    {
+      "name": "items",
+      "description": "CRITICAL: Extract ALL line items from the invoice. Each row in the items table = 1 item.",
+      "is_array": true,
+      "flexible": true,
+      "notes": "PENTING: Ekstrak SEMUA item yang terlihat dalam tabel invoice. Jangan skip item apapun!",
+      "fields": [
+        {"name": "no", "label": "No.", "required": false, "notes": "Item number or row number (1, 2, 3, etc.)"},
+        {"name": "kode", "label": "Kode Item/SKU", "required": false, "notes": "Item code, SKU, or product code. Look for: 'Code', 'SKU', 'Item Code', 'Product Code'"},
+        {"name": "deskripsi", "label": "Deskripsi/Nama Item", "required": false, "notes": "Item description or name. This is usually the main column. Look for: 'Description', 'Item', 'Product', 'Service', 'Deskripsi', 'Nama Barang'"},
+        {"name": "keterangan", "label": "Keterangan Tambahan", "required": false, "notes": "Additional notes or remarks for this item"},
+        {"name": "qty", "label": "Quantity", "required": false, "format": "number", "notes": "Quantity. Look for: 'Qty', 'Quantity', 'Jumlah', 'Unit'. Can be: '10', '5 units', '2.5 kg', etc."},
+        {"name": "satuan", "label": "Unit/Satuan", "required": false, "notes": "Unit of measurement: 'pcs', 'unit', 'kg', 'meter', 'liter', 'box', 'set', 'hours', 'days', etc."},
+        {"name": "harga_satuan", "label": "Harga per Unit", "required": false, "format": "currency", "notes": "Unit price. Look for: 'Unit Price', 'Price', 'Harga Satuan', 'Rate', 'Unit Cost'. Format: '50000', '50.000', '$50.00'"},
+        {"name": "diskon", "label": "Diskon", "required": false, "format": "currency_or_percent", "notes": "Discount amount or percentage. Can be: '10%', '5000', '10000', etc."},
+        {"name": "subtotal", "label": "Subtotal per Item", "required": false, "format": "currency", "notes": "Line total (qty × unit price - discount). Look for: 'Amount', 'Total', 'Subtotal', 'Line Total', 'Jumlah'"},
+        {"name": "pajak", "label": "Pajak per Item", "required": false, "format": "currency", "notes": "Tax amount for this item if shown separately. Look for: 'Tax', 'VAT', 'PPN'"}
+      ]
+    },
+    {
+      "name": "summary",
+      "description": "Invoice totals and summary - Extract financial summary information",
+      "flexible": true,
+      "fields": [
+        {"name": "subtotal", "label": "Subtotal", "required": false, "format": "currency", "notes": "Subtotal before tax and discount. Look for: 'Subtotal', 'Sub Total', 'Amount Before Tax', 'Total Before VAT'"},
+        {"name": "diskon_total", "label": "Total Diskon", "required": false, "format": "currency", "notes": "Total discount amount. Look for: 'Discount', 'Total Discount', 'Potongan'"},
+        {"name": "subtotal_after_discount", "label": "Subtotal Setelah Diskon", "required": false, "format": "currency", "notes": "Subtotal after discount, before tax"},
+        {"name": "pajak_persen", "label": "Persentase Pajak", "required": false, "format": "percent", "notes": "Tax percentage. Look for: 'VAT 10%', 'PPN 11%', 'Tax Rate'. Extract just number: '10', '11'"},
+        {"name": "pajak_nilai", "label": "Nilai Pajak", "required": false, "format": "currency", "notes": "Tax amount. Look for: 'VAT', 'PPN', 'Tax', 'Tax Amount', 'PPn 11%'"},
+        {"name": "biaya_lain", "label": "Biaya Lain-lain", "required": false, "format": "currency", "notes": "Other charges: 'Shipping', 'Handling', 'Admin Fee', 'Service Charge', 'Delivery Fee', etc."},
+        {"name": "total", "label": "Total Akhir/Grand Total", "required": false, "format": "currency", "notes": "Grand total / final amount to pay. Look for: 'Total', 'Grand Total', 'Total Amount', 'Amount Due', 'Total Bayar', 'Balance Due'. This is MOST IMPORTANT field!"},
+        {"name": "nilai", "label": "Nilai (alias untuk total)", "required": false, "format": "currency", "notes": "Alias for total - same field"},
+        {"name": "terbilang", "label": "Terbilang", "required": false, "notes": "Amount in words: 'Lima Juta Rupiah', 'One Million Dollars', etc."}
+      ]
+    },
+    {
+      "name": "payment",
+      "description": "Payment information if available",
+      "flexible": true,
+      "fields": [
+        {"name": "metode", "label": "Metode Pembayaran", "required": false, "notes": "Payment method: 'Bank Transfer', 'Cash', 'Credit Card', 'Cheque', 'PayPal', etc."},
+        {"name": "bank_name", "label": "Nama Bank", "required": false, "notes": "Bank name for transfer"},
+        {"name": "account_number", "label": "Nomor Rekening", "required": false, "notes": "Bank account number"},
+        {"name": "account_name", "label": "Nama Pemilik Rekening", "required": false, "notes": "Account holder name"},
+        {"name": "swift_code", "label": "SWIFT/BIC Code", "required": false, "notes": "For international transfers"}
+      ]
+    },
+    {
+      "name": "additional",
+      "description": "Additional information",
+      "flexible": true,
+      "fields": [
+        {"name": "notes", "label": "Catatan", "required": false, "notes": "Any additional notes, terms, or conditions on the invoice"},
+        {"name": "keterangan", "label": "Keterangan", "required": false, "notes": "General remarks or description"}
+      ]
+    }
+  ],
+  "output_schema": {
+    "invoice_info": {
+      "invoice_number": "string",
+      "invoice_type": "string",
+      "tanggal": "string",
+      "tgl_invoice": "string",
+      "due_date": "string",
+      "currency": "string",
+      "payment_terms": "string",
+      "reference": "string"
+    },
+    "purchase_order": {
+      "po_number": "string",
+      "tgl_po": "string"
+    },
+    "vendor": {
+      "nama": "string",
+      "alamat": "string",
+      "kota": "string",
+      "negara": "string",
+      "telepon": "string",
+      "email": "string",
+      "npwp": "string",
+      "tax_id": "string"
+    },
+    "customer": {
+      "nama": "string",
+      "alamat": "string",
+      "kota": "string",
+      "negara": "string",
+      "telepon": "string",
+      "email": "string",
+      "npwp": "string",
+      "tax_id": "string"
+    },
+    "items": [
+      {
+        "no": "string",
+        "kode": "string",
+        "deskripsi": "string",
+        "keterangan": "string",
+        "qty": "string",
+        "satuan": "string",
+        "harga_satuan": "string",
+        "diskon": "string",
+        "subtotal": "string",
+        "pajak": "string"
+      }
+    ],
+    "summary": {
+      "subtotal": "string",
+      "diskon_total": "string",
+      "subtotal_after_discount": "string",
+      "pajak_persen": "string",
+      "pajak_nilai": "string",
+      "biaya_lain": "string",
+      "total": "string",
+      "nilai": "string",
+      "terbilang": "string"
+    },
+    "payment": {
+      "metode": "string",
+      "bank_name": "string",
+      "account_number": "string",
+      "account_name": "string",
+      "swift_code": "string"
+    },
+    "additional": {
+      "notes": "string",
+      "keterangan": "string"
+    },
+    "confidence": "number"
+  },
+  "extraction_instructions": {
+    "general_approach": "BE FLEXIBLE! Every invoice format is different. Focus on extracting whatever data IS available, even if incomplete. This template works for ALL types of invoices.",
+    "invoice_types_supported": [
+      "Commercial Invoice",
+      "Tax Invoice (Faktur Pajak)",
+      "Proforma Invoice",
+      "Billing Invoice",
+      "Service Invoice",
+      "Purchase Order Invoice",
+      "Credit Note",
+      "Debit Note",
+      "Sales Invoice",
+      "Rent Invoice",
+      "Freelance Invoice",
+      "Contractor Invoice",
+      "Any other invoice type"
+    ],
+    "document_identification": "Look at document header or title. Common indicators: 'INVOICE', 'BILL', 'TAGIHAN', 'FAKTUR', 'TAX INVOICE', 'COMMERCIAL INVOICE', 'PROFORMA INVOICE'",
+    "party_identification": "Usually has TWO parties: (1) Vendor/Seller/From (who issues invoice) - usually at TOP LEFT, (2) Customer/Buyer/Bill To (who receives invoice) - usually at TOP RIGHT or below vendor",
+    "items_table_finding": "Find the MAIN TABLE in the invoice. Common columns (in ANY order): No., Description/Item/Product, Qty/Quantity, Unit Price/Price, Amount/Total. Table might have header like 'ITEM DETAILS', 'INVOICE DETAILS', 'SERVICES', etc.",
+    "column_header_variations": {
+      "item_description": ["Description", "Item", "Product", "Service", "Deskripsi", "Nama Barang", "Keterangan", "Details"],
+      "quantity": ["Qty", "Quantity", "Jumlah", "Unit", "Banyaknya", "Amount"],
+      "unit_price": ["Unit Price", "Price", "Rate", "Harga Satuan", "Harga", "Unit Cost"],
+      "amount": ["Amount", "Total", "Subtotal", "Line Total", "Jumlah", "Sub Total"],
+      "discount": ["Discount", "Disc", "Potongan", "Diskon"],
+      "tax": ["Tax", "VAT", "PPN", "GST"]
+    },
+    "currency_handling": "Remove ALL currency symbols and text: 'Rp', 'IDR', 'USD', '$', 'Rupiah', 'Dollar'. Keep only numbers. Accept formats: '1.234.567,89', '1,234,567.89', '1234567'. Convert to simple number string.",
+    "empty_values": "If cell is empty, blank, or shows '-', use empty string ''. Don't use 'N/A' or '0' for empty fields.",
+    "date_parsing": "Accept ANY date format: 'DD/MM/YYYY', 'DD-MM-YYYY', 'YYYY-MM-DD', 'DD MMM YYYY', 'Month DD, YYYY', etc. Keep original format if uncertain.",
+    "items_completeness": "⚠️ CRITICAL: Extract EVERY SINGLE ROW in the items table. Don't stop after a few rows. Count the rows and make sure your array has the same count.",
+    "total_calculation": "The 'total' or 'grand total' is THE MOST IMPORTANT field. Always extract it. Usually at bottom right of invoice, might be highlighted or in bold.",
+    "special_cases": {
+      "no_items_table": "Some simple invoices don't have item tables, just single description and total. Extract what's available.",
+      "multi_page_invoice": "If invoice spans multiple pages, extract items from ALL pages.",
+      "summary_only": "If only summary is visible, extract summary. Items can be empty array.",
+      "tax_invoice": "For Tax Invoice / Faktur Pajak format, also extract DPP (taxable amount), PPN amount, and final total.",
+      "foreign_currency": "If invoice is in foreign currency (USD, EUR, etc.), extract currency field and keep amounts as-is."
+    }
+  },
+  "validation_rules": {
+    "flexibility_first": "⚠️ IMPORTANT: Flexibility is MORE important than perfection. Extract what you can, even if incomplete.",
+    "currency_format": "Accept any format: 'Rp 1.234.567', '$1,234.56', '1234567', etc.",
+    "allowed_date_formats": ["DD/MM/YYYY", "DD-MM-YYYY", "YYYY-MM-DD", "DD MMM YYYY", "Month DD, YYYY", "ANY FORMAT"],
+    "items_validation": "Extract ALL items even if some fields are missing. It's OK if qty, unit price, or subtotal is empty for some rows.",
+    "totals_validation": "Don't validate math (subtotal + tax = total) - just extract what's shown. Different invoices handle calculations differently.",
+    "missing_data_ok": "If vendor name, customer name, or invoice number is unclear, use your best guess or leave empty. Don't fail extraction."
+  },
+  "examples": {
+    "commercial_invoice": {
+      "invoice_info": {
+        "invoice_number": "INV-2025-001",
+        "invoice_type": "Commercial Invoice",
+        "tanggal": "01/01/2025",
+        "currency": "IDR",
+        "payment_terms": "Net 30"
+      },
+      "vendor": {
+        "nama": "PT EXAMPLE INDONESIA",
+        "alamat": "Jl. Sudirman No. 123, Jakarta",
+        "npwp": "01.234.567.8-901.000"
+      },
+      "customer": {
+        "nama": "PT CUSTOMER ABC",
+        "alamat": "Jl. Thamrin No. 456, Jakarta"
+      },
+      "items": [
+        {
+          "no": "1",
+          "deskripsi": "Product A",
+          "qty": "10",
+          "satuan": "pcs",
+          "harga_satuan": "100000",
+          "subtotal": "1000000"
+        },
+        {
+          "no": "2",
+          "deskripsi": "Product B",
+          "qty": "5",
+          "satuan": "pcs",
+          "harga_satuan": "200000",
+          "subtotal": "1000000"
+        }
+      ],
+      "summary": {
+        "subtotal": "2000000",
+        "pajak_persen": "11",
+        "pajak_nilai": "220000",
+        "total": "2220000"
+      }
+    },
+    "service_invoice": {
+      "invoice_info": {
+        "invoice_number": "SVC-2025-042",
+        "invoice_type": "Service Invoice",
+        "tanggal": "15/01/2025"
+      },
+      "vendor": {
+        "nama": "FREELANCE CONSULTANT"
+      },
+      "customer": {
+        "nama": "PT CLIENT XYZ"
+      },
+      "items": [
+        {
+          "no": "1",
+          "deskripsi": "Consulting Services - January 2025",
+          "qty": "40",
+          "satuan": "hours",
+          "harga_satuan": "500000",
+          "subtotal": "20000000"
+        }
+      ],
+      "summary": {
+        "total": "20000000"
+      }
+    },
+    "simple_invoice": {
+      "invoice_info": {
+        "invoice_number": "001/2025",
+        "tanggal": "20/01/2025"
+      },
+      "vendor": {
+        "nama": "Toko ABC"
+      },
+      "additional": {
+        "keterangan": "Pembelian barang elektronik"
+      },
+      "summary": {
+        "total": "5000000"
+      },
+      "notes": "Simple invoice with minimal data"
+    }
+  }
+}

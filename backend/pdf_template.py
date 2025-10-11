@@ -343,19 +343,126 @@ def create_batch_pdf_export(batch_results: List[Dict[str, Any]], output_path: st
         elif document_type == 'pph21':
             headers = ["No", "Filename", "Nomor", "Nama", "Bruto"]
             col_widths = [0.4*inch, 2.2*inch, 1.5*inch, 2*inch, 1*inch]
-            
+
             data = []
+            try:
+                from exporters.pph21_exporter import PPh21Exporter
+                pph21_exporter = PPh21Exporter()
+            except ImportError:
+                pph21_exporter = None
+                logger.warning("⚠️ PPh21Exporter not available")
+
             for idx, result in enumerate(batch_results, start=1):
                 extracted_data = result.get('extracted_data', {})
-                
+
+                # Priority: smart_mapped > structured_data > extracted_data
+                smart_mapped = extracted_data.get('smart_mapped', {})
+                if smart_mapped and pph21_exporter:
+                    logger.info(f"✅ PDF Row {idx}: Using Smart Mapper data for PPh21")
+                    structured = pph21_exporter._convert_smart_mapped_to_structured(smart_mapped)
+                elif 'structured_data' in extracted_data:
+                    logger.info(f"⚠️ PDF Row {idx}: Using structured_data for PPh21")
+                    structured = extracted_data['structured_data']
+                else:
+                    logger.info(f"⚠️ PDF Row {idx}: Using raw extracted_data for PPh21")
+                    structured = extracted_data
+
                 data.append([
                     str(idx),
                     result.get('filename', 'N/A')[:30],
-                    extracted_data.get('nomor', 'N/A'),
-                    extracted_data.get('identitas_penerima_penghasilan', {}).get('nama', 'N/A')[:25],
-                    str(extracted_data.get('penghasilan_bruto', 0))
+                    structured.get('nomor', 'N/A'),
+                    structured.get('penerima_nama', 'N/A')[:25],
+                    str(structured.get('penghasilan_bruto', '0'))
                 ])
-        
+
+        elif document_type == 'pph23':
+            headers = ["No", "Filename", "Nomor", "Nama", "DPP", "PPh"]
+            col_widths = [0.4*inch, 2*inch, 1.3*inch, 1.8*inch, 1*inch, 1*inch]
+
+            data = []
+            try:
+                from exporters.pph23_exporter import PPh23Exporter
+                pph23_exporter = PPh23Exporter()
+            except ImportError:
+                pph23_exporter = None
+                logger.warning("⚠️ PPh23Exporter not available")
+
+            for idx, result in enumerate(batch_results, start=1):
+                extracted_data = result.get('extracted_data', {})
+
+                # Priority: smart_mapped > structured_data > extracted_data
+                smart_mapped = extracted_data.get('smart_mapped', {})
+                if smart_mapped and pph23_exporter:
+                    logger.info(f"✅ PDF Row {idx}: Using Smart Mapper data for PPh23")
+                    structured = pph23_exporter._convert_smart_mapped_to_structured(smart_mapped)
+                elif 'structured_data' in extracted_data:
+                    logger.info(f"⚠️ PDF Row {idx}: Using structured_data for PPh23")
+                    structured = extracted_data['structured_data']
+                else:
+                    logger.info(f"⚠️ PDF Row {idx}: Using raw extracted_data for PPh23")
+                    structured = extracted_data
+
+                data.append([
+                    str(idx),
+                    result.get('filename', 'N/A')[:30],
+                    structured.get('nomor', 'N/A'),
+                    structured.get('penerima_nama', 'N/A')[:25],
+                    str(structured.get('dpp', '0')),
+                    str(structured.get('pph', '0'))
+                ])
+
+        elif document_type == 'rekening_koran':
+            headers = ["No", "Filename", "Tanggal", "Kredit", "Debet", "Saldo"]
+            col_widths = [0.4*inch, 2*inch, 1*inch, 1.2*inch, 1.2*inch, 1.2*inch]
+
+            data = []
+            try:
+                from exporters.rekening_koran_exporter import RekeningKoranExporter
+                rk_exporter = RekeningKoranExporter()
+            except ImportError:
+                rk_exporter = None
+                logger.warning("⚠️ RekeningKoranExporter not available")
+
+            for idx, result in enumerate(batch_results, start=1):
+                extracted_data = result.get('extracted_data', {})
+
+                # Priority: smart_mapped > structured_data > extracted_data
+                smart_mapped = extracted_data.get('smart_mapped', {})
+                if smart_mapped and rk_exporter:
+                    logger.info(f"✅ PDF Row {idx}: Using Smart Mapper data for Rekening Koran")
+                    structured = rk_exporter._convert_smart_mapped_to_structured(smart_mapped)
+                elif 'structured_data' in extracted_data:
+                    logger.info(f"⚠️ PDF Row {idx}: Using structured_data for Rekening Koran")
+                    structured = extracted_data['structured_data']
+                else:
+                    logger.info(f"⚠️ PDF Row {idx}: Using raw extracted_data for Rekening Koran")
+                    structured = extracted_data
+
+                # Handle single transaction vs array
+                transaksi = structured.get('transaksi', [])
+                if transaksi and isinstance(transaksi, list) and len(transaksi) > 0:
+                    # Use first transaction for summary
+                    first_trans = transaksi[0]
+                    tanggal = first_trans.get('tanggal', 'N/A')
+                    kredit = first_trans.get('kredit', '-')
+                    debet = first_trans.get('debet', '-')
+                    saldo = first_trans.get('saldo', 'N/A')
+                else:
+                    # Single transaction
+                    tanggal = structured.get('tanggal', 'N/A')
+                    kredit = structured.get('kredit', '-')
+                    debet = structured.get('debet', '-')
+                    saldo = structured.get('saldo', 'N/A')
+
+                data.append([
+                    str(idx),
+                    result.get('filename', 'N/A')[:30],
+                    str(tanggal)[:12],
+                    str(kredit)[:15] if kredit not in ['', '0', 0] else '-',
+                    str(debet)[:15] if debet not in ['', '0', 0] else '-',
+                    str(saldo)[:15]
+                ])
+
         else:
             headers = ["No", "Filename", "Type", "Confidence"]
             col_widths = [0.4*inch, 3*inch, 1.5*inch, 1*inch]

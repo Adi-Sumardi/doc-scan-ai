@@ -1,0 +1,220 @@
+{
+  "document_type": "rekening_koran",
+  "version": "2025-01-11-v2",
+  "description": "UNIVERSAL Bank Statement (Rekening Koran) schema for Smart Mapper. Designed to work with ALL Indonesian banks (BCA, Mandiri, BNI, BRI, CIMB, Permata, BTN, etc.). Captures bank account information and transaction history. Values should be strings unless explicitly noted.",
+  "important_note": "This template is FLEXIBLE - it will work even if some fields are missing. Focus on extracting whatever information IS available in the statement.",
+  "sections": [
+    {
+      "name": "bank_info",
+      "description": "Informasi rekening bank - Extract whatever bank information you can find",
+      "flexible": true,
+      "fields": [
+        {"name": "nama_bank", "label": "Nama Bank", "required": false, "notes": "Nama institusi bank. Look for: 'Bank BCA', 'Bank Mandiri', 'BNI', 'BRI', 'CIMB Niaga', 'Permata', 'BTN', 'Bank Syariah Indonesia', 'OCBC NISP', dll. Bisa juga logo atau header dokumen."},
+        {"name": "nomor_rekening", "label": "Nomor Rekening", "required": false, "format": "string", "notes": "Nomor rekening. Bisa berformat: '1234567890', '123-456-7890', '123 456 7890'. Cari label: 'Account Number', 'No. Rekening', 'Rekening', 'Account No'"},
+        {"name": "nama_pemilik", "label": "Nama Pemilik Rekening", "required": false, "notes": "Nama pemilik rekening. Cari label: 'Account Name', 'Nama', 'Name', 'Pemilik', 'Account Holder', 'Nama Nasabah'"},
+        {"name": "periode", "label": "Periode Statement", "required": false, "notes": "Periode statement. Format bisa: 'Januari 2025', '01/2025', '01-31 Jan 2025', '1 Jan - 31 Jan 2025'. Cari label: 'Periode', 'Period', 'Statement Period', 'Bulan'"},
+        {"name": "alamat", "label": "Alamat", "required": false, "notes": "Alamat pemilik/cabang jika ada"},
+        {"name": "jenis_rekening", "label": "Jenis Rekening", "required": false, "notes": "Jenis rekening: 'Tabungan', 'Giro', 'Saving Account', 'Current Account', dll"},
+        {"name": "cabang", "label": "Cabang Bank", "required": false, "notes": "Nama cabang bank jika tertulis"}
+      ]
+    },
+    {
+      "name": "saldo_info",
+      "description": "Informasi saldo - Extract balance information if available",
+      "flexible": true,
+      "fields": [
+        {"name": "saldo_awal", "label": "Saldo Awal", "required": false, "format": "currency", "notes": "Saldo awal periode. Cari label: 'Saldo Awal', 'Opening Balance', 'Beginning Balance', 'Previous Balance'. Format angka: '1.234.567,89' atau '1234567.89'"},
+        {"name": "saldo_akhir", "label": "Saldo Akhir", "required": false, "format": "currency", "notes": "Saldo akhir periode. Cari label: 'Saldo Akhir', 'Ending Balance', 'Closing Balance', 'Current Balance', 'Total Balance'"},
+        {"name": "total_kredit", "label": "Total Kredit", "required": false, "format": "currency", "notes": "Total uang masuk dalam periode (jika ada summary)"},
+        {"name": "total_debet", "label": "Total Debet", "required": false, "format": "currency", "notes": "Total uang keluar dalam periode (jika ada summary)"},
+        {"name": "mata_uang", "label": "Mata Uang", "required": false, "notes": "Mata uang: 'IDR', 'Rp', 'Rupiah', 'USD', dll. Default: IDR"}
+      ]
+    },
+    {
+      "name": "transactions",
+      "description": "CRITICAL: Extract ALL transactions from the bank statement table. This is the MOST IMPORTANT section.",
+      "is_array": true,
+      "flexible": true,
+      "notes": "PENTING: Ekstrak SEMUA transaksi yang terlihat dalam tabel mutasi. Setiap baris dalam tabel = 1 transaksi. Jangan skip transaksi apapun!",
+      "fields": [
+        {"name": "tanggal", "label": "Tanggal", "required": false, "format": "flexible", "notes": "Tanggal transaksi. Format bisa: 'DD/MM/YYYY', 'DD-MM-YYYY', 'DD MMM', 'DD/MM', '01 JAN', dll. Kolom ini biasanya di kolom paling kiri tabel."},
+        {"name": "keterangan", "label": "Keterangan", "required": false, "notes": "Deskripsi transaksi. Cari kolom dengan header: 'Keterangan', 'Description', 'Remarks', 'Details', 'Transaction Details', 'Uraian'. Bisa berisi: 'TRANSFER', 'ATM WITHDRAWAL', 'BIAYA ADM', 'SETORAN TUNAI', dll."},
+        {"name": "kredit", "label": "Kredit/Uang Masuk", "required": false, "format": "currency", "notes": "Uang masuk. Cari kolom: 'Kredit', 'Credit', 'CR', 'Mutasi Kredit', 'Debit' (beberapa bank pakai istilah Debit untuk uang masuk). Kosongkan jika tidak ada nilai. Format: '1.234.567' atau '1234567'"},
+        {"name": "debet", "label": "Debet/Uang Keluar", "required": false, "format": "currency", "notes": "Uang keluar. Cari kolom: 'Debet', 'Debit', 'DB', 'Mutasi Debet', 'Credit' (beberapa bank pakai istilah Credit untuk uang keluar). Kosongkan jika tidak ada nilai."},
+        {"name": "mutasi", "label": "Mutasi", "required": false, "format": "currency", "notes": "Beberapa bank hanya punya 1 kolom 'Mutasi' dengan nilai positif (+) untuk kredit dan negatif (-) untuk debet. Extract nilai dengan tanda +/- nya."},
+        {"name": "saldo", "label": "Saldo", "required": false, "format": "currency", "notes": "Saldo setelah transaksi. Cari kolom: 'Saldo', 'Balance', 'Running Balance', 'Saldo Akhir'. Biasanya di kolom paling kanan."},
+        {"name": "referensi", "label": "Referensi", "required": false, "notes": "Nomor referensi/trace number jika ada. Cari: 'Ref', 'Reference', 'Trace', 'No. Ref'"},
+        {"name": "cabang", "label": "Cabang", "required": false, "notes": "Kode cabang transaksi jika ada"},
+        {"name": "valuta", "label": "Valuta", "required": false, "notes": "Nilai tukar jika transaksi valas"}
+      ]
+    }
+  ],
+  "output_schema": {
+    "bank_info": {
+      "nama_bank": "string",
+      "nomor_rekening": "string",
+      "nama_pemilik": "string",
+      "periode": "string",
+      "alamat": "string",
+      "jenis_rekening": "string",
+      "cabang": "string"
+    },
+    "saldo_info": {
+      "saldo_awal": "string",
+      "saldo_akhir": "string",
+      "total_kredit": "string",
+      "total_debet": "string",
+      "mata_uang": "string"
+    },
+    "transactions": [
+      {
+        "tanggal": "string",
+        "keterangan": "string",
+        "kredit": "string",
+        "debet": "string",
+        "mutasi": "string",
+        "saldo": "string",
+        "referensi": "string",
+        "cabang": "string",
+        "valuta": "string"
+      }
+    ],
+    "notes": "string",
+    "confidence": "number"
+  },
+  "extraction_instructions": {
+    "general_approach": "BE FLEXIBLE! Every bank has different format. Focus on extracting whatever data IS available, even if incomplete.",
+    "bank_identification": "Look at document header, logo, or footer. Common banks: BCA, Mandiri, BNI, BRI, CIMB Niaga, Permata, BTN, Danamon, Mega, Panin, OCBC NISP, UOB, Maybank, Bank Syariah Indonesia (BSI), Jenius, Neo Bank, dll.",
+    "account_info_location": "Account info usually at top of document. Look for patterns like '123-456-7890' or '1234567890' near labels 'Rekening', 'Account', 'No. Rek'.",
+    "transaction_table_finding": "Find the MAIN TABLE in the document. It usually has these columns (in ANY order): Tanggal/Date, Keterangan/Description/Remarks, Debet/DB/Debit, Kredit/CR/Credit, Saldo/Balance. Table might start with 'MUTASI REKENING', 'TRANSACTION LIST', 'RINCIAN TRANSAKSI', etc.",
+    "column_header_variations": {
+      "date": ["Tanggal", "Date", "Tgl", "Transaction Date", "TGL TRANSAKSI"],
+      "description": ["Keterangan", "Description", "Remarks", "Details", "Uraian", "Transaction Details", "Keterangan Transaksi"],
+      "debit_out": ["Debet", "Debit", "DB", "Mutasi Debet", "Pengeluaran", "Keluar", "Withdrawal"],
+      "credit_in": ["Kredit", "Credit", "CR", "Mutasi Kredit", "Pemasukan", "Masuk", "Deposit"],
+      "balance": ["Saldo", "Balance", "Saldo Akhir", "Running Balance", "Bal"],
+      "reference": ["Referensi", "Reference", "Ref", "No. Ref", "Trace"]
+    },
+    "currency_handling": "Remove ALL currency symbols and text: 'Rp', 'IDR', 'Rupiah'. Keep only numbers. Accept formats: '1.234.567,89', '1,234,567.89', '1234567', '-1234567' (for negative). Convert to simple number string.",
+    "empty_values": "If cell is empty, blank, or shows '-', use empty string ''. Don't use 'N/A' or '0' for empty currency fields.",
+    "date_parsing": "Accept ANY date format you see: 'DD/MM/YYYY', 'DD-MM-YYYY', 'DD/MM', 'DD MMM', 'DD MMM YYYY', '01 JAN 2025'. Keep original format if uncertain.",
+    "transaction_completeness": "⚠️ CRITICAL: Extract EVERY SINGLE ROW in the transaction table. Don't stop after a few rows. Count the rows in the table and make sure your array has the same count.",
+    "balance_direction": "Some banks show balance going DOWN as you scroll (newest first), others show balance going UP (oldest first). Both are valid.",
+    "special_cases": {
+      "single_mutation_column": "Some banks (like BRI) only have 1 'Mutasi' column with + for credit and - for debit. Put positive values in 'kredit' and negative in 'debet' OR put in 'mutasi' field with the sign.",
+      "no_balance_column": "Some statements don't show running balance, only opening and closing. That's OK, extract what's available.",
+      "multi_page": "If statement spans multiple pages, extract transactions from ALL pages.",
+      "summary_section": "Don't confuse 'RINGKASAN' or 'SUMMARY' section with transactions. Extract actual transaction rows only."
+    }
+  },
+  "validation_rules": {
+    "flexibility_first": "⚠️ IMPORTANT: Flexibility is MORE important than perfection. Extract what you can, even if incomplete.",
+    "normalize_account_number": false,
+    "currency_format": "Accept any format: 'Rp 1.234.567', '1,234,567.89', '1234567', '-1234567'",
+    "allowed_date_formats": ["DD/MM/YYYY", "DD-MM-YYYY", "YYYY-MM-DD", "DD MMM YYYY", "DD/MM", "DD MMM", "ANY FORMAT"],
+    "transaction_validation": "Extract ALL transactions even if some fields are missing. It's OK if kredit, debet, or saldo is empty for some rows.",
+    "balance_calculation": "Don't validate balance math - just extract what's shown. Different banks handle this differently.",
+    "missing_data_ok": "If bank name, account number, or period is unclear, use your best guess or leave empty. Don't fail extraction."
+  },
+  "examples": {
+    "bca_format": {
+      "bank_info": {
+        "nama_bank": "Bank BCA",
+        "nomor_rekening": "1234567890",
+        "nama_pemilik": "PT EXAMPLE INDONESIA",
+        "periode": "Januari 2025"
+      },
+      "saldo_info": {
+        "saldo_awal": "10000000",
+        "saldo_akhir": "12500000"
+      },
+      "transactions": [
+        {
+          "tanggal": "01/01/2025",
+          "keterangan": "TRANSFER MASUK DARI JOHN",
+          "kredit": "5000000",
+          "debet": "",
+          "saldo": "15000000"
+        },
+        {
+          "tanggal": "02/01/2025",
+          "keterangan": "BIAYA ADM BULANAN",
+          "kredit": "",
+          "debet": "15000",
+          "saldo": "14985000"
+        }
+      ]
+    },
+    "mandiri_format": {
+      "bank_info": {
+        "nama_bank": "Bank Mandiri",
+        "nomor_rekening": "123-00-4567890-1",
+        "nama_pemilik": "BUDI SANTOSO",
+        "periode": "01/01/2025 - 31/01/2025"
+      },
+      "saldo_info": {
+        "saldo_awal": "5000000",
+        "saldo_akhir": "7500000"
+      },
+      "transactions": [
+        {
+          "tanggal": "01 JAN",
+          "keterangan": "SETORAN TUNAI",
+          "kredit": "3000000",
+          "debet": "",
+          "saldo": "8000000"
+        }
+      ]
+    },
+    "bri_format_with_mutation": {
+      "bank_info": {
+        "nama_bank": "Bank BRI",
+        "nomor_rekening": "0001-01-123456-50-3",
+        "nama_pemilik": "SITI RAHMA"
+      },
+      "transactions": [
+        {
+          "tanggal": "15/01",
+          "keterangan": "TRANSFER KE 9876543210",
+          "mutasi": "-500000",
+          "saldo": "4500000"
+        },
+        {
+          "tanggal": "16/01",
+          "keterangan": "TERIMA TRANSFER",
+          "mutasi": "+1000000",
+          "saldo": "5500000"
+        }
+      ]
+    },
+    "minimal_extraction": {
+      "bank_info": {
+        "nama_bank": "Bank Unknown",
+        "nomor_rekening": "9876543210"
+      },
+      "transactions": [
+        {
+          "tanggal": "01/01",
+          "keterangan": "TRANSAKSI 1",
+          "kredit": "100000"
+        },
+        {
+          "tanggal": "02/01",
+          "keterangan": "TRANSAKSI 2",
+          "debet": "50000"
+        }
+      ],
+      "notes": "Minimal data extracted - some fields unavailable"
+    }
+  },
+  "common_bank_formats": {
+    "BCA": "Columns: Tanggal | Keterangan | CBG | Mutasi (split: Debet/Kredit) | Saldo",
+    "Mandiri": "Columns: Tgl | Keterangan | Debet | Kredit | Saldo",
+    "BNI": "Columns: Tanggal | Uraian | Debet | Kredit | Saldo",
+    "BRI": "Columns: Tanggal | Keterangan | Mutasi (+/-) | Saldo",
+    "CIMB_Niaga": "Columns: Date | Description | Withdrawal | Deposit | Balance",
+    "Permata": "Columns: Tgl Transaksi | Keterangan | Debet | Kredit | Saldo",
+    "BTN": "Columns: Tanggal | Keterangan Transaksi | Debet | Kredit | Saldo Akhir",
+    "note": "Every bank is different! Use these as reference but be flexible."
+  }
+}

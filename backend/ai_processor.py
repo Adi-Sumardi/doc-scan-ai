@@ -9,6 +9,7 @@ import os
 import asyncio
 import logging
 from typing import Dict, Any
+from pathlib import Path
 
 # Import modular components
 from ocr_processor import RealOCRProcessor
@@ -18,6 +19,7 @@ from confidence_calculator import (
     detect_document_type_from_filename,
     validate_extracted_data
 )
+from pdf_chunker import pdf_chunker
 
 logger = logging.getLogger(__name__)
 
@@ -52,30 +54,39 @@ parser = IndonesianTaxDocumentParser()
 async def process_document_ai(file_path: str, document_type: str) -> Dict[str, Any]:
     """
     Main orchestrator function - Coordinates OCR → Parse → Confidence → Export
-    
+
     Args:
         file_path: Path to document file
         document_type: Type of document (faktur_pajak, pph21, pph23, rekening_koran, invoice)
-    
+
     Returns:
         Dictionary with extracted_data, confidence, raw_text, processing_time
     """
     start_time = asyncio.get_event_loop().time()
     try:
         logger.info(f"🔍 Processing {document_type} document: {file_path}")
-        
+
         # Validate file exists
         if not os.path.exists(file_path):
             raise Exception(f"File not found: {file_path}")
-        
+
         # Auto-detect document type from filename if needed
         if '.' in document_type and len(document_type) > 10:
             logger.warning(f"⚠️ Document type looks like filename: {document_type}")
             detected_type = detect_document_type_from_filename(document_type)
             logger.info(f"🔍 Auto-detected document type: {detected_type}")
             document_type = detected_type
-        
-        # STEP 1: Extract text using OCR
+
+        # SPECIAL HANDLING: Check if PDF needs chunking (for rekening_koran with 10+ pages)
+        file_ext = Path(file_path).suffix.lower()
+        is_pdf = file_ext == '.pdf'
+        is_rekening_koran = document_type in ['rekening_koran', 'rekening koran']
+
+        if is_pdf and is_rekening_koran and pdf_chunker.needs_chunking(file_path, threshold=10):
+            logger.info("📚 Multi-page rekening koran detected - using chunked processing")
+            return await _process_document_chunked(file_path, document_type, start_time)
+
+        # STEP 1: Extract text using OCR (normal flow for single documents or small PDFs)
         extracted_text = await ocr_processor.extract_text(file_path)
         
         if not extracted_text:
@@ -185,8 +196,76 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
                         logger.warning("⚠️ No raw OCR response available for Smart Mapper")
         elif document_type == 'rekening_koran':
             extracted_data = parser.parse_rekening_koran(extracted_text)
+            # Merge structured fields from Google Document AI if available
+            ocr_metadata = ocr_processor.get_last_ocr_metadata()
+            if ocr_metadata:
+                cloud_fields = ocr_metadata.get('extracted_fields', {})
+                if cloud_fields:
+                    logger.info("✅ Merging structured data from Google Document AI for Rekening Koran")
+                    extracted_data['extracted_content']['structured_fields'] = cloud_fields
+            # Apply Smart Mapper for Rekening Koran
+            if HAS_SMART_MAPPER and smart_mapper_service and isinstance(extracted_data, dict):
+                template = smart_mapper_service.load_template(document_type)
+                ocr_metadata = ocr_processor.get_last_ocr_metadata()
+                ocr_meta_dict = ocr_metadata if isinstance(ocr_metadata, dict) else {}
+                raw_response = ocr_meta_dict.get('raw_response')
+                if template and raw_response:
+                    logger.info("🤖 Applying Smart Mapper GPT-4o for Rekening Koran")
+                    mapped = smart_mapper_service.map_document(
+                        doc_type=document_type,
+                        document_json=raw_response,
+                        template=template,
+                        extracted_fields=ocr_meta_dict.get('extracted_fields'),
+                        fallback_fields=extracted_data.get('structured_data'),
+                    )
+                    if mapped:
+                        logger.info("✅ Smart Mapper Rekening Koran successful!")
+                        extracted_data.setdefault('structured_data', {})
+                        extracted_data['structured_data']['smart_mapper'] = mapped
+                        extracted_data['smart_mapped'] = mapped
+                    else:
+                        logger.warning("⚠️ Smart Mapper Rekening Koran returned no data")
+                else:
+                    if not template:
+                        logger.warning(f"⚠️ No template found for {document_type}")
+                    if not raw_response:
+                        logger.warning("⚠️ No raw OCR response available for Smart Mapper")
         elif document_type == 'invoice':
             extracted_data = parser.parse_invoice(extracted_text)
+            # Merge structured fields from Google Document AI if available
+            ocr_metadata = ocr_processor.get_last_ocr_metadata()
+            if ocr_metadata:
+                cloud_fields = ocr_metadata.get('extracted_fields', {})
+                if cloud_fields:
+                    logger.info("✅ Merging structured data from Google Document AI for Invoice")
+                    extracted_data['extracted_content']['structured_fields'] = cloud_fields
+            # Apply Smart Mapper for Invoice
+            if HAS_SMART_MAPPER and smart_mapper_service and isinstance(extracted_data, dict):
+                template = smart_mapper_service.load_template(document_type)
+                ocr_metadata = ocr_processor.get_last_ocr_metadata()
+                ocr_meta_dict = ocr_metadata if isinstance(ocr_metadata, dict) else {}
+                raw_response = ocr_meta_dict.get('raw_response')
+                if template and raw_response:
+                    logger.info("🤖 Applying Smart Mapper GPT-4o for Invoice")
+                    mapped = smart_mapper_service.map_document(
+                        doc_type=document_type,
+                        document_json=raw_response,
+                        template=template,
+                        extracted_fields=ocr_meta_dict.get('extracted_fields'),
+                        fallback_fields=extracted_data.get('structured_data'),
+                    )
+                    if mapped:
+                        logger.info("✅ Smart Mapper Invoice successful!")
+                        extracted_data.setdefault('structured_data', {})
+                        extracted_data['structured_data']['smart_mapper'] = mapped
+                        extracted_data['smart_mapped'] = mapped
+                    else:
+                        logger.warning("⚠️ Smart Mapper Invoice returned no data")
+                else:
+                    if not template:
+                        logger.warning(f"⚠️ No template found for {document_type}")
+                    if not raw_response:
+                        logger.warning("⚠️ No raw OCR response available for Smart Mapper")
         else:
             logger.warning(f"⚠️ Unknown document type: {document_type}, defaulting to faktur_pajak")
             extracted_data = parser.parse_faktur_pajak(extracted_text, file_path=file_path)
@@ -325,6 +404,126 @@ def create_batch_pdf_export(batch_id: str, results: list, output_path: str) -> b
 # ============================================================================
 # BACKWARD COMPATIBILITY - Re-export classes for existing code
 # ============================================================================
+
+async def _process_document_chunked(file_path: str, document_type: str, start_time: float) -> Dict[str, Any]:
+    """
+    Process large multi-page PDF by splitting into chunks
+
+    Args:
+        file_path: Path to PDF file
+        document_type: Document type
+        start_time: Processing start time
+
+    Returns:
+        Merged extraction result from all chunks
+    """
+    try:
+        page_count = pdf_chunker.get_page_count(file_path)
+        logger.info(f"📚 Processing {page_count}-page rekening koran in chunks")
+
+        # Split PDF into chunks
+        chunks = pdf_chunker.split_pdf_to_chunks(file_path)
+
+        if not chunks:
+            raise Exception("Failed to split PDF into chunks")
+
+        logger.info(f"✅ Split into {len(chunks)} chunks")
+
+        # Process each chunk
+        chunk_results = []
+
+        for i, chunk_info in enumerate(chunks, 1):
+            logger.info(f"🔄 Processing chunk {i}/{len(chunks)}: pages {chunk_info['start_page']}-{chunk_info['end_page']}")
+
+            try:
+                # Extract text from chunk
+                chunk_text = await ocr_processor.extract_text(chunk_info['path'])
+
+                if not chunk_text:
+                    logger.warning(f"⚠️ Chunk {i} extraction failed - skipping")
+                    continue
+
+                # Parse chunk (rekening_koran specific)
+                chunk_extracted_data = parser.parse_rekening_koran(chunk_text)
+
+                # Apply Smart Mapper if available
+                if HAS_SMART_MAPPER and smart_mapper_service:
+                    template = smart_mapper_service.load_template(document_type)
+                    ocr_metadata = ocr_processor.get_last_ocr_metadata()
+                    ocr_meta_dict = ocr_metadata if isinstance(ocr_metadata, dict) else {}
+                    raw_response = ocr_meta_dict.get('raw_response')
+
+                    if template and raw_response:
+                        logger.info(f"🤖 Applying Smart Mapper to chunk {i}")
+                        mapped = smart_mapper_service.map_document(
+                            doc_type=document_type,
+                            document_json=raw_response,
+                            template=template,
+                            extracted_fields=ocr_meta_dict.get('extracted_fields'),
+                            fallback_fields=chunk_extracted_data.get('structured_data'),
+                        )
+                        if mapped:
+                            chunk_extracted_data.setdefault('structured_data', {})
+                            chunk_extracted_data['structured_data']['smart_mapper'] = mapped
+                            chunk_extracted_data['smart_mapped'] = mapped
+
+                # Store chunk result
+                chunk_result = {
+                    'extracted_data': chunk_extracted_data,
+                    'raw_text': chunk_text,
+                    'extracted_text': chunk_text,
+                    'chunk_number': i,
+                    'pages': f"{chunk_info['start_page']}-{chunk_info['end_page']}"
+                }
+
+                chunk_results.append(chunk_result)
+                logger.info(f"✅ Chunk {i} processed successfully")
+
+            except Exception as e:
+                logger.error(f"❌ Error processing chunk {i}: {e}")
+                # Continue with other chunks
+
+        # Cleanup chunk files
+        chunk_paths = [c['path'] for c in chunks]
+        pdf_chunker.cleanup_chunks(chunk_paths)
+
+        if not chunk_results:
+            raise Exception("All chunks failed to process")
+
+        # Merge results
+        logger.info(f"🔗 Merging {len(chunk_results)} chunk results")
+        merged_result = pdf_chunker.merge_extracted_data(chunk_results, document_type)
+
+        # Calculate final confidence
+        final_confidence = calculate_confidence(
+            merged_result.get('extracted_data', {}),
+            document_type
+        )
+
+        # Calculate processing time
+        processing_time = asyncio.get_event_loop().time() - start_time
+
+        # Return final result
+        final_result = {
+            'document_type': document_type,
+            'extracted_data': merged_result.get('extracted_data', {}),
+            'raw_text': merged_result.get('raw_text', ''),
+            'extracted_text': merged_result.get('extracted_text', ''),
+            'confidence': final_confidence,
+            'total_processing_time': processing_time,
+            'ocr_engine_used': 'Google Document AI (Chunked)',
+            'chunks_processed': len(chunk_results),
+            'total_pages': page_count
+        }
+
+        logger.info(f"✅ Chunked processing complete: {len(chunk_results)} chunks, {page_count} pages, {processing_time:.2f}s")
+
+        return final_result
+
+    except Exception as e:
+        logger.error(f"❌ Chunked processing failed: {e}", exc_info=True)
+        raise
+
 
 # Re-export for backward compatibility
 __all__ = [
