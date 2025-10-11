@@ -109,15 +109,21 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const pollBatchStatus = async (batchId: string) => {
+    console.log(`🚀 Starting polling for batch ${batchId.slice(-8)}`);
+
     const pollInterval = setInterval(async () => {
       // Check if component is still mounted
       if (!isMountedRef.current) {
+        console.log(`⚠️ Component unmounted, stopping polling for batch ${batchId.slice(-8)}`);
         clearInterval(pollInterval);
         return;
       }
 
+      console.log(`🔄 Polling batch ${batchId.slice(-8)}...`);
+
       try {
         const updatedBatch = await apiService.getBatchStatus(batchId);
+        console.log(`📡 Batch ${batchId.slice(-8)} status:`, updatedBatch.status);
 
         // Only update state if still mounted
         if (isMountedRef.current) {
@@ -171,12 +177,14 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
           }
         }
       } catch (error) {
-        console.error('Polling error:', error);
+        console.error(`❌ Polling error for batch ${batchId.slice(-8)}:`, error);
         clearInterval(pollInterval);
         removePollingInterval(pollInterval);
       }
     }, 2000); // Poll every 2 seconds
+
     pollingIntervalsRef.current.push(pollInterval);
+    console.log(`✅ Polling interval added. Total active polls: ${pollingIntervalsRef.current.length}`);
 
     // Stop polling after 5 minutes as a safety measure
     const stopTimeout = setTimeout(() => {
