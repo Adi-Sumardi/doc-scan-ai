@@ -1,119 +1,18 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useDocument } from '../context/DocumentContext';
-import { 
-  FileText, 
-  Search, 
-  Filter, 
-  Download, 
-  Eye,
+import {
+  FileText,
+  Search,
+  Filter,
+  Download,
   Calendar,
-  CheckCircle,
-  AlertCircle,
-  X
+  CheckCircle
 } from 'lucide-react';
-import StructuredDataViewer from '../components/StructuredDataViewer';
-
-interface ViewModalProps {
-  result: any;
-  isOpen: boolean;
-  onClose: () => void;
-}
-
-const ViewModal: React.FC<ViewModalProps> = ({ result, isOpen, onClose }) => {
-  if (!isOpen || !result) return null;
-
-  const documentTypeLabels: Record<string, string> = {
-    faktur_pajak: 'Faktur Pajak',
-    pph21: 'PPh 21',
-    pph23: 'PPh 23', 
-    rekening_koran: 'Rekening Koran',
-    invoice: 'Invoice',
-    batch: 'Batch Export'
-  };
-
-  const renderExtractedData = () => {
-    const data = result.extracted_data;
-    
-    // Simplified and robust data rendering
-    if (!data || typeof data !== 'object' || Object.keys(data).length === 0) {
-      return (
-        <div className="bg-red-50 p-4 rounded-lg border border-red-200 text-center">
-          <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
-          <h4 className="text-lg font-semibold text-red-900 mb-2">No Data Extracted</h4>
-          <p className="text-red-700">
-            The AI could not extract structured data from this document. You can view the raw OCR text in the export files.
-          </p>
-        </div>
-      );
-    }
-    
-    // Universal pretty-JSON renderer
-    return <StructuredDataViewer data={data} />;
-  };
-
-  // Handle escape key to close modal
-  React.useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
-      // Prevent body scroll when modal is open
-      document.body.style.overflow = 'hidden';
-    }
-
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'unset';
-    };
-  }, [isOpen, onClose]);
-
-  return (
-    <div
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="modal-title"
-    >
-      <div
-        className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between p-6 border-b">
-          <div>
-            <h3 id="modal-title" className="text-xl font-semibold text-gray-900">{result.original_filename}</h3>
-            <p className="text-sm text-gray-600">
-              {documentTypeLabels[result.document_type] || result.document_type} •
-              Confidence: {((result.confidence ?? result.confidence_score ?? 0) * 100).toFixed(1)}%
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            aria-label="Close modal"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
-          {renderExtractedData()}
-        </div>
-      </div>
-    </div>
-  );
-};
 
 const Documents = () => {
   const { scanResults, exportResult, loading } = useDocument();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
-  const [selectedResult, setSelectedResult] = useState<any>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const documentTypeLabels: Record<string, string> = {
     faktur_pajak: 'Faktur Pajak',
@@ -138,21 +37,6 @@ const Documents = () => {
 
   const handleDownload = async (result: any, format: 'excel' | 'pdf') => {
     await exportResult(result.id, format);
-  };
-
-  const handleViewDocument = (result: any) => {
-    setSelectedResult(result);
-    setIsModalOpen(true);
-  };
-
-  const closeModal = () => {
-    setIsModalOpen(false);
-    setSelectedResult(null);
-  };
-  const getConfidenceColor = (confidence: number) => {
-    if (confidence >= 0.9) return 'text-green-600 bg-green-100';
-    if (confidence >= 0.7) return 'text-yellow-600 bg-yellow-100';
-    return 'text-red-600 bg-red-100';
   };
 
   return (
@@ -215,7 +99,7 @@ const Documents = () => {
           {filteredResults.map((result) => (
             <div key={result.id} className="bg-white rounded-lg shadow-sm border scan-card hover:shadow-md transition-shadow">
               <div className="p-4 md:p-6">
-                <div className="flex items-start justify-between mb-3 md:mb-4">
+                <div className="flex items-start mb-3 md:mb-4">
                   <div className="flex items-center space-x-2 md:space-x-3 min-w-0 flex-1">
                     <FileText className="w-6 h-6 md:w-8 md:h-8 text-blue-600 flex-shrink-0" />
                     <div className="min-w-0 flex-1">
@@ -227,9 +111,6 @@ const Documents = () => {
                       </p>
                     </div>
                   </div>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium flex-shrink-0 ml-2 ${getConfidenceColor(result.confidence || result.confidence_score || 0)}`}>
-                    {(((result.confidence ?? 0) || (result.confidence_score ?? 0)) * 100).toFixed(1)}%
-                  </span>
                 </div>
 
                 <div className="space-y-2 md:space-y-3 mb-3 md:mb-4">
@@ -244,11 +125,11 @@ const Documents = () => {
                   </div>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => handleDownload(result, 'excel')}
                     disabled={loading}
-                    className="flex-1 px-2 md:px-3 py-2 text-xs md:text-sm bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-2 md:px-3 py-2 text-xs md:text-sm bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                     aria-label={`Download ${result.original_filename} as Excel`}
                   >
                     <Download className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
@@ -257,18 +138,11 @@ const Documents = () => {
                   <button
                     onClick={() => handleDownload(result, 'pdf')}
                     disabled={loading}
-                    className="flex-1 px-2 md:px-3 py-2 text-xs md:text-sm bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-2 md:px-3 py-2 text-xs md:text-sm bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                     aria-label={`Download ${result.original_filename} as PDF`}
                   >
                     <Download className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
                     PDF
-                  </button>
-                  <button
-                    onClick={() => handleViewDocument(result)}
-                    className="px-2 md:px-3 py-2 text-xs md:text-sm bg-gray-50 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
-                    aria-label={`View ${result.original_filename} details`}
-                  >
-                    <Eye className="w-3 h-3 md:w-4 md:h-4 inline mr-1" />
                   </button>
                 </div>
               </div>
@@ -276,13 +150,6 @@ const Documents = () => {
           ))}
         </div>
       )}
-      
-      {/* View Modal */}
-      <ViewModal 
-        result={selectedResult}
-        isOpen={isModalOpen}
-        onClose={closeModal}
-      />
     </div>
   );
 };
