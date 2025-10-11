@@ -1,10 +1,12 @@
 # 🚀 Production Update Guide - NGINX Setup
 
+**🌐 Domain**: https://docscan.adilabs.id
+
 ## Quick Update Commands (Copy-Paste Ready)
 
 ```bash
-# Connect to server
-ssh docScan@your-server-ip
+# Connect to server via Termius
+ssh docScan@docscan.adilabs.id
 
 # Navigate to project
 cd ~/doc-scan-ai
@@ -108,8 +110,8 @@ curl http://localhost:8000/api/health
 
 # Should return: {"status":"healthy"}
 
-# 2. Check frontend (replace with your domain)
-curl -I https://your-domain.com
+# 2. Check frontend
+curl -I https://docscan.adilabs.id
 
 # Should return: HTTP/1.1 200 OK
 
@@ -123,7 +125,7 @@ sudo tail -f /var/log/nginx/error.log
 ## 🧪 Testing After Update
 
 ### 1. Open browser and test:
-- Go to your domain: `https://your-domain.com`
+- Go to: **https://docscan.adilabs.id**
 - **Clear browser cache**: `Ctrl+F5` (Windows) or `Cmd+Shift+R` (Mac)
 
 ### 2. Upload Rekening Koran
@@ -302,12 +304,12 @@ pm2 restart all
 
 ## 📊 Nginx Configuration Reference
 
-**Example Nginx config for doc-scan-ai:**
+**Nginx config for docscan.adilabs.id:**
 
 ```nginx
 server {
     listen 80;
-    server_name your-domain.com;
+    server_name docscan.adilabs.id;
 
     # Redirect HTTP to HTTPS
     return 301 https://$server_name$request_uri;
@@ -315,11 +317,11 @@ server {
 
 server {
     listen 443 ssl http2;
-    server_name your-domain.com;
+    server_name docscan.adilabs.id;
 
-    # SSL certificates
-    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+    # SSL certificates (Let's Encrypt)
+    ssl_certificate /etc/letsencrypt/live/docscan.adilabs.id/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/docscan.adilabs.id/privkey.pem;
 
     # Frontend (Vite build output)
     root /home/docScan/doc-scan-ai/dist;
@@ -383,7 +385,7 @@ Update is successful when:
 - ✅ `dist/` folder contains index.html and assets/
 - ✅ Nginx reloaded without errors
 - ✅ Backend responding at http://localhost:8000/api/health
-- ✅ Frontend accessible at https://your-domain.com
+- ✅ Frontend accessible at https://docscan.adilabs.id
 - ✅ Can upload and process documents
 - ✅ Excel and PDF exports working
 - ✅ Smart Mapper AI working (check logs)
@@ -408,7 +410,7 @@ sudo nginx -s reload
 
 # Test endpoints
 curl http://localhost:8000/api/health
-curl -I https://your-domain.com
+curl -I https://docscan.adilabs.id
 
 # Check disk space
 df -h
@@ -422,4 +424,5 @@ ps aux | grep nginx
 ---
 
 **Last Updated**: October 11, 2025
-**For**: Nginx + PM2 + Python Backend Setup
+**Domain**: https://docscan.adilabs.id
+**Setup**: Nginx + PM2 + Python Backend + Vite Frontend
