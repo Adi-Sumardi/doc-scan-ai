@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, ReactNode, useRef } from 'react';
 import { apiService, Batch as ApiBatch, ScanResult as ApiScanResult } from '../services/api';
 import toast from 'react-hot-toast';
+import { useAuth } from './AuthContext';
 
 // Use API types
 export type DocumentFile = ApiBatch['files'][0];
@@ -25,6 +26,7 @@ interface DocumentContextType {
 const DocumentContext = createContext<DocumentContextType | undefined>(undefined);
 
 export const DocumentProvider = ({ children }: { children: ReactNode }) => {
+  const { isLoading: authLoading, isAuthenticated } = useAuth();
   const [batches, setBatches] = useState<Batch[]>([]);
   const [scanResults, setScanResults] = useState<ScanResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -33,11 +35,15 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   const pollingTimeoutsRef = useRef<NodeJS.Timeout[]>([]); // Track timeouts too
   const isMountedRef = useRef(true); // Track mount status
 
-  // Load initial data
+  // Load initial data ONLY after auth is ready
   React.useEffect(() => {
-    refreshAllData();
+    // Wait for auth to finish loading
+    if (!authLoading && isAuthenticated) {
+      console.log('🔄 Auth ready, loading data...');
+      refreshAllData();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authLoading, isAuthenticated]);
 
   // Cleanup polling intervals and timeouts on unmount to prevent memory leaks
   React.useEffect(() => {
@@ -191,23 +197,27 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
         apiService.getAllBatches(),
         apiService.getAllResults()
       ]);
-      
+
       if (batchesPromise.status === 'fulfilled' && Array.isArray(batchesPromise.value)) {
+        console.log(`✅ Loaded ${batchesPromise.value.length} batches`);
         setBatches(batchesPromise.value);
+      } else if (batchesPromise.status === 'rejected') {
+        console.error('❌ Failed to load batches:', batchesPromise.reason);
       }
 
       if (resultsPromise.status === 'fulfilled' && Array.isArray(resultsPromise.value)) {
+        console.log(`✅ Loaded ${resultsPromise.value.length} results`);
         setScanResults(resultsPromise.value);
+      } else if (resultsPromise.status === 'rejected') {
+        console.error('❌ Failed to load results:', resultsPromise.reason);
+      }
+
+      // Only show error toast if both failed
+      if (batchesPromise.status === 'rejected' && resultsPromise.status === 'rejected') {
+        toast.error('Failed to load data from server');
       }
     } catch (error) {
       console.error('Refresh all data error:', error);
-      // Handle network errors gracefully
-      if (error instanceof Error && error.message === 'Network Error') {
-        console.warn('Backend server is not accessible. Using offline mode.');
-        // Set empty data - no dummy data in production
-        setBatches([]);
-        setScanResults([]);
-      }
       toast.error('Failed to load data from server');
     } finally {
       setLoading(false);
