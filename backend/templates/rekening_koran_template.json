@@ -24,8 +24,8 @@
       "description": "Informasi saldo - Extract balance information if available",
       "flexible": true,
       "fields": [
-        {"name": "saldo_awal", "label": "Saldo Awal", "required": false, "format": "currency", "notes": "⚠️ CRITICAL: Saldo awal periode. Cari label: 'Saldo Awal', 'Opening Balance', 'Beginning Balance', 'Previous Balance', 'Saldo Bulan Lalu', 'Saldo Sebelumnya'. IMPORTANT: Bisa ada di FIRST TRANSACTION ROW dengan keterangan 'SALDO AWAL' (seperti BCA). Format angka: '1.234.567,89' atau '1234567.89' atau '953628332.69'"},
-        {"name": "saldo_akhir", "label": "Saldo Akhir", "required": false, "format": "currency", "notes": "⚠️ CRITICAL: Saldo akhir periode. Cari label: 'Saldo Akhir', 'Ending Balance', 'Closing Balance', 'Current Balance', 'Total Balance', 'Saldo Akhir Bulan'. IMPORTANT: Sering ada di BOTTOM/FOOTER halaman terakhir sebagai summary (contoh: 'SALDO AKHIR : 932,867,188.61'). Ini SANGAT PENTING - ALWAYS extract if found!"},
+        {"name": "saldo_awal", "label": "Saldo Awal", "required": false, "format": "currency", "notes": "⚠️ CRITICAL: Saldo awal periode. Cari label: 'Saldo Awal', 'Opening Balance', 'Beginning Balance', 'Previous Balance', 'Saldo Bulan Lalu', 'Saldo Sebelumnya'. IMPORTANT: Bisa ada di FIRST TRANSACTION ROW dengan keterangan 'SALDO AWAL' (seperti BCA). ⚠️ NUMBER FORMAT: If you see '953,628,332.69', remove the decimal part (.69) and remove commas to output '953628332'. DO NOT output '95362833269' - that's wrong! The comma is thousand separator, not decimal."},
+        {"name": "saldo_akhir", "label": "Saldo Akhir", "required": false, "format": "currency", "notes": "⚠️ CRITICAL: Saldo akhir periode. Cari label: 'Saldo Akhir', 'Ending Balance', 'Closing Balance', 'Current Balance', 'Total Balance', 'Saldo Akhir Bulan'. IMPORTANT: Sering ada di BOTTOM/FOOTER halaman terakhir sebagai summary (contoh: 'SALDO AKHIR : 932,867,188.61'). Ini SANGAT PENTING - ALWAYS extract if found! ⚠️ NUMBER FORMAT: Apply same decimal removal rule - '932,867,188.61' should become '932867188' (remove .61 and remove commas)."},
         {"name": "total_kredit", "label": "Total Kredit", "required": false, "format": "currency", "notes": "Total uang masuk dalam periode (jika ada summary/ringkasan)"},
         {"name": "total_debet", "label": "Total Debet", "required": false, "format": "currency", "notes": "Total uang keluar dalam periode (jika ada summary/ringkasan)"},
         {"name": "mata_uang", "label": "Mata Uang", "required": false, "notes": "Mata uang: 'IDR', 'Rp', 'Rupiah', 'USD', 'SGD', dll. Default: IDR jika tidak disebutkan"}
@@ -109,7 +109,7 @@
       "branch": ["CBG", "Cabang", "Branch", "Cab", "Kode Cabang"]
     },
 
-    "currency_handling": "Remove ALL currency symbols and text: 'Rp', 'IDR', 'Rupiah', 'USD'. Keep only numbers. Accept formats: '1.234.567,89' (Indonesian), '1,234,567.89' (International), '1234567', '-1234567' (negative). Convert to simple number string WITHOUT formatting (no dots, no commas).",
+    "currency_handling": "⚠️⚠️⚠️ SUPER CRITICAL NUMBER PARSING - READ CAREFULLY: When you see a number like '953,628,332.69', this is US/International format where COMMA = thousand separator and DOT = decimal point. Step-by-step process: STEP 1: Find the DOT (period/decimal point). If there is a DOT, DELETE everything from the dot onwards including the dot itself. '953,628,332.69' → DELETE '.69' → '953,628,332'. STEP 2: Now remove all commas. '953,628,332' → '953628332'. FINAL OUTPUT: '953628332'. ⚠️ WRONG EXAMPLE (DO NOT DO THIS): '953,628,332.69' → '95362833269' ← THIS IS WRONG! You removed separators but kept the decimal digits 69, making it 10x larger! ⚠️ RIGHT EXAMPLE: '953,628,332.69' → DELETE '.69' first → '953,628,332' → remove commas → '953628332' ✓ CORRECT! More examples: '932,867,188.61' → DELETE '.61' → '932,867,188' → '932867188', '1,234,567.89' → DELETE '.89' → '1,234,567' → '1234567'.",
 
     "empty_values": "If cell is empty, blank, or shows '-' or '0,00', use empty string ''. Don't use 'N/A', 'null', or '0' for empty currency fields.",
 
@@ -224,7 +224,7 @@
   "examples": {
     "bca_example": {
       "bank_info": {"nama_bank": "Bank BCA", "nomor_rekening": "1234567890", "nama_pemilik": "PT EXAMPLE", "periode": "Jan 2025"},
-      "saldo_info": {"saldo_awal": "10000000", "saldo_akhir": "12500000"},
+      "saldo_info": {"saldo_awal": "953628332", "saldo_akhir": "932867188", "notes": "Original values in PDF were '953,628,332.69' and '932,867,188.61' - decimals removed correctly"},
       "transactions": [
         {"tanggal": "01/01", "keterangan": "TRANSFER MASUK", "kredit": "5000000", "debet": "", "saldo": "15000000"},
         {"tanggal": "02/01", "keterangan": "BIAYA ADM", "kredit": "", "debet": "15000", "saldo": "14985000"}

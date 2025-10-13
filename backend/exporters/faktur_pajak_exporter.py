@@ -48,12 +48,88 @@ class FakturPajakExporter(BaseExporter):
             "PPN",
             "Total",
             "Invoice",
-            "Nama Barang Kena Pajak / Jasa Kena Pajak"
+            "Nama Barang Kena Pajak / Jasa Kena Pajak",
+            "Quantity",
+            "Nilai Barang"
         ]
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+    def _format_rupiah(self, value) -> str:
+        """Format number to Rupiah without decimals"""
+        if not value or value in ['-', 'N/A', '', '0', 0, 'None', 'null']:
+            return '-'
+        try:
+            # If already a number (int or float), convert to int first
+            if isinstance(value, (int, float)):
+                value_int = int(value)
+            else:
+                # If string, clean and parse
+                value_str = str(value).replace('Rp', '').replace('IDR', '').replace('.', '').replace(',', '').strip()
+                if not value_str or value_str == '-':
+                    return '-'
+                value_int = int(float(value_str))
+
+            if value_int == 0:
+                return '-'
+            formatted = f"Rp {value_int:,}"
+            formatted = formatted.replace(',', '.')
+            return formatted
+        except (ValueError, AttributeError):
+            logger.warning(f"⚠️ Failed to format rupiah value: {value}")
+            return str(value) if value else '-'
+
+    def _format_date(self, date_str) -> str:
+        """Format date to DD/MM/YYYY"""
+        if not date_str or date_str in ['N/A', '', 'None', 'null']:
+            return 'N/A'
+
+        import re
+        from datetime import datetime
+
+        date_str = str(date_str).strip()
+
+        # Try various date formats
+        formats = [
+            '%d/%m/%Y', '%d-%m-%Y', '%Y-%m-%d', '%Y/%m/%Y',
+            '%d %B %Y', '%d %b %Y', '%d-%m-%y', '%d/%m/%y',
+            '%d %B %Y', '%d %b %Y'  # Indonesian month names
+        ]
+
+        for fmt in formats:
+            try:
+                date_obj = datetime.strptime(date_str, fmt)
+                return date_obj.strftime('%d/%m/%Y')
+            except:
+                continue
+
+        # Try to parse "DD Bulan YYYY" format (current format in exporter)
+        # Example: "12 Oktober 2025"
+        month_map = {
+            'januari': 1, 'februari': 2, 'maret': 3, 'april': 4,
+            'mei': 5, 'juni': 6, 'juli': 7, 'agustus': 8,
+            'september': 9, 'oktober': 10, 'november': 11, 'desember': 12,
+            'january': 1, 'february': 2, 'march': 3, 'may': 5,
+            'june': 6, 'july': 7, 'august': 8, 'october': 10, 'december': 12
+        }
+
+        match = re.search(r'(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})', date_str, re.IGNORECASE)
+        if match:
+            day = int(match.group(1))
+            month_name = match.group(2).lower()
+            year = int(match.group(3))
+            month = month_map.get(month_name)
+            if month and 1 <= day <= 31:
+                return f"{day:02d}/{month:02d}/{year}"
+
+        # If no format worked, try to extract DD, MM, YYYY
+        match = re.search(r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})', date_str)
+        if match:
+            return f"{match.group(1).zfill(2)}/{match.group(2).zfill(2)}/{match.group(3)}"
+
+        return date_str  # Return as-is if can't format
+
     def _parse_amount(self, raw_value: Any) -> Any:
         """Convert Rupiah strings into integers for Excel numeric formatting."""
         if raw_value in (None, "", "N/A"):
@@ -73,6 +149,152 @@ class FakturPajakExporter(BaseExporter):
             except ValueError:
                 return text
         return text
+
+    def _create_items_description_list(self, items: list) -> str:
+        """
+        Create simple description list for items (no qty, no price)
+
+        Format for 1 item:
+        Laptop Dell Inspiron 15
+
+        Format for multiple items:
+        1. Laptop Dell
+        2. Mouse Wireless
+        3. Keyboard Mechanical
+        """
+        if not items or len(items) == 0:
+            return "N/A"
+
+        # If only 1 item, show simple format (just description)
+        if len(items) == 1:
+            item = items[0]
+            desc = item.get('description', 'N/A')
+            return desc
+
+        # Multiple items: Create numbered list with descriptions only
+        items_text = []
+        for idx, item in enumerate(items, start=1):
+            desc = item.get('description', 'N/A')
+            items_text.append(f"{idx}. {desc}")
+
+        return "\n".join(items_text)
+
+    def _calculate_total_quantity(self, items: list) -> str:
+        """
+        Calculate total quantity from all items
+        Returns formatted quantity string
+        """
+        if not items or len(items) == 0:
+            return "-"
+
+        total_qty = 0
+        for item in items:
+            qty_str = item.get('quantity', '-')
+            if qty_str and qty_str != '-':
+                try:
+                    import re
+                    qty_clean = re.sub(r'[^\d.]', '', str(qty_str))
+                    if qty_clean:
+                        qty = float(qty_clean)
+                        total_qty += qty
+                except:
+                    pass
+
+        if total_qty == 0:
+            return "-"
+
+        # Return integer if whole number, otherwise with decimals
+        if total_qty == int(total_qty):
+            return str(int(total_qty))
+        else:
+            return f"{total_qty:.2f}"
+
+    def _calculate_total_nilai_barang(self, items: list) -> str:
+        """
+        Calculate total nilai barang (quantity × unit_price for all items)
+        Returns formatted rupiah string
+        """
+        if not items or len(items) == 0:
+            return "-"
+
+        grand_total = 0
+        for idx, item in enumerate(items, 1):
+            qty_str = item.get('quantity', '-')
+            price_str = item.get('unit_price', '-')
+
+            # Parse quantity
+            qty = 0
+            if qty_str and qty_str != '-':
+                try:
+                    import re
+                    qty_clean = re.sub(r'[^\d.]', '', str(qty_str))
+                    if qty_clean:
+                        qty = float(qty_clean)
+                except:
+                    qty = 0
+
+            # Parse price - handle Indonesian format (dots as thousand separator, comma as decimal)
+            price = 0
+            if price_str and price_str != '-':
+                try:
+                    import re
+                    price_text = str(price_str).strip()
+
+                    # Remove currency symbols
+                    price_text = price_text.replace('Rp', '').replace('IDR', '').strip()
+
+                    # Detect format based on separators
+                    has_comma = ',' in price_text
+                    has_dot = '.' in price_text
+
+                    if has_comma and has_dot:
+                        # Both comma and dot present
+                        # Indonesian format: 5.000.000,00 (dots = thousand, comma = decimal)
+                        # Remove dots, replace comma with dot
+                        price_text = price_text.replace('.', '').replace(',', '.')
+                        price = float(price_text)
+                        # Buang decimal (take integer part only)
+                        price = int(price)
+                    elif has_comma and not has_dot:
+                        # Only comma: could be Indonesian 5000000,00 or mistake
+                        # Assume comma is decimal separator
+                        price_text = price_text.replace(',', '.')
+                        price = float(price_text)
+                        price = int(price)
+                    elif has_dot and not has_comma:
+                        # Only dot: could be Indonesian 5.000.000 or US 5000000.00
+                        # Count dots to determine
+                        dot_count = price_text.count('.')
+                        if dot_count >= 2:
+                            # Multiple dots = Indonesian thousand separator (5.000.000)
+                            price_text = price_text.replace('.', '')
+                            price = int(price_text)
+                        else:
+                            # Single dot - check position
+                            parts = price_text.split('.')
+                            if len(parts) == 2 and len(parts[1]) == 2:
+                                # Last part is 2 digits = decimal (5000000.00)
+                                price = float(price_text)
+                                price = int(price)
+                            else:
+                                # Probably thousand separator or just clean number
+                                price_text = price_text.replace('.', '')
+                                price = int(price_text)
+                    else:
+                        # No separators - just digits
+                        price = int(price_text)
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to parse price '{price_str}': {e}")
+                    price = 0
+
+            # Calculate subtotal (convert to int to avoid float issues)
+            subtotal = int(qty * price) if qty > 0 and price > 0 else 0
+            grand_total += subtotal
+
+        if grand_total == 0:
+            return "-"
+
+        return self._format_rupiah(grand_total)
 
     def _format_barang_jasa(self, value: Any) -> str:
         """Normalize barang/jasa data into a readable comma-separated list."""
@@ -498,15 +720,17 @@ class FakturPajakExporter(BaseExporter):
         
         # PRIORITY 1: Use Smart Mapper data if available
         smart_mapped = extracted_data.get('smart_mapped', {})
+        items = []  # Store items for nested table
         if smart_mapped:
             logger.info("✅ Using Smart Mapper GPT data for Excel export (CLEAN, NO POST-PROCESSING)")
             # Smart Mapper data is already clean from GPT-4o, no need for _prepare_structured_fields()
             structured = self._convert_smart_mapped_to_structured(smart_mapped)
+            items = smart_mapped.get('items', [])  # Get items for nested table
         else:
             # FALLBACK: Use legacy structured_data
             logger.info("⚠️ Smart Mapper not available, using legacy parser with post-processing")
             structured = extracted_data.get('structured_data', {})
-            
+
             # If no structured data, try to extract from text
             if not structured or not any(structured.values()):
                 if raw_text:
@@ -520,7 +744,7 @@ class FakturPajakExporter(BaseExporter):
         row = 1
         
         # ===== TITLE =====
-        ws.merge_cells(f'A{row}:J{row}')
+        ws.merge_cells(f'A{row}:L{row}')
         ws[f'A{row}'] = "📋 FAKTUR PAJAK - DATA TERSTRUKTUR"
         ws[f'A{row}'].font = Font(bold=True, size=14, color="FFFFFF")
         ws[f'A{row}'].fill = header_fill
@@ -540,27 +764,61 @@ class FakturPajakExporter(BaseExporter):
         # ===== DATA ROW =====
         data_row = [
             structured.get('nama') or 'N/A',
-            structured.get('tanggal') or 'N/A',
+            self._format_date(structured.get('tanggal')) or 'N/A',  # Format date
             structured.get('npwp') or 'N/A',
             structured.get('nomor_faktur') or 'N/A',
             structured.get('alamat') or 'N/A',
-            self._parse_amount(structured.get('dpp')),
-            self._parse_amount(structured.get('ppn')),
-            self._parse_amount(structured.get('total')),
+            self._format_rupiah(structured.get('dpp')),  # Format rupiah
+            self._format_rupiah(structured.get('ppn')),  # Format rupiah
+            self._format_rupiah(structured.get('total')),  # Format rupiah
             structured.get('invoice') or 'N/A',
-            structured.get('nama_barang_jasa') or 'N/A'
         ]
-        
+
+        # Write data row (columns 1-9)
         for col_idx, value in enumerate(data_row, start=1):
             cell = ws.cell(row=row, column=col_idx, value=value)
             cell.fill = data_fill
-            if col_idx in (6, 7, 8) and isinstance(value, (int, float)):
-                cell.alignment = right_align
-                cell.number_format = '#,##0'
-            else:
-                cell.alignment = left_align
+            cell.alignment = left_align
             cell.border = border_thin
             cell.font = Font(size=10)
+
+        # Column 10: Nama Barang/Jasa (descriptions only)
+        if items and len(items) > 0:
+            desc_text = self._create_items_description_list(items)
+            cell = ws.cell(row=row, column=10, value=desc_text)
+            cell.fill = data_fill
+            cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+            cell.border = border_thin
+            cell.font = Font(size=10)
+        else:
+            # No items from smart mapper, use fallback text
+            cell = ws.cell(row=row, column=10, value=structured.get('nama_barang_jasa') or 'N/A')
+            cell.fill = data_fill
+            cell.alignment = left_align
+            cell.border = border_thin
+            cell.font = Font(size=10)
+
+        # Column 11: Quantity (total)
+        if items and len(items) > 0:
+            qty_text = self._calculate_total_quantity(items)
+        else:
+            qty_text = '-'
+        cell = ws.cell(row=row, column=11, value=qty_text)
+        cell.fill = data_fill
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        cell.border = border_thin
+        cell.font = Font(size=10)
+
+        # Column 12: Nilai Barang (total)
+        if items and len(items) > 0:
+            nilai_text = self._calculate_total_nilai_barang(items)
+        else:
+            nilai_text = '-'
+        cell = ws.cell(row=row, column=12, value=nilai_text)
+        cell.fill = data_fill
+        cell.alignment = Alignment(horizontal='right', vertical='center')
+        cell.border = border_thin
+        cell.font = Font(size=10)
         
         # Auto-adjust column widths
         ws.column_dimensions['A'].width = 20  # Nama
@@ -572,10 +830,18 @@ class FakturPajakExporter(BaseExporter):
         ws.column_dimensions['G'].width = 15  # PPN
         ws.column_dimensions['H'].width = 15  # Total
         ws.column_dimensions['I'].width = 18  # Invoice
-        ws.column_dimensions['J'].width = 45  # Nama Barang/Jasa
-        
-        # Set row height for data row
-        ws.row_dimensions[3].height = 40
+        ws.column_dimensions['J'].width = 40  # Nama Barang/Jasa
+        ws.column_dimensions['K'].width = 12  # Quantity
+        ws.column_dimensions['L'].width = 18  # Nilai Barang
+
+        # Set row height for data row (increase if multiple items)
+        if items and len(items) > 1:
+            # Calculate height based on number of items
+            # Each item line ~15px, padding ~10px
+            estimated_height = (len(items) * 15) + 10
+            ws.row_dimensions[3].height = min(estimated_height, 150)  # Max 150
+        else:
+            ws.row_dimensions[3].height = 40
     
     def export_to_pdf(self, result: Dict[str, Any], output_path: str) -> bool:
         """
@@ -614,7 +880,7 @@ class FakturPajakExporter(BaseExporter):
             row = 1
             
             # ===== BATCH INFO =====
-            ws.merge_cells(f'A{row}:J{row}')
+            ws.merge_cells(f'A{row}:L{row}')
             ws[f'A{row}'] = f"📦 BATCH: {batch_id} | Total: {len(results)} Documents | Export: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             ws[f'A{row}'].font = Font(bold=True, size=12, color="FFFFFF")
             ws[f'A{row}'].fill = header_fill
@@ -638,44 +904,86 @@ class FakturPajakExporter(BaseExporter):
             for idx, result_dict in enumerate(results):
                 # Get structured data
                 extracted_data = result_dict.get('extracted_data', {})
-                structured = extracted_data.get('structured_data', {})
                 raw_text = extracted_data.get('raw_text', '')
-                
-                # If no structured data, try to extract
-                if not structured or not any(structured.values()):
-                    raw_text = extracted_data.get('raw_text', '')
-                    if raw_text:
-                        structured = temp_parser.extract_structured_fields(raw_text, "faktur_pajak")
-                
-                structured = self._prepare_structured_fields(structured, raw_text)
 
-                # Data row
+                # PRIORITY: Use Smart Mapper data if available
+                smart_mapped = extracted_data.get('smart_mapped', {})
+                items = []
+                if smart_mapped:
+                    structured = self._convert_smart_mapped_to_structured(smart_mapped)
+                    items = smart_mapped.get('items', [])
+                else:
+                    structured = extracted_data.get('structured_data', {})
+                    # If no structured data, try to extract
+                    if not structured or not any(structured.values()):
+                        if raw_text:
+                            structured = temp_parser.extract_structured_fields(raw_text, "faktur_pajak")
+                    structured = self._prepare_structured_fields(structured, raw_text)
+
+                # Data row (without Nama Barang/Jasa yet)
                 data_row = [
                     structured.get('nama') or 'N/A',
-                    structured.get('tanggal') or 'N/A',
+                    self._format_date(structured.get('tanggal')) or 'N/A',  # Format date
                     structured.get('npwp') or 'N/A',
                     structured.get('nomor_faktur') or 'N/A',
                     structured.get('alamat') or 'N/A',
-                    self._parse_amount(structured.get('dpp')),
-                    self._parse_amount(structured.get('ppn')),
-                    self._parse_amount(structured.get('total')),
+                    self._format_rupiah(structured.get('dpp')),  # Format rupiah
+                    self._format_rupiah(structured.get('ppn')),  # Format rupiah
+                    self._format_rupiah(structured.get('total')),  # Format rupiah
                     structured.get('invoice') or 'N/A',
-                    structured.get('nama_barang_jasa') or 'N/A'
                 ]
-                
+
                 fill = data_fill_1 if idx % 2 == 0 else data_fill_2
-                
+
+                # Write data row (columns 1-9)
                 for col_idx, value in enumerate(data_row, start=1):
                     cell = ws.cell(row=row, column=col_idx, value=value)
                     cell.fill = fill
-                    if col_idx in (6, 7, 8) and isinstance(value, (int, float)):
-                        cell.alignment = right_align
-                        cell.number_format = '#,##0'
-                    else:
-                        cell.alignment = left_align
+                    cell.alignment = left_align
                     cell.border = border_thin
                     cell.font = Font(size=10)
-                
+
+                # Column 10: Nama Barang/Jasa (descriptions only)
+                if items and len(items) > 0:
+                    desc_text = self._create_items_description_list(items)
+                    cell = ws.cell(row=row, column=10, value=desc_text)
+                    cell.fill = fill
+                    cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
+                    cell.border = border_thin
+                    cell.font = Font(size=10)
+                    # Set row height for multiple items
+                    if len(items) > 1:
+                        estimated_height = (len(items) * 15) + 10
+                        ws.row_dimensions[row].height = min(estimated_height, 150)
+                else:
+                    cell = ws.cell(row=row, column=10, value=structured.get('nama_barang_jasa') or 'N/A')
+                    cell.fill = fill
+                    cell.alignment = left_align
+                    cell.border = border_thin
+                    cell.font = Font(size=10)
+
+                # Column 11: Quantity (total)
+                if items and len(items) > 0:
+                    qty_text = self._calculate_total_quantity(items)
+                else:
+                    qty_text = '-'
+                cell = ws.cell(row=row, column=11, value=qty_text)
+                cell.fill = fill
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = border_thin
+                cell.font = Font(size=10)
+
+                # Column 12: Nilai Barang (total)
+                if items and len(items) > 0:
+                    nilai_text = self._calculate_total_nilai_barang(items)
+                else:
+                    nilai_text = '-'
+                cell = ws.cell(row=row, column=12, value=nilai_text)
+                cell.fill = fill
+                cell.alignment = Alignment(horizontal='right', vertical='center')
+                cell.border = border_thin
+                cell.font = Font(size=10)
+
                 row += 1
             
             # Auto-adjust column widths
@@ -688,7 +996,9 @@ class FakturPajakExporter(BaseExporter):
             ws.column_dimensions['G'].width = 15
             ws.column_dimensions['H'].width = 15
             ws.column_dimensions['I'].width = 18
-            ws.column_dimensions['J'].width = 45
+            ws.column_dimensions['J'].width = 40
+            ws.column_dimensions['K'].width = 12
+            ws.column_dimensions['L'].width = 18
 
             wb.save(output_path)
             logger.info(f"✅ Batch Faktur Pajak Excel export created: {output_path} with {len(results)} documents")

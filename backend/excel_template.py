@@ -300,9 +300,11 @@ def create_batch_excel_export(batch_results: List[Dict[str, Any]], output_path: 
                 "PPN",
                 "Total",
                 "Invoice",
-                "Nama Barang Kena Pajak / Jasa Kena Pajak"
+                "Nama Barang Kena Pajak / Jasa Kena Pajak",
+                "Quantity",
+                "Nilai Barang"
             ]
-            widths = [25, 14, 22, 22, 45, 18, 18, 18, 18, 50]
+            widths = [25, 14, 22, 22, 45, 18, 18, 18, 18, 50, 12, 18]
         elif document_type == 'pph21':
             headers = ["No", "Filename", "Nomor", "Masa Pajak", "Nama", "NPWP/NIK", "Bruto", "PPh", "Confidence"]
             widths = [5, 25, 20, 15, 25, 20, 15, 15, 12]
@@ -326,9 +328,11 @@ def create_batch_excel_export(batch_results: List[Dict[str, Any]], output_path: 
             if document_type == 'faktur_pajak':
                 # PRIORITY 1: Use Smart Mapper data if available (already clean from GPT-4o)
                 smart_mapped = extracted_data.get('smart_mapped', {})
+                items = []
                 if smart_mapped and faktur_sanitizer:
                     logger.info(f"✅ Row {idx}: Using Smart Mapper GPT data (CLEAN, NO POST-PROCESSING)")
                     cleaned = faktur_sanitizer._convert_smart_mapped_to_structured(smart_mapped)
+                    items = smart_mapped.get('items', [])
                 else:
                     # FALLBACK: Use legacy structured_data with post-processing
                     logger.info(f"⚠️ Row {idx}: Smart Mapper not available, using legacy parser")
@@ -337,18 +341,30 @@ def create_batch_excel_export(batch_results: List[Dict[str, Any]], output_path: 
                         structured_data,
                         extracted_data.get('raw_text', '')
                     ) if faktur_sanitizer else structured_data
-                
+
+                # Get nama barang/jasa, quantity, and nilai barang
+                if items and len(items) > 0 and faktur_sanitizer:
+                    nama_barang = faktur_sanitizer._create_items_description_list(items)
+                    quantity = faktur_sanitizer._calculate_total_quantity(items)
+                    nilai_barang = faktur_sanitizer._calculate_total_nilai_barang(items)
+                else:
+                    nama_barang = cleaned.get('nama_barang_jasa') or 'N/A'
+                    quantity = '-'
+                    nilai_barang = '-'
+
                 row_data = [
                     cleaned.get('nama') or 'N/A',
-                    cleaned.get('tanggal') or 'N/A',
+                    faktur_sanitizer._format_date(cleaned.get('tanggal')) if faktur_sanitizer else (cleaned.get('tanggal') or 'N/A'),
                     cleaned.get('npwp') or 'N/A',
                     cleaned.get('nomor_faktur') or 'N/A',
                     cleaned.get('alamat') or 'N/A',
-                    cleaned.get('dpp') or 'N/A',
-                    cleaned.get('ppn') or 'N/A',
-                    cleaned.get('total') or 'N/A',
+                    faktur_sanitizer._format_rupiah(cleaned.get('dpp')) if faktur_sanitizer else (cleaned.get('dpp') or 'N/A'),
+                    faktur_sanitizer._format_rupiah(cleaned.get('ppn')) if faktur_sanitizer else (cleaned.get('ppn') or 'N/A'),
+                    faktur_sanitizer._format_rupiah(cleaned.get('total')) if faktur_sanitizer else (cleaned.get('total') or 'N/A'),
                     cleaned.get('invoice') or 'N/A',
-                    cleaned.get('nama_barang_jasa') or 'N/A'
+                    nama_barang,
+                    quantity,
+                    nilai_barang
                 ]
             elif document_type == 'pph21':
                 row_data = [

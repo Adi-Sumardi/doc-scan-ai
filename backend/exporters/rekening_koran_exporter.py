@@ -57,13 +57,15 @@ class RekeningKoranExporter(BaseExporter):
             return '-'
 
         try:
-            # Convert to string and clean
-            value_str = str(value).replace('Rp', '').replace('IDR', '').replace('.', '').replace(',', '').strip()
-            if not value_str or value_str == '-':
-                return '-'
-
-            # Convert to integer (remove decimals)
-            value_int = int(float(value_str))
+            # If already a number (int or float), convert to int first
+            if isinstance(value, (int, float)):
+                value_int = int(value)
+            else:
+                # If string, clean and parse
+                value_str = str(value).replace('Rp', '').replace('IDR', '').replace('.', '').replace(',', '').strip()
+                if not value_str or value_str == '-':
+                    return '-'
+                value_int = int(float(value_str))
 
             if value_int == 0:
                 return '-'
@@ -161,6 +163,105 @@ class RekeningKoranExporter(BaseExporter):
 
         return cleaned
 
+    def _extract_year_from_periode(self, periode: str) -> str:
+        """
+        Extract year from periode string.
+        Examples:
+        - "Januari 2025" → "2025"
+        - "01/2025" → "2025"
+        - "01/01/2025 - 31/01/2025" → "2025"
+        - "Jan 2025" → "2025"
+        """
+        if not periode or not isinstance(periode, str):
+            return None
+
+        import re
+        # Look for 4-digit year
+        year_match = re.search(r'\b(20\d{2})\b', periode)
+        if year_match:
+            return year_match.group(1)
+
+        return None
+
+    def _complete_date_with_year(self, date_str: str, year: str) -> str:
+        """
+        Complete date that only has DD/MM with year from periode.
+        Examples:
+        - "01/01" + "2025" → "01/01/2025"
+        - "15/03" + "2025" → "15/03/2025"
+        - "01 JAN" + "2025" → "01/01/2025"
+        - "01/01/2025" + "2025" → "01/01/2025" (no change, already complete)
+        """
+        if not date_str or not isinstance(date_str, str):
+            return date_str
+
+        date_str = date_str.strip()
+
+        # If already has 4-digit year, return as-is
+        import re
+        if re.search(r'\b20\d{2}\b', date_str):
+            return date_str
+
+        # If format is DD/MM (like "01/01"), add year
+        if re.match(r'^\d{1,2}/\d{1,2}$', date_str):
+            return f"{date_str}/{year}" if year else date_str
+
+        # If format is DD-MM (like "01-01"), add year
+        if re.match(r'^\d{1,2}-\d{1,2}$', date_str):
+            return f"{date_str}/{year}" if year else date_str
+
+        # If format is DD MMM (like "01 JAN"), convert to DD/MM/YYYY
+        month_match = re.match(r'^(\d{1,2})\s+(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)', date_str, re.IGNORECASE)
+        if month_match and year:
+            day = month_match.group(1).zfill(2)
+            month_name = month_match.group(2).upper()
+            month_map = {
+                'JAN': '01', 'FEB': '02', 'MAR': '03', 'APR': '04',
+                'MAY': '05', 'JUN': '06', 'JUL': '07', 'AUG': '08',
+                'SEP': '09', 'OCT': '10', 'NOV': '11', 'DEC': '12'
+            }
+            month = month_map.get(month_name, '01')
+            return f"{day}/{month}/{year}"
+
+        return date_str
+
+    def _fix_misread_amount(self, value: str) -> str:
+        """
+        Fix amounts misread by GPT when it confuses decimal separators.
+
+        Example: GPT returns "953,628,332.69" (US format with decimals)
+        Solution: Remove currency, then split by '.' and take only integer part
+
+        Logic:
+        - If has comma AND dot: "953,628,332.69" → remove decimals → "953,628,332"
+        - Return cleaned number (remove Rp, commas, etc. for storage)
+        """
+        if not value or not isinstance(value, str):
+            return value
+
+        logger.info(f"🔍 _fix_misread_amount INPUT: '{value}' (type: {type(value).__name__})")
+        original = value
+        # Remove currency symbols first
+        value = value.replace('Rp', '').replace('IDR', '').strip()
+
+        # If has both comma and dot (US format with decimals like "953,628,332.69")
+        # Split by dot and take only the integer part (before dot)
+        if ',' in value and '.' in value:
+            # Check which comes last (dot should be last for decimals)
+            last_comma = value.rfind(',')
+            last_dot = value.rfind('.')
+
+            if last_dot > last_comma:
+                # Dot is decimal separator, remove everything after it
+                value = value.split('.')[0]  # "953,628,332.69" → "953,628,332"
+                logger.info(f"🔧 Removed decimals: {original} → {value}")
+
+        # Now clean for storage (remove commas and dots for pure number)
+        cleaned = value.replace('.', '').replace(',', '').strip()
+
+        logger.info(f"🔍 _fix_misread_amount OUTPUT: '{cleaned}'")
+        return cleaned if cleaned else value
+
     def _convert_smart_mapped_to_structured(self, smart_mapped: dict) -> dict:
         """Convert Smart Mapper output to structured format for Rekening Koran"""
         if not smart_mapped or not isinstance(smart_mapped, dict):
@@ -178,13 +279,18 @@ class RekeningKoranExporter(BaseExporter):
         structured['cabang'] = bank_info.get('cabang') or bank_info.get('branch') or ''
         structured['alamat'] = bank_info.get('alamat') or bank_info.get('address') or ''
 
-        # Extract saldo info
+        # Extract year from periode for completing dates
+        year = self._extract_year_from_periode(structured['periode'])
+        if year:
+            logger.info(f"✅ Extracted year from periode: {year}")
+
+        # Extract saldo info (with misread amount fix)
         saldo_info = smart_mapped.get('saldo_info', {}) or {}
-        structured['saldo_awal'] = saldo_info.get('saldo_awal') or saldo_info.get('opening_balance') or ''
-        structured['saldo_akhir'] = saldo_info.get('saldo_akhir') or saldo_info.get('closing_balance') or saldo_info.get('ending_balance') or ''
+        structured['saldo_awal'] = self._fix_misread_amount(saldo_info.get('saldo_awal') or saldo_info.get('opening_balance') or '')
+        structured['saldo_akhir'] = self._fix_misread_amount(saldo_info.get('saldo_akhir') or saldo_info.get('closing_balance') or saldo_info.get('ending_balance') or '')
         structured['saldo'] = structured['saldo_akhir']  # Alias
-        structured['total_kredit'] = saldo_info.get('total_kredit') or saldo_info.get('total_credit') or ''
-        structured['total_debet'] = saldo_info.get('total_debet') or saldo_info.get('total_debit') or ''
+        structured['total_kredit'] = self._fix_misread_amount(saldo_info.get('total_kredit') or saldo_info.get('total_credit') or '')
+        structured['total_debet'] = self._fix_misread_amount(saldo_info.get('total_debet') or saldo_info.get('total_debit') or '')
 
         # Extract transactions with support for 'mutasi' field
         transactions = smart_mapped.get('transactions', []) or smart_mapped.get('transaksi', [])
@@ -217,12 +323,17 @@ class RekeningKoranExporter(BaseExporter):
                                 # If parsing fails, store as-is in kredit
                                 kredit = mutasi
 
+                    # Get transaction date and complete with year if needed
+                    tanggal_raw = trans.get('tanggal') or trans.get('date') or trans.get('transaction_date') or 'N/A'
+                    tanggal_complete = self._complete_date_with_year(tanggal_raw, year) if year else tanggal_raw
+
+                    # Fix misread amounts in transactions
                     transaction_item = {
-                        'tanggal': trans.get('tanggal') or trans.get('date') or trans.get('transaction_date') or 'N/A',
+                        'tanggal': tanggal_complete,
                         'keterangan': trans.get('keterangan') or trans.get('description') or trans.get('remarks') or trans.get('details') or 'N/A',
-                        'kredit': kredit,
-                        'debet': debet,
-                        'saldo': trans.get('saldo') or trans.get('balance') or trans.get('running_balance') or 'N/A',
+                        'kredit': self._fix_misread_amount(kredit) if kredit else '',
+                        'debet': self._fix_misread_amount(debet) if debet else '',
+                        'saldo': self._fix_misread_amount(trans.get('saldo') or trans.get('balance') or trans.get('running_balance') or ''),
                         'referensi': trans.get('referensi') or trans.get('reference') or trans.get('ref') or '',
                         'cabang': trans.get('cabang') or trans.get('branch') or ''
                     }

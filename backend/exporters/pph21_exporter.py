@@ -54,10 +54,16 @@ class PPh21Exporter(BaseExporter):
         if not value or value in ['-', 'N/A', '', '0', 0, 'None', 'null']:
             return '-'
         try:
-            value_str = str(value).replace('Rp', '').replace('IDR', '').replace('.', '').replace(',', '').strip()
-            if not value_str or value_str == '-':
-                return '-'
-            value_int = int(float(value_str))
+            # If already a number (int or float), convert to int first
+            if isinstance(value, (int, float)):
+                value_int = int(value)
+            else:
+                # If string, clean and parse
+                value_str = str(value).replace('Rp', '').replace('IDR', '').replace('.', '').replace(',', '').strip()
+                if not value_str or value_str == '-':
+                    return '-'
+                value_int = int(float(value_str))
+
             if value_int == 0:
                 return '-'
             formatted = f"Rp {value_int:,}"
