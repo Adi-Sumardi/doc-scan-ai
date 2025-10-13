@@ -203,10 +203,19 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   const refreshBatch = async (batchId: string) => {
     try {
       const updatedBatch = await apiService.getBatchStatus(batchId);
-      setBatches(prev => prev.map(batch => 
-        batch.id === batchId ? updatedBatch : batch
-      ));
-      
+      setBatches(prev => {
+        const batchExists = prev.some(batch => batch.id === batchId);
+        if (batchExists) {
+          // Update existing batch
+          return prev.map(batch =>
+            batch.id === batchId ? updatedBatch : batch
+          );
+        } else {
+          // Add new batch if it doesn't exist (e.g., from ZIP upload navigation)
+          return [...prev, updatedBatch];
+        }
+      });
+
       if (updatedBatch.status === 'completed') {
         const results = await apiService.getBatchResults(batchId);
         updateResultsForBatch(batchId, results);

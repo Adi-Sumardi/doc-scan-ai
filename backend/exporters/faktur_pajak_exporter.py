@@ -50,7 +50,8 @@ class FakturPajakExporter(BaseExporter):
             "Invoice",
             "Nama Barang Kena Pajak / Jasa Kena Pajak",
             "Quantity",
-            "Nilai Barang"
+            "Nilai Barang",
+            "Total Nilai Barang"
         ]
 
     # ------------------------------------------------------------------
@@ -209,6 +210,107 @@ class FakturPajakExporter(BaseExporter):
         else:
             return f"{total_qty:.2f}"
 
+    def _calculate_nilai_barang_satuan(self, items: list) -> str:
+        """
+        Get unit prices (nilai barang satuan) from ALL items, one per line
+        Returns formatted string with each item's unit price
+
+        Format for 1 item:
+        Rp 5.000.000
+
+        Format for multiple items:
+        1. Rp 5.000.000
+        2. Rp 3.000.000
+        3. Rp 7.500.000
+        """
+        if not items or len(items) == 0:
+            return "-"
+
+        # If only 1 item, show simple format (just price)
+        if len(items) == 1:
+            item = items[0]
+            price_str = item.get('unit_price', '-')
+            if not price_str or price_str == '-':
+                return "-"
+            price = self._parse_price(price_str)
+            if price == 0:
+                return "-"
+            return self._format_rupiah(price)
+
+        # Multiple items: Create numbered list with unit prices
+        price_lines = []
+        for idx, item in enumerate(items, start=1):
+            price_str = item.get('unit_price', '-')
+            if not price_str or price_str == '-':
+                price_lines.append(f"{idx}. -")
+            else:
+                price = self._parse_price(price_str)
+                if price == 0:
+                    price_lines.append(f"{idx}. -")
+                else:
+                    price_lines.append(f"{idx}. {self._format_rupiah(price)}")
+
+        return "\n".join(price_lines)
+
+    def _parse_price(self, price_str: str) -> int:
+        """
+        Parse price string to integer
+        Handles Indonesian format (dots as thousand separator, comma as decimal)
+        """
+        if not price_str or price_str == '-':
+            return 0
+
+        try:
+            import re
+            price_text = str(price_str).strip()
+
+            # Remove currency symbols
+            price_text = price_text.replace('Rp', '').replace('IDR', '').strip()
+
+            # Detect format based on separators
+            has_comma = ',' in price_text
+            has_dot = '.' in price_text
+
+            if has_comma and has_dot:
+                # Both comma and dot present
+                # Indonesian format: 5.000.000,00 (dots = thousand, comma = decimal)
+                # Remove dots, replace comma with dot
+                price_text = price_text.replace('.', '').replace(',', '.')
+                price = float(price_text)
+                # Buang decimal (take integer part only)
+                return int(price)
+            elif has_comma and not has_dot:
+                # Only comma: could be Indonesian 5000000,00 or mistake
+                # Assume comma is decimal separator
+                price_text = price_text.replace(',', '.')
+                price = float(price_text)
+                return int(price)
+            elif has_dot and not has_comma:
+                # Only dot: could be Indonesian 5.000.000 or US 5000000.00
+                # Count dots to determine
+                dot_count = price_text.count('.')
+                if dot_count >= 2:
+                    # Multiple dots = Indonesian thousand separator (5.000.000)
+                    price_text = price_text.replace('.', '')
+                    return int(price_text)
+                else:
+                    # Single dot - check position
+                    parts = price_text.split('.')
+                    if len(parts) == 2 and len(parts[1]) == 2:
+                        # Last part is 2 digits = decimal (5000000.00)
+                        price = float(price_text)
+                        return int(price)
+                    else:
+                        # Probably thousand separator or just clean number
+                        price_text = price_text.replace('.', '')
+                        return int(price_text)
+            else:
+                # No separators - just digits
+                return int(price_text)
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to parse unit price '{price_str}': {e}")
+            return 0
+
     def _calculate_total_nilai_barang(self, items: list) -> str:
         """
         Calculate total nilai barang (quantity × unit_price for all items)
@@ -233,59 +335,8 @@ class FakturPajakExporter(BaseExporter):
                 except:
                     qty = 0
 
-            # Parse price - handle Indonesian format (dots as thousand separator, comma as decimal)
-            price = 0
-            if price_str and price_str != '-':
-                try:
-                    import re
-                    price_text = str(price_str).strip()
-
-                    # Remove currency symbols
-                    price_text = price_text.replace('Rp', '').replace('IDR', '').strip()
-
-                    # Detect format based on separators
-                    has_comma = ',' in price_text
-                    has_dot = '.' in price_text
-
-                    if has_comma and has_dot:
-                        # Both comma and dot present
-                        # Indonesian format: 5.000.000,00 (dots = thousand, comma = decimal)
-                        # Remove dots, replace comma with dot
-                        price_text = price_text.replace('.', '').replace(',', '.')
-                        price = float(price_text)
-                        # Buang decimal (take integer part only)
-                        price = int(price)
-                    elif has_comma and not has_dot:
-                        # Only comma: could be Indonesian 5000000,00 or mistake
-                        # Assume comma is decimal separator
-                        price_text = price_text.replace(',', '.')
-                        price = float(price_text)
-                        price = int(price)
-                    elif has_dot and not has_comma:
-                        # Only dot: could be Indonesian 5.000.000 or US 5000000.00
-                        # Count dots to determine
-                        dot_count = price_text.count('.')
-                        if dot_count >= 2:
-                            # Multiple dots = Indonesian thousand separator (5.000.000)
-                            price_text = price_text.replace('.', '')
-                            price = int(price_text)
-                        else:
-                            # Single dot - check position
-                            parts = price_text.split('.')
-                            if len(parts) == 2 and len(parts[1]) == 2:
-                                # Last part is 2 digits = decimal (5000000.00)
-                                price = float(price_text)
-                                price = int(price)
-                            else:
-                                # Probably thousand separator or just clean number
-                                price_text = price_text.replace('.', '')
-                                price = int(price_text)
-                    else:
-                        # No separators - just digits
-                        price = int(price_text)
-                except Exception as e:
-                    logger.warning(f"⚠️ Failed to parse price '{price_str}': {e}")
-                    price = 0
+            # Parse price using helper function
+            price = self._parse_price(price_str)
 
             # Calculate subtotal (convert to int to avoid float issues)
             subtotal = int(qty * price) if qty > 0 and price > 0 else 0
@@ -742,9 +793,9 @@ class FakturPajakExporter(BaseExporter):
             structured = self._prepare_structured_fields(structured, raw_text)
         
         row = 1
-        
+
         # ===== TITLE =====
-        ws.merge_cells(f'A{row}:L{row}')
+        ws.merge_cells(f'A{row}:M{row}')
         ws[f'A{row}'] = "📋 FAKTUR PAJAK - DATA TERSTRUKTUR"
         ws[f'A{row}'].font = Font(bold=True, size=14, color="FFFFFF")
         ws[f'A{row}'].fill = header_fill
@@ -809,12 +860,23 @@ class FakturPajakExporter(BaseExporter):
         cell.border = border_thin
         cell.font = Font(size=10)
 
-        # Column 12: Nilai Barang (total)
+        # Column 12: Nilai Barang (satuan/unit price)
         if items and len(items) > 0:
-            nilai_text = self._calculate_total_nilai_barang(items)
+            nilai_satuan_text = self._calculate_nilai_barang_satuan(items)
         else:
-            nilai_text = '-'
-        cell = ws.cell(row=row, column=12, value=nilai_text)
+            nilai_satuan_text = '-'
+        cell = ws.cell(row=row, column=12, value=nilai_satuan_text)
+        cell.fill = data_fill
+        cell.alignment = Alignment(horizontal='left', vertical='center')
+        cell.border = border_thin
+        cell.font = Font(size=10)
+
+        # Column 13: Total Nilai Barang (qty × unit_price)
+        if items and len(items) > 0:
+            total_nilai_text = self._calculate_total_nilai_barang(items)
+        else:
+            total_nilai_text = '-'
+        cell = ws.cell(row=row, column=13, value=total_nilai_text)
         cell.fill = data_fill
         cell.alignment = Alignment(horizontal='right', vertical='center')
         cell.border = border_thin
@@ -832,7 +894,8 @@ class FakturPajakExporter(BaseExporter):
         ws.column_dimensions['I'].width = 18  # Invoice
         ws.column_dimensions['J'].width = 40  # Nama Barang/Jasa
         ws.column_dimensions['K'].width = 12  # Quantity
-        ws.column_dimensions['L'].width = 18  # Nilai Barang
+        ws.column_dimensions['L'].width = 18  # Nilai Barang (satuan)
+        ws.column_dimensions['M'].width = 20  # Total Nilai Barang
 
         # Set row height for data row (increase if multiple items)
         if items and len(items) > 1:
@@ -880,7 +943,7 @@ class FakturPajakExporter(BaseExporter):
             row = 1
             
             # ===== BATCH INFO =====
-            ws.merge_cells(f'A{row}:L{row}')
+            ws.merge_cells(f'A{row}:M{row}')
             ws[f'A{row}'] = f"📦 BATCH: {batch_id} | Total: {len(results)} Documents | Export: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             ws[f'A{row}'].font = Font(bold=True, size=12, color="FFFFFF")
             ws[f'A{row}'].fill = header_fill
@@ -973,19 +1036,30 @@ class FakturPajakExporter(BaseExporter):
                 cell.border = border_thin
                 cell.font = Font(size=10)
 
-                # Column 12: Nilai Barang (total)
+                # Column 12: Nilai Barang (satuan/unit price)
                 if items and len(items) > 0:
-                    nilai_text = self._calculate_total_nilai_barang(items)
+                    nilai_satuan_text = self._calculate_nilai_barang_satuan(items)
                 else:
-                    nilai_text = '-'
-                cell = ws.cell(row=row, column=12, value=nilai_text)
+                    nilai_satuan_text = '-'
+                cell = ws.cell(row=row, column=12, value=nilai_satuan_text)
+                cell.fill = fill
+                cell.alignment = Alignment(horizontal='left', vertical='center')
+                cell.border = border_thin
+                cell.font = Font(size=10)
+
+                # Column 13: Total Nilai Barang (qty × unit_price)
+                if items and len(items) > 0:
+                    total_nilai_text = self._calculate_total_nilai_barang(items)
+                else:
+                    total_nilai_text = '-'
+                cell = ws.cell(row=row, column=13, value=total_nilai_text)
                 cell.fill = fill
                 cell.alignment = Alignment(horizontal='right', vertical='center')
                 cell.border = border_thin
                 cell.font = Font(size=10)
 
                 row += 1
-            
+
             # Auto-adjust column widths
             ws.column_dimensions['A'].width = 20
             ws.column_dimensions['B'].width = 12
@@ -998,7 +1072,8 @@ class FakturPajakExporter(BaseExporter):
             ws.column_dimensions['I'].width = 18
             ws.column_dimensions['J'].width = 40
             ws.column_dimensions['K'].width = 12
-            ws.column_dimensions['L'].width = 18
+            ws.column_dimensions['L'].width = 18  # Nilai Barang (satuan)
+            ws.column_dimensions['M'].width = 20  # Total Nilai Barang
 
             wb.save(output_path)
             logger.info(f"✅ Batch Faktur Pajak Excel export created: {output_path} with {len(results)} documents")
