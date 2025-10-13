@@ -851,7 +851,7 @@ async def upload_zip_file(
 
         # Process extracted files
         file_paths = []
-        validation_results = []
+        file_objects = []
 
         for i, file_path in enumerate(extracted_files):
             try:
@@ -864,35 +864,38 @@ async def upload_zip_file(
                 import shutil
                 shutil.move(file_path, final_file_path)
 
+                # Generate file ID
+                file_id = str(uuid.uuid4())
+
+                # Get file size
+                file_size = Path(file_path).stat().st_size
+
                 # Create DocumentFile record
                 doc_file = DocumentFile(
+                    id=file_id,
                     batch_id=batch_id,
-                    filename=safe_filename,
-                    original_filename=original_filename,
-                    document_type=document_type,
+                    name=original_filename,
                     file_path=str(final_file_path),
+                    type=document_type,
+                    file_size=file_size,
                     status="pending"
                 )
                 db.add(doc_file)
                 file_paths.append(str(final_file_path))
 
-                validation_results.append({
-                    "is_valid": True,
-                    "errors": [],
-                    "warnings": [],
-                    "filename": original_filename
-                })
+                # Create file object for response
+                file_objects.append(DocumentFileModel(
+                    id=file_id,
+                    filename=original_filename,
+                    type=document_type,
+                    status="processing",
+                    progress=0
+                ))
 
                 logger.info(f"  ✅ Prepared file {i+1}/{len(extracted_files)}: {original_filename}")
 
             except Exception as e:
                 logger.error(f"Error processing extracted file {file_path}: {e}")
-                validation_results.append({
-                    "is_valid": False,
-                    "errors": [str(e)],
-                    "warnings": [],
-                    "filename": Path(file_path).name
-                })
 
         # Commit all DocumentFile records
         try:
@@ -934,11 +937,14 @@ async def upload_zip_file(
         logger.info(f"🚀 Started batch processing for {batch_id} with {len(file_paths)} files from ZIP")
 
         return BatchResponse(
-            batch_id=batch_id,
+            id=batch_id,
+            files=file_objects,
             status="processing",
-            file_count=len(file_paths),
-            message=f"Successfully extracted and processing {len(file_paths)} files from ZIP",
-            validation_results=validation_results
+            created_at=datetime.now(timezone.utc).isoformat(),
+            total_files=len(file_paths),
+            processed_files=0,
+            completed_at=None,
+            error=None
         )
 
     except HTTPException:

@@ -301,10 +301,10 @@ const Upload = () => {
       }
 
       const batch = await response.json();
-      toast.success(`ZIP uploaded! Processing ${batch.file_count} files...`);
+      toast.success(`ZIP uploaded! Processing ${batch.total_files} files...`);
 
       // Navigate to results
-      navigate(`/scan-results/${batch.batch_id}`);
+      navigate(`/scan-results/${batch.id}`);
     } catch (error) {
       console.error('ZIP upload failed:', error);
       toast.error(error instanceof Error ? error.message : 'ZIP upload failed');
