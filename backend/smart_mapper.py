@@ -37,7 +37,7 @@ class SmartMapper:
         self.api_key = os.getenv("SMART_MAPPER_API_KEY") or settings.smart_mapper_api_key
         self.timeout = int(os.getenv("SMART_MAPPER_TIMEOUT", str(settings.smart_mapper_timeout or 60)))
         self.temperature = float(os.getenv("SMART_MAPPER_TEMPERATURE", "0.1"))  # Lower for GPT-4o precision
-        self.max_tokens = int(os.getenv("SMART_MAPPER_MAX_TOKENS", "2500"))  # Higher for GPT-4o capability
+        self.max_tokens = int(os.getenv("SMART_MAPPER_MAX_TOKENS", "8000"))  # Increased for BCA statements with 90+ transactions
         self.enabled = (settings.smart_mapper_enabled or os.getenv("SMART_MAPPER_ENABLED", "true").lower() in {"1", "true", "yes"})
 
         if self.provider not in SUPPORTED_PROVIDERS:
@@ -153,21 +153,73 @@ class SmartMapper:
         sections = template.get("sections", [])
         output_schema = template.get("output_schema", {})
         validation = template.get("validation_rules", {})
+        extraction_instructions = template.get("extraction_instructions", {})
+        bank_hints = template.get("bank_specific_format_hints", {})
+        final_reminders = template.get("final_reminders", {})
 
         section_text = json.dumps(sections, ensure_ascii=False, indent=2)
         schema_text = json.dumps(output_schema, ensure_ascii=False, indent=2)
         rules_text = json.dumps(validation, ensure_ascii=False, indent=2)
 
-        return (
-            "Anda adalah asisten AI untuk memetakan dokumen pajak Indonesia. "
-            "Gunakan data dari Document AI dan hasil parser fallback bila tersedia. "
-            "Keluarkan JSON sesuai schema berikut tanpa komentar tambahan.\n\n"
-            f"Dokumen: {doc_type}\n"
-            f"Bagian dan field yang harus diisi:\n{section_text}\n\n"
-            f"Schema output final:\n{schema_text}\n\n"
-            f"Aturan validasi:\n{rules_text}\n\n"
-            "Jika informasi tidak ditemukan, berikan string kosong. Pastikan format NPWP mengikuti standar XX.XXX.XXX.X-XXX.XXX."
+        # Build comprehensive instructions
+        base_instructions = (
+            "You are an expert AI assistant for extracting structured data from Indonesian financial documents, "
+            "especially bank statements (rekening koran) from ALL Indonesian banks.\n\n"
+            "Your task is to:\n"
+            "1. IDENTIFY the bank from logo/header/text\n"
+            "2. ADAPT your extraction strategy based on bank format\n"
+            "3. EXTRACT ALL data with HIGH ACCURACY\n"
+            "4. Be FLEXIBLE - every bank has different format\n\n"
         )
+
+        # Add document type specific instructions
+        if doc_type == "rekening_koran":
+            base_instructions += (
+                "⚠️⚠️⚠️ CRITICAL INSTRUCTIONS FOR BANK STATEMENTS ⚠️⚠️⚠️\n\n"
+                "This is a REKENING KORAN (Bank Statement). Your PRIMARY goal is to:\n"
+                "1. Identify which bank this statement is from (BCA, Mandiri, BNI, BRI, CIMB, Permata, BTN, BSI, Danamon, etc.)\n"
+                "2. Find the transaction table and identify the column structure\n"
+                "3. Extract ALL transactions (every single row) - this is MOST IMPORTANT\n"
+                "4. Extract bank info (account number, name, period) and balance info\n\n"
+                "🏦 BANK FORMAT DETECTION:\n"
+                "Different banks use different table structures:\n"
+                "- BCA: Has CBG column and DB/CR sub-columns under MUTASI\n"
+                "- Mandiri/BNI/BTN: Standard Debet | Kredit columns\n"
+                "- BRI: Single Mutasi column with +/- values\n"
+                "- CIMB/OCBC: Often use English (Withdrawal | Deposit)\n\n"
+                "Look at the column headers to identify the format, then extract accordingly.\n\n"
+            )
+
+        instructions = (
+            base_instructions +
+            f"Document Type: {doc_type}\n\n"
+            f"Sections and Fields to Extract:\n{section_text}\n\n"
+            f"Output JSON Schema (STRICT - follow this exactly):\n{schema_text}\n\n"
+            f"Validation Rules:\n{rules_text}\n\n"
+        )
+
+        # Add extraction instructions if available
+        if extraction_instructions:
+            instructions += f"\n📋 STEP-BY-STEP EXTRACTION INSTRUCTIONS:\n{json.dumps(extraction_instructions, ensure_ascii=False, indent=2)}\n\n"
+
+        # Add bank-specific hints if available
+        if bank_hints:
+            instructions += f"\n🏦 BANK-SPECIFIC FORMAT HINTS (for reference):\n{json.dumps(bank_hints, ensure_ascii=False, indent=2)}\n\n"
+
+        # Add final reminders if available
+        if final_reminders:
+            instructions += f"\n⚠️ FINAL REMINDERS:\n{json.dumps(final_reminders, ensure_ascii=False, indent=2)}\n\n"
+        else:
+            instructions += (
+                "\n⚠️ FINAL REMINDERS:\n"
+                "1. Output ONLY valid JSON matching the output_schema\n"
+                "2. Extract EVERY SINGLE transaction row - don't stop early\n"
+                "3. If a field is not found, use empty string '' (not null, not 'N/A')\n"
+                "4. Remove currency formatting - output plain numbers only\n"
+                "5. Adapt to the bank format you detect in the document\n"
+            )
+
+        return instructions
 
     def _invoke_llm(self, payload: Dict[str, Any], instructions: str) -> Optional[str]:
         payload_text = json.dumps(payload, ensure_ascii=False, indent=2)

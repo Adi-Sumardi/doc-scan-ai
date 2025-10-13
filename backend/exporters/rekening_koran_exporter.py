@@ -48,6 +48,48 @@ class RekeningKoranExporter(BaseExporter):
             "Keterangan"
         ]
 
+    def _clean_keterangan(self, keterangan: str) -> str:
+        """
+        Clean transaction description by removing bank prefixes and codes
+        Example:
+        - "TRSF E-BANKING DB 0307/FTSCY/WS95051 TRUCKING UNICER S1232 IKMAL MAULANA HARA"
+          -> "TRUCKING UNICER S1232 IKMAL MAULANA HARA"
+        - "TRF CN-SKN MSK/TRF CN-SKN MSK PAYMENT FROM VENDOR"
+          -> "PAYMENT FROM VENDOR"
+        """
+        if not keterangan or not isinstance(keterangan, str):
+            return keterangan
+
+        import re
+
+        # Common bank transaction prefixes to remove (case insensitive)
+        prefixes_to_remove = [
+            r'TRSF E-BANKING (DB|CR)\s+\d+/[A-Z]+/[A-Z0-9]+\s+',  # TRSF E-BANKING DB 0307/FTSCY/WS95051
+            r'TRF CN-SKN MSK/TRF CN-SKN MSK\s+',  # TRF CN-SKN MSK/TRF CN-SKN MSK
+            r'TRF CN-SKN (MSK|KLR)\s+',  # TRF CN-SKN MSK or TRF CN-SKN KLR
+            r'BYR VIA E-BANKING\s+[A-Z\s]+\d+/\d+\s+\d+\s+',  # BYR VIA E-BANKING SUSI SUSANTO 01/07 95051
+            r'KR OTOMATIS LLG-[A-Z\s]+\d+\s+',  # KR OTOMATIS LLG-OCBC NISP 0938
+            r'TRSF\s+E-BANKING\s+(CR|DB)\s+',  # TRSF E-BANKING CR/DB
+            r'DB OTOMATIS\s+',  # DB OTOMATIS
+            r'CR OTOMATIS\s+',  # CR OTOMATIS
+            r'TRANSFER\s+E-BANKING\s+',  # TRANSFER E-BANKING
+            r'PEMBY VIA E-BANKING\s+',  # PEMBY VIA E-BANKING
+            r'BIAYA\s+ADM\s+E-BANKING\s+',  # BIAYA ADM E-BANKING
+        ]
+
+        cleaned = keterangan
+        for pattern in prefixes_to_remove:
+            cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
+
+        # Remove multiple spaces
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
+        # If cleaning removed everything, return original
+        if not cleaned:
+            return keterangan
+
+        return cleaned
+
     def _convert_smart_mapped_to_structured(self, smart_mapped: dict) -> dict:
         """Convert Smart Mapper output to structured format for Rekening Koran"""
         if not smart_mapped or not isinstance(smart_mapped, dict):
@@ -185,7 +227,10 @@ class RekeningKoranExporter(BaseExporter):
 
         # DEBUG: Log structured data after conversion
         logger.info(f"🔍 Excel Export - After conversion, transaksi count: {len(structured.get('transaksi', []))}")
-        
+        logger.info(f"🔍 Excel Export - saldo_awal: {structured.get('saldo_awal', 'NOT FOUND')}")
+        logger.info(f"🔍 Excel Export - saldo_akhir: {structured.get('saldo_akhir', 'NOT FOUND')}")
+        logger.info(f"🔍 Excel Export - saldo: {structured.get('saldo', 'NOT FOUND')}")
+
         row = 1
 
         # ===== TITLE =====
@@ -276,8 +321,11 @@ class RekeningKoranExporter(BaseExporter):
 
                 # Get other fields with fallbacks
                 tanggal = trans.get('tanggal', trans.get('date', trans.get('transaction_date', 'N/A')))
-                keterangan = trans.get('keterangan', trans.get('description', trans.get('remarks', trans.get('details', 'N/A'))))
+                keterangan_raw = trans.get('keterangan', trans.get('description', trans.get('remarks', trans.get('details', 'N/A'))))
                 saldo = trans.get('saldo', trans.get('balance', trans.get('running_balance', 'N/A')))
+
+                # Clean keterangan to remove bank prefixes
+                keterangan = self._clean_keterangan(keterangan_raw)
 
                 # Clean values - convert to string and handle empty
                 kredit = str(kredit).strip() if kredit and str(kredit).strip() not in ['', '0', 'None', 'N/A'] else '-'
@@ -638,8 +686,11 @@ class RekeningKoranExporter(BaseExporter):
 
                         # Get other fields
                         tanggal = trans.get('tanggal', trans.get('date', 'N/A'))
-                        keterangan = trans.get('keterangan', trans.get('description', trans.get('remarks', 'N/A')))
+                        keterangan_raw = trans.get('keterangan', trans.get('description', trans.get('remarks', 'N/A')))
                         saldo = trans.get('saldo', trans.get('balance', 'N/A'))
+
+                        # Clean keterangan to remove bank prefixes
+                        keterangan = self._clean_keterangan(keterangan_raw)
 
                         # Clean values
                         kredit = str(kredit).strip() if kredit and str(kredit).strip() not in ['', '0', 'None', 'N/A'] else '-'
