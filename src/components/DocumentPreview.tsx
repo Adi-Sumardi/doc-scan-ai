@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, memo } from 'react';
 import { ZoomIn, ZoomOut, RotateCw, Download, Maximize2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { apiService } from '../services/api';
 
@@ -62,6 +62,7 @@ const DocumentPreview = ({ resultId, fileName, fileType, boundingBoxes }: Docume
   useEffect(() => {
     let isMounted = true;
     let currentObjectUrl: string | null = null;
+    let timeoutId: NodeJS.Timeout;
 
     const fetchFile = async () => {
       setIsLoading(true);
@@ -83,11 +84,17 @@ const DocumentPreview = ({ resultId, fileName, fileType, boundingBoxes }: Docume
       }
     };
 
-    fetchFile();
+    // Defer PDF loading by 300ms to prioritize page rendering
+    timeoutId = setTimeout(() => {
+      if (isMounted) {
+        fetchFile();
+      }
+    }, 300);
 
     // Cleanup function: revoke object URL when resultId changes or component unmounts
     return () => {
       isMounted = false;
+      clearTimeout(timeoutId);
       if (currentObjectUrl) {
         URL.revokeObjectURL(currentObjectUrl);
       }
@@ -177,16 +184,29 @@ const DocumentPreview = ({ resultId, fileName, fileType, boundingBoxes }: Docume
 
       {/* Document Viewer */}
       <div className="flex-1 overflow-auto flex items-center justify-center bg-gray-900">
-        <div 
+        <div
           className={`transition-all duration-300 ${isPDF ? 'w-full h-full' : ''}`}
           style={!isPDF ? {
             transform: `scale(${zoom / 100}) rotate(${rotation}deg)`,
             transformOrigin: 'center center',
           } : undefined}
         >
-          {isLoading && <div className="text-white">Loading preview...</div>}
-          
-          {!isLoading && !objectUrl && <div className="text-red-400">Failed to load preview.</div>}
+          {isLoading && (
+            <div className="w-full h-full flex items-center justify-center">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+                <div className="text-white text-sm">Loading preview...</div>
+                <div className="text-gray-400 text-xs mt-1">Please wait for large files</div>
+              </div>
+            </div>
+          )}
+
+          {!isLoading && !objectUrl && (
+            <div className="text-center">
+              <div className="text-red-400">Failed to load preview.</div>
+              <div className="text-gray-400 text-sm mt-2">Please try refreshing the page</div>
+            </div>
+          )}
 
           {!isLoading && objectUrl && isImage && (
             <img
@@ -245,4 +265,5 @@ const DocumentPreview = ({ resultId, fileName, fileType, boundingBoxes }: Docume
   );
 };
 
-export default DocumentPreview;
+// Wrap with React.memo to prevent unnecessary re-renders
+export default memo(DocumentPreview);

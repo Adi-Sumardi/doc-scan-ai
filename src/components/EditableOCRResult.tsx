@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, memo } from 'react';
 import { Edit3, Save, X, Check, AlertCircle, Copy, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ScanResult } from '../services/api';
@@ -210,11 +210,11 @@ const EditableOCRResult = ({
               ) : (
                 <div className="bg-gray-50 px-3 py-2 rounded-lg">
                   {field.type === 'json' ? (
-                    <pre className="text-sm text-gray-700 whitespace-pre-wrap font-mono overflow-x-auto">
+                    <pre className="text-sm text-gray-700 whitespace-pre-wrap font-mono overflow-x-auto max-h-96 overflow-y-auto">
                       {field.value}
                     </pre>
                   ) : (
-                    <p className="text-gray-700 whitespace-pre-wrap">
+                    <p className="text-gray-700 whitespace-pre-wrap max-h-96 overflow-y-auto">
                       {field.value || <span className="text-gray-400 italic">No data</span>}
                     </p>
                   )}
@@ -262,4 +262,5 @@ const EditableOCRResult = ({
   );
 };
 
-export default EditableOCRResult;
+// Wrap with React.memo to prevent unnecessary re-renders when parent re-renders
+export default memo(EditableOCRResult);
