@@ -25,6 +25,7 @@ from websocket_manager import manager
 from config import get_upload_dir
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from utils.zip_handler import ZipHandler
 
 logger = logging.getLogger(__name__)
 
@@ -698,3 +699,257 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
     finally:
         batch_processor.clear_cancel_request(batch_id)
         db.close()
+
+
+@router.post("/upload-zip", response_model=BatchResponse)
+@limiter.limit("5/minute")  # Rate limit: 5 ZIP uploads per minute per IP
+async def upload_zip_file(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    document_type: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Upload a ZIP file containing multiple documents for batch processing.
+
+    The ZIP file will be extracted and all valid documents will be processed.
+    Supported file types: PDF, PNG, JPG, JPEG, TIFF
+
+    Args:
+        file: ZIP file containing documents
+        document_type: Document type for all files in ZIP (faktur_pajak, pph21, pph23, rekening_koran, etc.)
+
+    Returns:
+        BatchResponse with batch_id and extraction info
+    """
+    batch_id = None
+    temp_zip_path = None
+    extract_dir = None
+
+    try:
+        # Validate document type
+        valid_types = ["invoice", "receipt", "id_card", "passport", "driver_license", "other",
+                       "faktur_pajak", "pph21", "pph23", "rekening_koran", "spt", "npwp", "faktur"]
+
+        document_type = document_type.lower().strip()
+
+        if document_type not in valid_types:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "Invalid document type",
+                    "message": f"Document type '{document_type}' is not supported. Valid types: {', '.join(valid_types)}",
+                    "error_code": "INVALID_DOCUMENT_TYPE"
+                }
+            )
+
+        # Validate file is ZIP
+        if not file.filename.lower().endswith('.zip'):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "Invalid file type",
+                    "message": "File must be a ZIP archive (.zip extension)",
+                    "error_code": "NOT_ZIP_FILE"
+                }
+            )
+
+        # Create batch ID
+        batch_id = str(uuid.uuid4())
+        batch_dir = UPLOAD_DIR / batch_id
+
+        try:
+            batch_dir.mkdir(exist_ok=True)
+        except OSError as e:
+            logger.error(f"Failed to create batch directory {batch_dir}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "Storage error",
+                    "message": "Failed to prepare storage. Please try again.",
+                    "error_code": "STORAGE_ERROR"
+                }
+            )
+
+        # Save ZIP file temporarily
+        temp_zip_path = batch_dir / f"temp_{file.filename}"
+
+        try:
+            async with aiofiles.open(temp_zip_path, 'wb') as f:
+                content = await file.read()
+                await f.write(content)
+            logger.info(f"📦 Saved ZIP file: {temp_zip_path}")
+        except Exception as e:
+            logger.error(f"Failed to save ZIP file: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "File save error",
+                    "message": "Failed to save uploaded ZIP file. Please try again.",
+                    "error_code": "FILE_SAVE_ERROR"
+                }
+            )
+
+        # Extract and validate ZIP
+        zip_handler = ZipHandler()
+
+        # Validate ZIP
+        is_valid, message = zip_handler.validate_zip_file(str(temp_zip_path))
+        if not is_valid:
+            logger.warning(f"🚫 Invalid ZIP file from {current_user.email}: {message}")
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "Invalid ZIP file",
+                    "message": message,
+                    "error_code": "ZIP_VALIDATION_FAILED"
+                }
+            )
+
+        # Extract ZIP
+        extract_dir = batch_dir / "extracted"
+        success, extracted_files, extract_message = zip_handler.extract_zip_file(
+            str(temp_zip_path),
+            str(extract_dir)
+        )
+
+        if not success or not extracted_files:
+            logger.warning(f"🚫 ZIP extraction failed: {extract_message}")
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "Extraction failed",
+                    "message": extract_message,
+                    "error_code": "ZIP_EXTRACTION_FAILED"
+                }
+            )
+
+        logger.info(f"✅ Extracted {len(extracted_files)} files from ZIP")
+
+        # Create database batch
+        try:
+            db_batch = Batch(
+                id=batch_id,
+                status="processing",
+                created_at=datetime.now(timezone.utc),
+                user_id=current_user.id
+            )
+            db.add(db_batch)
+            db.commit()
+        except Exception as e:
+            logger.error(f"Database error creating batch {batch_id}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "Database error",
+                    "message": "Failed to create batch record. Please try again.",
+                    "error_code": "DATABASE_ERROR"
+                }
+            )
+
+        # Process extracted files
+        file_paths = []
+        validation_results = []
+
+        for i, file_path in enumerate(extracted_files):
+            try:
+                # Get filename
+                original_filename = Path(file_path).name
+                safe_filename = f"{i:03d}_{SecurityValidator.validate_filename(original_filename)}"
+                final_file_path = batch_dir / safe_filename
+
+                # Move file from extract dir to batch dir
+                import shutil
+                shutil.move(file_path, final_file_path)
+
+                # Create DocumentFile record
+                doc_file = DocumentFile(
+                    batch_id=batch_id,
+                    filename=safe_filename,
+                    original_filename=original_filename,
+                    document_type=document_type,
+                    file_path=str(final_file_path),
+                    status="pending"
+                )
+                db.add(doc_file)
+                file_paths.append(str(final_file_path))
+
+                validation_results.append({
+                    "is_valid": True,
+                    "errors": [],
+                    "warnings": [],
+                    "filename": original_filename
+                })
+
+                logger.info(f"  ✅ Prepared file {i+1}/{len(extracted_files)}: {original_filename}")
+
+            except Exception as e:
+                logger.error(f"Error processing extracted file {file_path}: {e}")
+                validation_results.append({
+                    "is_valid": False,
+                    "errors": [str(e)],
+                    "warnings": [],
+                    "filename": Path(file_path).name
+                })
+
+        # Commit all DocumentFile records
+        try:
+            db.commit()
+        except Exception as e:
+            logger.error(f"Failed to commit document files: {e}")
+            db.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "Database error",
+                    "message": "Failed to save document records.",
+                    "error_code": "DATABASE_COMMIT_ERROR"
+                }
+            )
+
+        # Cleanup temporary ZIP and extract directory
+        try:
+            if temp_zip_path and temp_zip_path.exists():
+                temp_zip_path.unlink()
+            if extract_dir and extract_dir.exists():
+                import shutil
+                shutil.rmtree(extract_dir)
+            logger.info(f"🗑️  Cleaned up temporary files")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup temp files: {e}")
+
+        # Start background processing
+        background_tasks.add_task(process_batch, batch_id, db)
+
+        logger.info(f"🚀 Started batch processing for {batch_id} with {len(file_paths)} files from ZIP")
+
+        return BatchResponse(
+            batch_id=batch_id,
+            status="processing",
+            file_count=len(file_paths),
+            message=f"Successfully extracted and processing {len(file_paths)} files from ZIP",
+            validation_results=validation_results
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"ZIP upload error: {e}", exc_info=True)
+
+        # Cleanup on error
+        if batch_id:
+            batch_dir = UPLOAD_DIR / batch_id
+            if batch_dir.exists():
+                import shutil
+                shutil.rmtree(batch_dir)
+
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "Upload failed",
+                "message": f"An unexpected error occurred: {str(e)}",
+                "error_code": "UPLOAD_ERROR"
+            }
+        )

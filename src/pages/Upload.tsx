@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDocument } from '../context/DocumentContext';
-import { Upload as UploadIcon, FileText, X, Brain, Zap, CheckCircle } from 'lucide-react';
+import { Upload as UploadIcon, FileText, X, Brain, Zap, CheckCircle, FolderArchive, Files } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const documentTypes = [
@@ -100,6 +100,11 @@ const Upload = () => {
   const { uploadDocuments, loading } = useDocument();
   const [selectedFiles, setSelectedFiles] = useState<{ [key: string]: File[] }>({});
   const [dragOver, setDragOver] = useState<string | null>(null);
+
+  // ZIP upload mode state
+  const [uploadMode, setUploadMode] = useState<'files' | 'zip'>('files');
+  const [zipFile, setZipFile] = useState<File | null>(null);
+  const [zipDocType, setZipDocType] = useState<string>('faktur_pajak');
 
   const handleFileSelect = (documentType: string, newFiles: File[]) => {
     // File validation constants
@@ -217,7 +222,7 @@ const Upload = () => {
 
   const handleSubmit = async () => {
     const fileEntries = Object.entries(selectedFiles).filter(([_, files]) => files && files.length > 0);
-    
+
     if (fileEntries.length === 0) {
       toast.error('Please select at least one file');
       return;
@@ -227,20 +232,79 @@ const Upload = () => {
       // Flatten all files with their document types
       const fileList: File[] = [];
       const documentTypesList: string[] = [];
-      
+
       fileEntries.forEach(([docType, files]) => {
         files.forEach(file => {
           fileList.push(file);
           documentTypesList.push(docType);
         });
       });
-      
+
       const batch = await uploadDocuments(fileList, documentTypesList);
-      
+
       // Navigate to results immediately
       navigate(`/scan-results/${batch.id}`);
     } catch (error) {
       console.error('Upload failed:', error);
+    }
+  };
+
+  const handleZipFileSelect = (file: File) => {
+    // Validate ZIP file
+    const MAX_ZIP_SIZE = 100 * 1024 * 1024; // 100MB
+
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+      toast.error('Please select a ZIP file');
+      return;
+    }
+
+    if (file.size > MAX_ZIP_SIZE) {
+      toast.error('ZIP file exceeds 100MB limit');
+      return;
+    }
+
+    if (file.size === 0) {
+      toast.error('ZIP file is empty');
+      return;
+    }
+
+    setZipFile(file);
+    toast.success(`ZIP file selected: ${file.name}`);
+  };
+
+  const handleZipSubmit = async () => {
+    if (!zipFile) {
+      toast.error('Please select a ZIP file');
+      return;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append('file', zipFile);
+      formData.append('document_type', zipDocType);
+
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:8000/api/upload-zip', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'ZIP upload failed');
+      }
+
+      const batch = await response.json();
+      toast.success(`ZIP uploaded! Processing ${batch.file_count} files...`);
+
+      // Navigate to results
+      navigate(`/scan-results/${batch.batch_id}`);
+    } catch (error) {
+      console.error('ZIP upload failed:', error);
+      toast.error(error instanceof Error ? error.message : 'ZIP upload failed');
     }
   };
 
@@ -254,8 +318,47 @@ const Upload = () => {
           </div>
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Upload Documents</h1>
-            <p className="text-gray-600 mt-1">Upload 1-10 files per document type for AI-powered scanning</p>
+            <p className="text-gray-600 mt-1">
+              {uploadMode === 'files'
+                ? 'Upload 1-10 files per document type for AI-powered scanning'
+                : 'Upload a ZIP file containing multiple documents for batch processing'
+              }
+            </p>
           </div>
+        </div>
+      </div>
+
+      {/* Upload Mode Toggle */}
+      <div className="bg-white rounded-lg p-4 shadow-sm border">
+        <div className="flex items-center justify-center space-x-4">
+          <button
+            onClick={() => {
+              setUploadMode('files');
+              setZipFile(null);
+            }}
+            className={`flex items-center space-x-2 px-6 py-3 rounded-lg transition-all transform hover:scale-105 ${
+              uploadMode === 'files'
+                ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            <Files className="w-5 h-5" />
+            <span className="font-medium">Upload Files</span>
+          </button>
+          <button
+            onClick={() => {
+              setUploadMode('zip');
+              setSelectedFiles({});
+            }}
+            className={`flex items-center space-x-2 px-6 py-3 rounded-lg transition-all transform hover:scale-105 ${
+              uploadMode === 'zip'
+                ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            <FolderArchive className="w-5 h-5" />
+            <span className="font-medium">Upload ZIP</span>
+          </button>
         </div>
       </div>
 
@@ -323,7 +426,8 @@ const Upload = () => {
         </div>
       </div>
 
-      {/* Upload Areas with Enhanced Animation */}
+      {/* Upload Areas - Files Mode */}
+      {uploadMode === 'files' && (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {documentTypes.map((docType, index) => (
           <div 
@@ -463,9 +567,181 @@ const Upload = () => {
           </div>
         ))}
       </div>
+      )}
 
-      {/* Submit Button with Enhanced Animation */}
-      {Object.keys(selectedFiles).length > 0 && (
+      {/* Upload Area - ZIP Mode */}
+      {uploadMode === 'zip' && (
+        <div className="space-y-6">
+          {/* Document Type Selector for ZIP */}
+          <div className="bg-white rounded-lg p-6 shadow-sm border">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Document Type</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              {documentTypes.map((docType) => (
+                <button
+                  key={docType.id}
+                  onClick={() => setZipDocType(docType.id)}
+                  className={`p-4 rounded-lg border-2 transition-all transform hover:scale-105 ${
+                    zipDocType === docType.id
+                      ? 'border-purple-500 bg-purple-50 shadow-lg'
+                      : 'border-gray-200 bg-white hover:border-purple-300'
+                  }`}
+                >
+                  <div className="text-3xl mb-2">{docType.icon}</div>
+                  <div className="text-sm font-medium text-gray-900">{docType.label}</div>
+                  <div className="text-xs text-gray-500 mt-1">{docType.accuracy}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ZIP File Upload Area */}
+          <div className="bg-white rounded-lg p-8 shadow-sm border">
+            {zipFile ? (
+              <div className="space-y-4">
+                {/* Selected ZIP File Display */}
+                <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-6 border-2 border-green-300 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      <div className="relative">
+                        <FolderArchive className="w-12 h-12 text-green-600" />
+                        <CheckCircle className="w-5 h-5 text-green-600 absolute -top-1 -right-1" />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-green-900 text-lg">{zipFile.name}</h4>
+                        <p className="text-sm text-green-700">
+                          {(zipFile.size / (1024 * 1024)).toFixed(2)} MB • Document Type: {documentTypes.find(dt => dt.id === zipDocType)?.label}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setZipFile(null)}
+                      className="text-red-500 hover:text-red-700 hover:bg-red-100 p-2 rounded-full transition-all hover:scale-110"
+                    >
+                      <X className="w-6 h-6" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* ZIP Info */}
+                <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                  <div className="flex items-start space-x-3">
+                    <Brain className="w-5 h-5 text-blue-600 mt-0.5" />
+                    <div className="text-sm text-blue-800">
+                      <p className="font-medium mb-1">Ready to process!</p>
+                      <p>The ZIP file will be extracted and all valid documents (PDF, PNG, JPG, JPEG, TIFF) will be processed as <strong>{documentTypes.find(dt => dt.id === zipDocType)?.label}</strong>.</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Submit Button for ZIP */}
+                <div className="flex justify-center pt-4">
+                  <button
+                    onClick={handleZipSubmit}
+                    disabled={loading}
+                    className={`relative px-8 py-4 rounded-xl font-medium text-white overflow-hidden ${
+                      loading
+                        ? 'bg-gray-400 cursor-not-allowed'
+                        : 'gradient-bg hover:shadow-2xl transform hover:scale-105 animate-glow'
+                    } transition-all duration-300`}
+                  >
+                    {!loading && (
+                      <div className="absolute inset-0 bg-gradient-to-r from-purple-600 via-blue-600 to-purple-600 animate-gradient opacity-0 hover:opacity-100 transition-opacity duration-300" />
+                    )}
+                    <div className="relative z-10 flex items-center space-x-3">
+                      {loading ? (
+                        <>
+                          <div className="flex space-x-1">
+                            {[...Array(3)].map((_, i) => (
+                              <div
+                                key={i}
+                                className="w-2 h-2 bg-white rounded-full animate-bounce"
+                                style={{ animationDelay: `${i * 0.15}s` }}
+                              />
+                            ))}
+                          </div>
+                          <span className="animate-pulse">Processing ZIP...</span>
+                          <Zap className="w-5 h-5 animate-pulse" />
+                        </>
+                      ) : (
+                        <>
+                          <Brain className="w-5 h-5 animate-pulse-slow" />
+                          <span className="font-bold">Start AI Processing (ZIP)</span>
+                          <Zap className="w-5 h-5 animate-pulse-slow" />
+                        </>
+                      )}
+                    </div>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div
+                className="upload-dropzone p-12 rounded-lg text-center cursor-pointer transition-all duration-300 hover:border-purple-300 hover:bg-purple-50 hover:scale-102"
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver('zip');
+                }}
+                onDragLeave={() => setDragOver(null)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(null);
+                  const files = Array.from(e.dataTransfer.files);
+                  if (files.length > 0 && files[0].name.toLowerCase().endsWith('.zip')) {
+                    handleZipFileSelect(files[0]);
+                  } else {
+                    toast.error('Please drop a ZIP file');
+                  }
+                }}
+                onClick={() => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.accept = '.zip';
+                  input.onchange = (e) => {
+                    const file = (e.target as HTMLInputElement).files?.[0];
+                    if (file) {
+                      handleZipFileSelect(file);
+                    }
+                  };
+                  input.click();
+                }}
+              >
+                <FolderArchive className={`w-16 h-16 mx-auto mb-4 transition-all duration-300 ${
+                  dragOver === 'zip' ? 'text-blue-500 animate-bounce scale-110' : 'text-gray-400'
+                }`} />
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                  {dragOver === 'zip' ? 'Drop your ZIP file here!' : 'Upload ZIP File'}
+                </h3>
+                <p className="text-sm text-gray-600 mb-1">
+                  Drop a ZIP file here or click to browse
+                </p>
+                <p className="text-xs text-gray-500">
+                  Max 100MB • Contains PDF, JPG, PNG, TIFF files • Max 50 files in ZIP
+                </p>
+                <div className="mt-6 flex items-center justify-center space-x-6 text-xs text-gray-500">
+                  <div className="flex items-center space-x-1">
+                    <CheckCircle className="w-4 h-4 text-green-500" />
+                    <span>PDF</span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <CheckCircle className="w-4 h-4 text-green-500" />
+                    <span>PNG</span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <CheckCircle className="w-4 h-4 text-green-500" />
+                    <span>JPG</span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <CheckCircle className="w-4 h-4 text-green-500" />
+                    <span>TIFF</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Submit Button with Enhanced Animation - Files Mode */}
+      {uploadMode === 'files' && Object.keys(selectedFiles).length > 0 && (
         <SubmitButton
           loading={loading}
           totalFiles={Object.values(selectedFiles).reduce((sum, files) => sum + files.length, 0)}
