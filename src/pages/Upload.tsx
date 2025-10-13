@@ -103,7 +103,7 @@ const Upload = () => {
 
   const handleFileSelect = (documentType: string, newFiles: File[]) => {
     // File validation constants
-    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB - Support untuk rekening koran bank dengan banyak halaman
     const MAX_FILES = 10;
     const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/tiff', 'application/pdf'];
     const ALLOWED_EXTENSIONS = ['.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.tif'];
@@ -115,7 +115,7 @@ const Upload = () => {
     newFiles.forEach(file => {
       // Check file size
       if (file.size > MAX_FILE_SIZE) {
-        rejectedFiles.push(`${file.name} (exceeds 10MB limit)`);
+        rejectedFiles.push(`${file.name} (exceeds 50MB limit)`);
         return;
       }
 
@@ -446,7 +446,7 @@ const Upload = () => {
                   <p className="text-sm text-gray-600 mb-1 font-medium">
                     {dragOver === docType.id ? '🎯 Drop files here!' : 'Drop files here or click to browse'}
                   </p>
-                  <p className="text-xs text-gray-500">PDF, JPG, PNG • Max 10 files • Up to 10MB each</p>
+                  <p className="text-xs text-gray-500">PDF, JPG, PNG • Max 10 files • Up to 50MB each</p>
                   
                   {/* Animated corners */}
                   {dragOver === docType.id && (

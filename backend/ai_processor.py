@@ -204,11 +204,14 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
                     logger.info("✅ Merging structured data from Google Document AI for Rekening Koran")
                     extracted_data['extracted_content']['structured_fields'] = cloud_fields
             # Apply Smart Mapper for Rekening Koran
+            logger.info(f"🔍 DEBUG: HAS_SMART_MAPPER={HAS_SMART_MAPPER}, smart_mapper_service={smart_mapper_service is not None}, extracted_data type={type(extracted_data)}")
             if HAS_SMART_MAPPER and smart_mapper_service and isinstance(extracted_data, dict):
+                logger.info("✅ Smart Mapper conditions met, loading template...")
                 template = smart_mapper_service.load_template(document_type)
                 ocr_metadata = ocr_processor.get_last_ocr_metadata()
                 ocr_meta_dict = ocr_metadata if isinstance(ocr_metadata, dict) else {}
                 raw_response = ocr_meta_dict.get('raw_response')
+                logger.info(f"🔍 DEBUG: template={template is not None}, raw_response={raw_response is not None}")
                 if template and raw_response:
                     logger.info("🤖 Applying Smart Mapper GPT-4o for Rekening Koran")
                     mapped = smart_mapper_service.map_document(

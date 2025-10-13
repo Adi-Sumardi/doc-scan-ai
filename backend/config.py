@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     
     # File Security
-    max_file_size_mb: int = 50
+    max_file_size_mb: int = 50  # Support rekening koran bank dengan banyak halaman
     allowed_extensions: str = "pdf,png,jpg,jpeg,tiff,bmp"  # Changed to string
     enable_virus_scan: bool = True
     clamav_host: str = "localhost"
