@@ -4,6 +4,29 @@ import { useDocument } from '../context/DocumentContext';
 import { Upload as UploadIcon, FileText, X, Brain, Zap, CheckCircle, FolderArchive, Files } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+// Helper function to get API base URL
+const getApiBaseUrl = (): string => {
+  // Check environment variable first
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+
+  const hostname = window.location.hostname;
+
+  // Production environment
+  if (hostname === 'docscan.adilabs.id' || hostname.includes('adilabs.id')) {
+    return ''; // Use relative path for production
+  }
+
+  // Development environment
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'http://localhost:8000';
+  }
+
+  // Default to production (relative path)
+  return '';
+};
+
 const documentTypes = [
   {
     id: 'faktur_pajak',
@@ -284,7 +307,10 @@ const Upload = () => {
       formData.append('document_type', zipDocType);
 
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:8000/api/upload-zip', {
+      const apiBaseUrl = getApiBaseUrl();
+      const uploadUrl = `${apiBaseUrl}/api/upload-zip`;
+
+      const response = await fetch(uploadUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
