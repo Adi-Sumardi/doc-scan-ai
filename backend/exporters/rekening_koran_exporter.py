@@ -48,40 +48,111 @@ class RekeningKoranExporter(BaseExporter):
             "Keterangan"
         ]
 
-    def _clean_keterangan(self, keterangan: str) -> str:
+    def _format_rupiah(self, value) -> str:
         """
-        Clean transaction description by removing bank prefixes and codes
-        Example:
-        - "TRSF E-BANKING DB 0307/FTSCY/WS95051 TRUCKING UNICER S1232 IKMAL MAULANA HARA"
-          -> "TRUCKING UNICER S1232 IKMAL MAULANA HARA"
-        - "TRF CN-SKN MSK/TRF CN-SKN MSK PAYMENT FROM VENDOR"
-          -> "PAYMENT FROM VENDOR"
+        Format number to Indonesian Rupiah format without decimals
+        Example: 1234567.89 -> "Rp 1.234.567"
+        """
+        if not value or value in ['-', 'N/A', '', '0', 0, 'None', 'null']:
+            return '-'
+
+        try:
+            # Convert to string and clean
+            value_str = str(value).replace('Rp', '').replace('IDR', '').replace('.', '').replace(',', '').strip()
+            if not value_str or value_str == '-':
+                return '-'
+
+            # Convert to integer (remove decimals)
+            value_int = int(float(value_str))
+
+            if value_int == 0:
+                return '-'
+
+            # Format with thousand separator
+            formatted = f"Rp {value_int:,}"
+            # Replace comma with dot for Indonesian format
+            formatted = formatted.replace(',', '.')
+
+            return formatted
+        except (ValueError, AttributeError):
+            logger.warning(f"⚠️ Failed to format rupiah value: {value}")
+            return str(value) if value else '-'
+
+    def _format_title_case(self, text: str) -> str:
+        """
+        Format text to proper title case
+        Example: "TRUCKING UNICER S1232" -> "Trucking Unicer S1232"
+        """
+        if not text or not isinstance(text, str):
+            return text
+
+        # Convert to lowercase first, then capitalize each word
+        words = text.lower().split()
+        formatted_words = []
+
+        for word in words:
+            # Keep numbers and codes as-is
+            if word.isdigit() or any(char.isdigit() for char in word):
+                formatted_words.append(word.upper() if len(word) <= 4 else word.capitalize())
+            # Keep short uppercase words (likely abbreviations)
+            elif len(word) <= 3:
+                formatted_words.append(word.upper())
+            else:
+                formatted_words.append(word.capitalize())
+
+        return ' '.join(formatted_words)
+
+    def _clean_prefix_keterangan(self, keterangan: str) -> str:
+        """
+        Remove specific prefixes, reference codes, and amount numbers from keterangan
+        Removes:
+        - TRSF E-BANKING CR, TRSF E-BANKING DB, BI-FAST DB, BI-FAST CR, etc
+        - Reference codes like: 0107/FTSCY/WS95051, 0207/ADSCY/WS95051, etc
+        - Amount numbers like: 8800000.00, 277533104.00, 1350000.00, etc
         """
         if not keterangan or not isinstance(keterangan, str):
             return keterangan
 
         import re
 
-        # Common bank transaction prefixes to remove (case insensitive)
+        # Remove specific prefixes (case insensitive)
         prefixes_to_remove = [
-            r'TRSF E-BANKING (DB|CR)\s+\d+/[A-Z]+/[A-Z0-9]+\s+',  # TRSF E-BANKING DB 0307/FTSCY/WS95051
-            r'TRF CN-SKN MSK/TRF CN-SKN MSK\s+',  # TRF CN-SKN MSK/TRF CN-SKN MSK
-            r'TRF CN-SKN (MSK|KLR)\s+',  # TRF CN-SKN MSK or TRF CN-SKN KLR
-            r'BYR VIA E-BANKING\s+[A-Z\s]+\d+/\d+\s+\d+\s+',  # BYR VIA E-BANKING SUSI SUSANTO 01/07 95051
-            r'KR OTOMATIS LLG-[A-Z\s]+\d+\s+',  # KR OTOMATIS LLG-OCBC NISP 0938
-            r'TRSF\s+E-BANKING\s+(CR|DB)\s+',  # TRSF E-BANKING CR/DB
-            r'DB OTOMATIS\s+',  # DB OTOMATIS
-            r'CR OTOMATIS\s+',  # CR OTOMATIS
-            r'TRANSFER\s+E-BANKING\s+',  # TRANSFER E-BANKING
-            r'PEMBY VIA E-BANKING\s+',  # PEMBY VIA E-BANKING
-            r'BIAYA\s+ADM\s+E-BANKING\s+',  # BIAYA ADM E-BANKING
+            r'^TRSF E-BANKING CR\s*',
+            r'^TRSF E-BANKING DB\s*',
+            r'^BI-FAST DB\s*',
+            r'^BI-FAST CR\s*',
+            r'^BYR VIA E-BANKING\s*',
+            r'^KR OTOMATIS\s*',
         ]
 
         cleaned = keterangan
         for pattern in prefixes_to_remove:
             cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
 
-        # Remove multiple spaces
+        # Remove reference codes pattern: DDMM/XXXXX/WSXXXXX or similar
+        # Pattern: 4 digits / 5-6 letters / 5-8 alphanumeric
+        # Examples: 0107/FTSCY/WS95051, 1407/ADSCY/WS95051, 2807/FTLLG/0000100
+        reference_patterns = [
+            r'\b\d{4}/[A-Z]{5,6}/[A-Z0-9]{5,8}\b\s*',  # 0107/FTSCY/WS95051
+            r'\b\d{4}/[A-Z]{5,6}/\d+\b\s*',             # 1407/ADSCY/0000100
+            r'\b\d{4}/[A-Z]+/[A-Z0-9]+\b\s*',           # Generic pattern
+        ]
+
+        for pattern in reference_patterns:
+            cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
+
+        # Remove amount numbers (standalone numbers with optional decimals)
+        # Pattern: Numbers like 8800000.00, 277533104.00, 1350000, etc
+        # Match numbers with 4+ digits (to avoid removing dates, codes, etc)
+        amount_patterns = [
+            r'\b\d{4,}\.?\d{0,2}\b\s*',  # Match: 8800000.00, 277533104, 1350000
+            r'\b\d{1,3}(?:,\d{3})+(?:\.\d{2})?\b\s*',  # Match: 1,350,000.00 (with commas)
+        ]
+
+        for pattern in amount_patterns:
+            cleaned = re.sub(pattern, '', cleaned)
+
+        # Remove multiple spaces and trim
         cleaned = re.sub(r'\s+', ' ', cleaned).strip()
 
         # If cleaning removed everything, return original
@@ -272,7 +343,7 @@ class RekeningKoranExporter(BaseExporter):
 
         saldo_akhir = structured.get('saldo_akhir', structured.get('saldo', 'N/A'))
         ws.merge_cells(f'D{row}:G{row}')
-        ws[f'D{row}'] = f"Saldo Akhir: Rp {saldo_akhir}"
+        ws[f'D{row}'] = f"Saldo Akhir: {self._format_rupiah(saldo_akhir)}"
         ws[f'D{row}'].font = Font(bold=True, size=10, color="7c3aed")
         ws[f'D{row}'].fill = info_fill
         ws[f'D{row}'].alignment = left_align
@@ -321,28 +392,30 @@ class RekeningKoranExporter(BaseExporter):
 
                 # Get other fields with fallbacks
                 tanggal = trans.get('tanggal', trans.get('date', trans.get('transaction_date', 'N/A')))
-                keterangan_raw = trans.get('keterangan', trans.get('description', trans.get('remarks', trans.get('details', 'N/A'))))
+                keterangan = trans.get('keterangan', trans.get('description', trans.get('remarks', trans.get('details', 'N/A'))))
                 saldo = trans.get('saldo', trans.get('balance', trans.get('running_balance', 'N/A')))
 
-                # Clean keterangan to remove bank prefixes
-                keterangan = self._clean_keterangan(keterangan_raw)
+                # Format kredit, debet, saldo to rupiah (no decimals)
+                kredit_formatted = self._format_rupiah(kredit)
+                debet_formatted = self._format_rupiah(debet)
+                saldo_formatted = self._format_rupiah(saldo)
 
-                # Clean values - convert to string and handle empty
-                kredit = str(kredit).strip() if kredit and str(kredit).strip() not in ['', '0', 'None', 'N/A'] else '-'
-                debet = str(debet).strip() if debet and str(debet).strip() not in ['', '0', 'None', 'N/A'] else '-'
+                # Clean and format keterangan: remove prefixes and apply title case
+                keterangan_cleaned = self._clean_prefix_keterangan(keterangan)
+                keterangan_formatted = self._format_title_case(keterangan_cleaned)
 
                 # Determine sumber/tujuan based on transaction type
-                sumber_masuk = keterangan if kredit != '-' else '-'
-                tujuan_keluar = keterangan if debet != '-' else '-'
+                sumber_masuk = keterangan_formatted if kredit_formatted != '-' else '-'
+                tujuan_keluar = keterangan_formatted if debet_formatted != '-' else '-'
 
                 data_row = [
                     tanggal,
-                    kredit,
-                    debet,
-                    saldo,
+                    kredit_formatted,
+                    debet_formatted,
+                    saldo_formatted,
                     sumber_masuk,
                     tujuan_keluar,
-                    keterangan
+                    keterangan_formatted
                 ]
 
                 for col_idx, value in enumerate(data_row, start=1):
@@ -367,18 +440,28 @@ class RekeningKoranExporter(BaseExporter):
             kredit = structured.get('kredit', structured.get('credit', 'N/A'))
             debet = structured.get('debet', structured.get('debit', 'N/A'))
             keterangan = structured.get('keterangan', structured.get('description', 'N/A'))
+            saldo = structured.get('saldo', 'N/A')
 
-            sumber_masuk = keterangan if kredit not in ['N/A', '', 0, '0'] else '-'
-            tujuan_keluar = keterangan if debet not in ['N/A', '', 0, '0'] else '-'
+            # Format to rupiah
+            kredit_formatted = self._format_rupiah(kredit)
+            debet_formatted = self._format_rupiah(debet)
+            saldo_formatted = self._format_rupiah(saldo)
+
+            # Clean and format keterangan
+            keterangan_cleaned = self._clean_prefix_keterangan(keterangan)
+            keterangan_formatted = self._format_title_case(keterangan_cleaned)
+
+            sumber_masuk = keterangan_formatted if kredit_formatted != '-' else '-'
+            tujuan_keluar = keterangan_formatted if debet_formatted != '-' else '-'
 
             data_row = [
                 structured.get('tanggal', 'N/A'),
-                kredit if kredit not in ['N/A', '', 0, '0'] else '-',
-                debet if debet not in ['N/A', '', 0, '0'] else '-',
-                structured.get('saldo', 'N/A'),
+                kredit_formatted,
+                debet_formatted,
+                saldo_formatted,
                 sumber_masuk,
                 tujuan_keluar,
-                keterangan
+                keterangan_formatted
             ]
 
             for col_idx, value in enumerate(data_row, start=1):
@@ -550,8 +633,7 @@ class RekeningKoranExporter(BaseExporter):
                     # Check if it's credit (uang masuk) or debit (uang keluar)
                     kredit = trans.get('kredit', trans.get('credit', ''))
                     debet = trans.get('debet', trans.get('debit', ''))
-                    keterangan_raw = trans.get('keterangan', 'N/A')
-                    keterangan = self._clean_keterangan(keterangan_raw)
+                    keterangan = trans.get('keterangan', 'N/A')
 
                     if kredit and kredit not in ['', '0', 0, 'N/A']:
                         story.append(Paragraph(f"<b>Nilai Uang Masuk:</b> Rp {kredit}", amount_style))
@@ -571,8 +653,7 @@ class RekeningKoranExporter(BaseExporter):
 
                 kredit = structured.get('kredit', structured.get('credit', ''))
                 debet = structured.get('debet', structured.get('debit', ''))
-                keterangan_raw = structured.get('keterangan', 'N/A')
-                keterangan = self._clean_keterangan(keterangan_raw)
+                keterangan = structured.get('keterangan', 'N/A')
 
                 if kredit and kredit not in ['', '0', 0, 'N/A']:
                     story.append(Paragraph(f"<b>Nilai Uang Masuk:</b> Rp {kredit}", amount_style))
@@ -690,28 +771,30 @@ class RekeningKoranExporter(BaseExporter):
 
                         # Get other fields
                         tanggal = trans.get('tanggal', trans.get('date', 'N/A'))
-                        keterangan_raw = trans.get('keterangan', trans.get('description', trans.get('remarks', 'N/A')))
+                        keterangan = trans.get('keterangan', trans.get('description', trans.get('remarks', 'N/A')))
                         saldo = trans.get('saldo', trans.get('balance', 'N/A'))
 
-                        # Clean keterangan to remove bank prefixes
-                        keterangan = self._clean_keterangan(keterangan_raw)
+                        # Format to rupiah
+                        kredit_formatted = self._format_rupiah(kredit)
+                        debet_formatted = self._format_rupiah(debet)
+                        saldo_formatted = self._format_rupiah(saldo)
 
-                        # Clean values
-                        kredit = str(kredit).strip() if kredit and str(kredit).strip() not in ['', '0', 'None', 'N/A'] else '-'
-                        debet = str(debet).strip() if debet and str(debet).strip() not in ['', '0', 'None', 'N/A'] else '-'
+                        # Clean and format keterangan
+                        keterangan_cleaned = self._clean_prefix_keterangan(keterangan)
+                        keterangan_formatted = self._format_title_case(keterangan_cleaned)
 
                         # Determine sumber/tujuan
-                        sumber_masuk = keterangan if kredit != '-' else '-'
-                        tujuan_keluar = keterangan if debet != '-' else '-'
+                        sumber_masuk = keterangan_formatted if kredit_formatted != '-' else '-'
+                        tujuan_keluar = keterangan_formatted if debet_formatted != '-' else '-'
 
                         data_row = [
                             tanggal,
-                            kredit,
-                            debet,
-                            saldo,
+                            kredit_formatted,
+                            debet_formatted,
+                            saldo_formatted,
                             sumber_masuk,
                             tujuan_keluar,
-                            keterangan
+                            keterangan_formatted
                         ]
 
                         fill = data_fill_1 if transaction_row_idx % 2 == 0 else data_fill_2
@@ -735,19 +818,29 @@ class RekeningKoranExporter(BaseExporter):
                     kredit = structured.get('kredit', structured.get('credit', 'N/A'))
                     debet = structured.get('debet', structured.get('debit', 'N/A'))
                     keterangan = structured.get('keterangan', structured.get('description', 'N/A'))
+                    saldo = structured.get('saldo', 'N/A')
+
+                    # Format to rupiah
+                    kredit_formatted = self._format_rupiah(kredit)
+                    debet_formatted = self._format_rupiah(debet)
+                    saldo_formatted = self._format_rupiah(saldo)
+
+                    # Clean and format keterangan
+                    keterangan_cleaned = self._clean_prefix_keterangan(keterangan)
+                    keterangan_formatted = self._format_title_case(keterangan_cleaned)
 
                     # Determine sumber/tujuan based on transaction type
-                    sumber_masuk = keterangan if kredit not in ['N/A', '', 0, '0'] else '-'
-                    tujuan_keluar = keterangan if debet not in ['N/A', '', 0, '0'] else '-'
+                    sumber_masuk = keterangan_formatted if kredit_formatted != '-' else '-'
+                    tujuan_keluar = keterangan_formatted if debet_formatted != '-' else '-'
 
                     data_row = [
                         structured.get('tanggal', 'N/A'),
-                        kredit if kredit not in ['N/A', '', 0, '0'] else '-',
-                        debet if debet not in ['N/A', '', 0, '0'] else '-',
-                        structured.get('saldo', 'N/A'),
+                        kredit_formatted,
+                        debet_formatted,
+                        saldo_formatted,
                         sumber_masuk,
                         tujuan_keluar,
-                        keterangan
+                        keterangan_formatted
                     ]
 
                     fill = data_fill_1 if transaction_row_idx % 2 == 0 else data_fill_2

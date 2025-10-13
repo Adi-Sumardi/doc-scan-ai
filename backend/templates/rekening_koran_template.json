@@ -132,6 +132,7 @@
       "table_columns": "TANGGAL | KETERANGAN | CBG | MUTASI (DB | CR) | SALDO",
       "key_feature": "MUTASI column has TWO sub-columns: 'DB' (left, debet/out) and 'CR' (right, kredit/in)",
       "extraction_tip": "Check both DB and CR columns for each row. If DB has value → debet field. If CR has value → kredit field.",
+      "keterangan_multiline": "⚠️⚠️⚠️ SUPER CRITICAL FOR BCA: The KETERANGAN column often has MULTIPLE LINES of text for a single transaction. You MUST extract ALL lines/text in the keterangan column, not just the first line! Example: 'TRSF E-BANKING DB\\n0107/FTSCY/WS95051\\n8800000.00\\nPETTY CASH PERTGL\\n01/7/25S/D 05/7/25\\nSUSI SUSANTO' should be extracted as complete description including reference codes, transaction codes, and person names. DO NOT extract only 'TRSF E-BANKING DB' - that's incomplete! Extract the FULL description with all details.",
       "date_format": "DD/MM (e.g., 01/01, 15/03)",
       "branch_column": "CBG column shows 3-4 digit branch code (optional to extract)"
     },
