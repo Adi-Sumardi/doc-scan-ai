@@ -920,8 +920,16 @@ async def upload_zip_file(
         except Exception as e:
             logger.warning(f"Failed to cleanup temp files: {e}")
 
+        # Prepare file paths for background processing
+        file_paths_data = []
+        for file_path in file_paths:
+            file_paths_data.append({
+                "path": file_path,
+                "document_type": document_type
+            })
+
         # Start background processing
-        background_tasks.add_task(process_batch, batch_id, db)
+        background_tasks.add_task(process_batch_async, batch_id, file_paths_data)
 
         logger.info(f"🚀 Started batch processing for {batch_id} with {len(file_paths)} files from ZIP")
 

@@ -294,7 +294,10 @@ const Upload = () => {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'ZIP upload failed');
+        const errorMessage = typeof error.detail === 'object'
+          ? error.detail.message || JSON.stringify(error.detail)
+          : error.detail || 'ZIP upload failed';
+        throw new Error(errorMessage);
       }
 
       const batch = await response.json();
