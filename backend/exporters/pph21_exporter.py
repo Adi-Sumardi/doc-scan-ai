@@ -22,7 +22,7 @@ except ImportError:
 
 class PPh21Exporter(BaseExporter):
     """Exporter for PPh 21 (Indonesian Income Tax Withholding Certificate) documents"""
-    
+
     def __init__(self):
         super().__init__("pph21")
         self.columns = [
@@ -37,8 +37,8 @@ class PPh21Exporter(BaseExporter):
             "Kode Objek Pajak",
             "Objek Pajak",
             "Penghasilan Bruto",
-            "DPP",
-            "Tarif",
+            "DPP (%)",
+            "Tarif (%)",
             "PPh",
             "Jenis Dokumen Dasar",
             "Tanggal Dokumen Dasar",
@@ -48,6 +48,54 @@ class PPh21Exporter(BaseExporter):
             "Tanggal Potong",
             "Nama Penandatangan"
         ]
+
+    def _format_rupiah(self, value) -> str:
+        """Format number to Rupiah without decimals"""
+        if not value or value in ['-', 'N/A', '', '0', 0, 'None', 'null']:
+            return '-'
+        try:
+            value_str = str(value).replace('Rp', '').replace('IDR', '').replace('.', '').replace(',', '').strip()
+            if not value_str or value_str == '-':
+                return '-'
+            value_int = int(float(value_str))
+            if value_int == 0:
+                return '-'
+            formatted = f"Rp {value_int:,}"
+            formatted = formatted.replace(',', '.')
+            return formatted
+        except (ValueError, AttributeError):
+            logger.warning(f"⚠️ Failed to format rupiah value: {value}")
+            return str(value) if value else '-'
+
+    def _format_date(self, date_str) -> str:
+        """Format date to DD/MM/YYYY"""
+        if not date_str or date_str in ['N/A', '', 'None', 'null']:
+            return 'N/A'
+
+        import re
+        from datetime import datetime
+
+        date_str = str(date_str).strip()
+
+        # Try various date formats
+        formats = [
+            '%d/%m/%Y', '%d-%m-%Y', '%Y-%m-%d', '%Y/%m/%d',
+            '%d %B %Y', '%d %b %Y', '%d-%m-%y', '%d/%m/%y'
+        ]
+
+        for fmt in formats:
+            try:
+                date_obj = datetime.strptime(date_str, fmt)
+                return date_obj.strftime('%d/%m/%Y')
+            except:
+                continue
+
+        # If no format worked, try to extract DD, MM, YYYY
+        match = re.search(r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})', date_str)
+        if match:
+            return f"{match.group(1).zfill(2)}/{match.group(2).zfill(2)}/{match.group(3)}"
+
+        return date_str  # Return as-is if can't format
 
     def _convert_smart_mapped_to_structured(self, smart_mapped: dict) -> dict:
         """Convert Smart Mapper output to structured format for PPh 21"""
@@ -192,7 +240,7 @@ class PPh21Exporter(BaseExporter):
                 cell.border = border
                 cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
             
-            # Write data
+            # Write data with formatting
             row_data = [
                 structured.get('nomor', 'N/A'),
                 structured.get('masa_pajak', 'N/A'),
@@ -204,16 +252,16 @@ class PPh21Exporter(BaseExporter):
                 structured.get('jenis_pph', 'PPh 21'),
                 structured.get('kode_objek', 'N/A'),
                 structured.get('objek_pajak', 'N/A'),
-                structured.get('penghasilan_bruto', 'N/A'),
+                self._format_rupiah(structured.get('penghasilan_bruto', 'N/A')),
                 structured.get('dpp', 'N/A'),
                 structured.get('tarif', 'N/A'),
-                structured.get('pph', 'N/A'),
+                self._format_rupiah(structured.get('pph', 'N/A')),
                 structured.get('dokumen_dasar_jenis', 'N/A'),
-                structured.get('dokumen_dasar_tanggal', 'N/A'),
+                self._format_date(structured.get('dokumen_dasar_tanggal', 'N/A')),
                 structured.get('pemotong_npwp', 'N/A'),
                 structured.get('pemotong_nitku', 'N/A'),
                 structured.get('pemotong_nama', 'N/A'),
-                structured.get('tanggal_potong', 'N/A'),
+                self._format_date(structured.get('tanggal_potong', 'N/A')),
                 structured.get('penandatangan', 'N/A'),
             ]
             
@@ -424,16 +472,33 @@ class PPh21Exporter(BaseExporter):
                 cell.border = border
                 cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
             
-            # Write data for each result
-            current_row = 2
+            # Convert and collect all structured data
+            structured_list = []
             for result in batch_results:
-                # Convert smart_mapped data to structured format
                 extracted_data = result.get('extracted_data', {})
                 if 'smart_mapped' in extracted_data:
                     structured = self._convert_smart_mapped_to_structured(extracted_data['smart_mapped'])
                 else:
                     structured = extracted_data
-                
+                structured_list.append(structured)
+
+            # Sort by Tanggal Dokumen Dasar
+            from datetime import datetime
+            def parse_date_for_sort(date_str):
+                """Parse date for sorting, return datetime or min date if can't parse"""
+                try:
+                    formatted = self._format_date(date_str)
+                    if formatted and formatted != 'N/A':
+                        return datetime.strptime(formatted, '%d/%m/%Y')
+                except:
+                    pass
+                return datetime.min
+
+            structured_list.sort(key=lambda x: parse_date_for_sort(x.get('dokumen_dasar_tanggal', 'N/A')))
+
+            # Write sorted data
+            current_row = 2
+            for structured in structured_list:
                 row_data = [
                     structured.get('nomor', 'N/A'),
                     structured.get('masa_pajak', 'N/A'),
@@ -445,24 +510,24 @@ class PPh21Exporter(BaseExporter):
                     structured.get('jenis_pph', 'PPh 21'),
                     structured.get('kode_objek', 'N/A'),
                     structured.get('objek_pajak', 'N/A'),
-                    structured.get('penghasilan_bruto', 'N/A'),
+                    self._format_rupiah(structured.get('penghasilan_bruto', 'N/A')),
                     structured.get('dpp', 'N/A'),
                     structured.get('tarif', 'N/A'),
-                    structured.get('pph', 'N/A'),
+                    self._format_rupiah(structured.get('pph', 'N/A')),
                     structured.get('dokumen_dasar_jenis', 'N/A'),
-                    structured.get('dokumen_dasar_tanggal', 'N/A'),
+                    self._format_date(structured.get('dokumen_dasar_tanggal', 'N/A')),
                     structured.get('pemotong_npwp', 'N/A'),
                     structured.get('pemotong_nitku', 'N/A'),
                     structured.get('pemotong_nama', 'N/A'),
-                    structured.get('tanggal_potong', 'N/A'),
+                    self._format_date(structured.get('tanggal_potong', 'N/A')),
                     structured.get('penandatangan', 'N/A'),
                 ]
-                
+
                 for col_idx, value in enumerate(row_data, start=1):
                     cell = ws.cell(row=current_row, column=col_idx, value=value)
                     cell.border = border
                     cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
-                
+
                 current_row += 1
             
             # Adjust column widths
