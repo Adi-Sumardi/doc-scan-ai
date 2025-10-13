@@ -860,15 +860,15 @@ async def upload_zip_file(
                 safe_filename = f"{i:03d}_{SecurityValidator.validate_filename(original_filename)}"
                 final_file_path = batch_dir / safe_filename
 
+                # Get file size BEFORE moving
+                file_size = Path(file_path).stat().st_size
+
                 # Move file from extract dir to batch dir
                 import shutil
                 shutil.move(file_path, final_file_path)
 
                 # Generate file ID
                 file_id = str(uuid.uuid4())
-
-                # Get file size
-                file_size = Path(file_path).stat().st_size
 
                 # Create DocumentFile record
                 doc_file = DocumentFile(
