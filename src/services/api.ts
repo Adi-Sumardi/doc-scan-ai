@@ -32,7 +32,7 @@ const API_BASE_URL = getApiBaseUrl();
 // Axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 60000, // 60 detik timeout untuk semua request
+  timeout: 120000, // 120 detik timeout untuk rekening koran processing (increased from 60s)
 });
 
 // Request logging and JWT token interceptor

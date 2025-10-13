@@ -550,13 +550,15 @@ class RekeningKoranExporter(BaseExporter):
                     # Check if it's credit (uang masuk) or debit (uang keluar)
                     kredit = trans.get('kredit', trans.get('credit', ''))
                     debet = trans.get('debet', trans.get('debit', ''))
+                    keterangan_raw = trans.get('keterangan', 'N/A')
+                    keterangan = self._clean_keterangan(keterangan_raw)
 
                     if kredit and kredit not in ['', '0', 0, 'N/A']:
                         story.append(Paragraph(f"<b>Nilai Uang Masuk:</b> Rp {kredit}", amount_style))
-                        story.append(Paragraph(f"<b>Sumber:</b> {trans.get('keterangan', 'N/A')}", field_style))
+                        story.append(Paragraph(f"<b>Sumber:</b> {keterangan}", field_style))
                     elif debet and debet not in ['', '0', 0, 'N/A']:
                         story.append(Paragraph(f"<b>Nilai Uang Keluar:</b> Rp {debet}", amount_style))
-                        story.append(Paragraph(f"<b>Tujuan:</b> {trans.get('keterangan', 'N/A')}", field_style))
+                        story.append(Paragraph(f"<b>Tujuan:</b> {keterangan}", field_style))
 
                     story.append(Paragraph(f"<b>Saldo:</b> Rp {trans.get('saldo', 'N/A')}", field_style))
 
@@ -569,13 +571,15 @@ class RekeningKoranExporter(BaseExporter):
 
                 kredit = structured.get('kredit', structured.get('credit', ''))
                 debet = structured.get('debet', structured.get('debit', ''))
+                keterangan_raw = structured.get('keterangan', 'N/A')
+                keterangan = self._clean_keterangan(keterangan_raw)
 
                 if kredit and kredit not in ['', '0', 0, 'N/A']:
                     story.append(Paragraph(f"<b>Nilai Uang Masuk:</b> Rp {kredit}", amount_style))
-                    story.append(Paragraph(f"<b>Sumber:</b> {structured.get('keterangan', 'N/A')}", field_style))
+                    story.append(Paragraph(f"<b>Sumber:</b> {keterangan}", field_style))
                 elif debet and debet not in ['', '0', 0, 'N/A']:
                     story.append(Paragraph(f"<b>Nilai Uang Keluar:</b> Rp {debet}", amount_style))
-                    story.append(Paragraph(f"<b>Tujuan:</b> {structured.get('keterangan', 'N/A')}", field_style))
+                    story.append(Paragraph(f"<b>Tujuan:</b> {keterangan}", field_style))
 
                 story.append(Paragraph(f"<b>Saldo:</b> Rp {structured.get('saldo', 'N/A')}", field_style))
 

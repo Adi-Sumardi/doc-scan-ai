@@ -24,8 +24,8 @@
       "description": "Informasi saldo - Extract balance information if available",
       "flexible": true,
       "fields": [
-        {"name": "saldo_awal", "label": "Saldo Awal", "required": false, "format": "currency", "notes": "Saldo awal periode. Cari label: 'Saldo Awal', 'Opening Balance', 'Beginning Balance', 'Previous Balance', 'Saldo Bulan Lalu', 'Saldo Sebelumnya'. Format angka: '1.234.567,89' atau '1234567.89'"},
-        {"name": "saldo_akhir", "label": "Saldo Akhir", "required": false, "format": "currency", "notes": "Saldo akhir periode. Cari label: 'Saldo Akhir', 'Ending Balance', 'Closing Balance', 'Current Balance', 'Total Balance', 'Saldo Akhir Bulan'."},
+        {"name": "saldo_awal", "label": "Saldo Awal", "required": false, "format": "currency", "notes": "⚠️ CRITICAL: Saldo awal periode. Cari label: 'Saldo Awal', 'Opening Balance', 'Beginning Balance', 'Previous Balance', 'Saldo Bulan Lalu', 'Saldo Sebelumnya'. IMPORTANT: Bisa ada di FIRST TRANSACTION ROW dengan keterangan 'SALDO AWAL' (seperti BCA). Format angka: '1.234.567,89' atau '1234567.89' atau '953628332.69'"},
+        {"name": "saldo_akhir", "label": "Saldo Akhir", "required": false, "format": "currency", "notes": "⚠️ CRITICAL: Saldo akhir periode. Cari label: 'Saldo Akhir', 'Ending Balance', 'Closing Balance', 'Current Balance', 'Total Balance', 'Saldo Akhir Bulan'. IMPORTANT: Sering ada di BOTTOM/FOOTER halaman terakhir sebagai summary (contoh: 'SALDO AKHIR : 932,867,188.61'). Ini SANGAT PENTING - ALWAYS extract if found!"},
         {"name": "total_kredit", "label": "Total Kredit", "required": false, "format": "currency", "notes": "Total uang masuk dalam periode (jika ada summary/ringkasan)"},
         {"name": "total_debet", "label": "Total Debet", "required": false, "format": "currency", "notes": "Total uang keluar dalam periode (jika ada summary/ringkasan)"},
         {"name": "mata_uang", "label": "Mata Uang", "required": false, "notes": "Mata uang: 'IDR', 'Rp', 'Rupiah', 'USD', 'SGD', dll. Default: IDR jika tidak disebutkan"}
@@ -246,9 +246,10 @@
 
   "final_reminders": {
     "priority_1": "⚠️ Extract ALL transaction rows - this is the most important requirement",
-    "priority_2": "Identify bank format and adapt extraction strategy accordingly",
-    "priority_3": "Be flexible - every bank is different, work with what you see",
-    "priority_4": "Output clean numbers without currency symbols or formatting",
-    "priority_5": "Don't fail if some fields are missing - extract what's available"
+    "priority_2": "🔴 EXTRACT SALDO_AWAL and SALDO_AKHIR - These are CRITICAL! Look for them in: (1) First transaction row with keterangan 'SALDO AWAL', (2) Summary/footer section at bottom/end of document. Example: 'SALDO AWAL : 953,628,332.69' and 'SALDO AKHIR : 932,867,188.61'. NEVER leave these empty if they exist in the document!",
+    "priority_3": "Identify bank format and adapt extraction strategy accordingly",
+    "priority_4": "Be flexible - every bank is different, work with what you see",
+    "priority_5": "Output clean numbers without currency symbols or formatting",
+    "priority_6": "Don't fail if some fields are missing - extract what's available"
   }
 }

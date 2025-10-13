@@ -199,13 +199,12 @@ class PDFChunker:
             return merged
 
     def _merge_rekening_koran_chunks(self, chunk_results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Merge rekening koran chunks - combine transactions"""
+        """Merge rekening koran chunks - combine transactions and preserve bank_info/saldo_info"""
         merged = chunk_results[0].copy()
 
-        # Get first chunk's bank info
-        first_chunk_data = chunk_results[0].get('extracted_data', {})
-
-        # Collect all transactions from all chunks
+        # Collect bank_info and saldo_info from all chunks (prefer first chunk with data)
+        merged_bank_info = {}
+        merged_saldo_info = {}
         all_transactions = []
         all_raw_text = []
 
@@ -217,13 +216,38 @@ class PDFChunker:
             if raw_text:
                 all_raw_text.append(f"\n=== CHUNK {i+1} ===\n{raw_text}")
 
-            # Get transactions from smart_mapped or structured_data
+            # Get extracted_data
             extracted_data = chunk.get('extracted_data', {})
 
             if isinstance(extracted_data, dict):
-                # Try smart_mapped first
+                # Extract bank_info and saldo_info from smart_mapped
                 smart_mapped = extracted_data.get('smart_mapped', {})
                 if smart_mapped and isinstance(smart_mapped, dict):
+                    # Get bank_info (prefer first non-empty)
+                    bank_info = smart_mapped.get('bank_info', {})
+                    if bank_info and not merged_bank_info:
+                        merged_bank_info = bank_info.copy()
+                        logger.info(f"  ✅ Found bank_info in chunk {i+1}")
+
+                    # Get saldo_info (prefer last chunk for saldo_akhir, first for saldo_awal)
+                    saldo_info = smart_mapped.get('saldo_info', {})
+                    if saldo_info:
+                        # Always take saldo_awal from first chunk if not set
+                        if 'saldo_awal' in saldo_info and not merged_saldo_info.get('saldo_awal'):
+                            merged_saldo_info['saldo_awal'] = saldo_info['saldo_awal']
+                            logger.info(f"  ✅ Found saldo_awal in chunk {i+1}: {saldo_info['saldo_awal']}")
+
+                        # Always update saldo_akhir from each chunk (last one wins)
+                        if 'saldo_akhir' in saldo_info:
+                            merged_saldo_info['saldo_akhir'] = saldo_info['saldo_akhir']
+                            logger.info(f"  ✅ Found saldo_akhir in chunk {i+1}: {saldo_info['saldo_akhir']}")
+
+                        # Merge other saldo fields
+                        for key in ['total_kredit', 'total_debet', 'mata_uang']:
+                            if key in saldo_info and not merged_saldo_info.get(key):
+                                merged_saldo_info[key] = saldo_info[key]
+
+                    # Get transactions
                     transactions = smart_mapped.get('transactions', [])
                     if transactions:
                         all_transactions.extend(transactions)
@@ -249,13 +273,21 @@ class PDFChunker:
         merged['raw_text'] = '\n'.join(all_raw_text)
         merged['extracted_text'] = merged['raw_text']
 
-        # Update extracted_data with merged transactions
+        # Update extracted_data with merged transactions, bank_info, and saldo_info
         if 'extracted_data' in merged and isinstance(merged['extracted_data'], dict):
             # Update smart_mapped if it exists
             if 'smart_mapped' in merged['extracted_data']:
                 if not isinstance(merged['extracted_data']['smart_mapped'], dict):
                     merged['extracted_data']['smart_mapped'] = {}
+
+                # Set transactions
                 merged['extracted_data']['smart_mapped']['transactions'] = all_transactions
+
+                # Set bank_info and saldo_info
+                if merged_bank_info:
+                    merged['extracted_data']['smart_mapped']['bank_info'] = merged_bank_info
+                if merged_saldo_info:
+                    merged['extracted_data']['smart_mapped']['saldo_info'] = merged_saldo_info
 
             # Update structured_data if it exists
             if 'structured_data' in merged['extracted_data']:
@@ -267,6 +299,8 @@ class PDFChunker:
             merged['extracted_data']['transaksi'] = all_transactions
 
         logger.info(f"✅ Merged {len(chunk_results)} chunks → {len(all_transactions)} total transactions")
+        logger.info(f"✅ Bank info preserved: {bool(merged_bank_info)}")
+        logger.info(f"✅ Saldo info preserved: saldo_awal={merged_saldo_info.get('saldo_awal', 'NOT SET')}, saldo_akhir={merged_saldo_info.get('saldo_akhir', 'NOT SET')}")
 
         return merged
 
