@@ -178,25 +178,6 @@ app.include_router(documents.router)
 app.include_router(batches.router)
 app.include_router(exports.router)
 
-# ==================== WebSocket Routes ====================
-# WebSocket routes must be registered directly (not through router)
-
-from fastapi import WebSocket
-try:
-    from routers.health import websocket_general_handler, websocket_batch_handler
-except ModuleNotFoundError:  # pragma: no cover - package context fallback
-    from .routers.health import websocket_general_handler, websocket_batch_handler
-
-@app.websocket("/ws")
-async def websocket_general(websocket: WebSocket):
-    """WebSocket endpoint for general system updates"""
-    await websocket_general_handler(websocket)
-
-@app.websocket("/ws/batch/{batch_id}")
-async def websocket_batch(websocket: WebSocket, batch_id: str):
-    """WebSocket endpoint for specific batch progress updates"""
-    await websocket_batch_handler(websocket, batch_id)
-
 # ==================== Run Application ====================
 
 if __name__ == "__main__":

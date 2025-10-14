@@ -1,19 +1,16 @@
 """
 Health & Monitoring Router
-Handles health checks, cache statistics, WebSocket connections, and system monitoring
+Handles health checks, cache statistics, and system monitoring
 """
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
-import json
 import logging
-from typing import Optional
 
 from database import User, SessionLocal
-from auth import get_current_active_user, verify_token
+from auth import get_current_active_user
 from ai_processor import RealOCRProcessor
-from websocket_manager import manager
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -99,116 +96,13 @@ async def clear_cache(request: Request, current_user: User = Depends(get_current
     """Clear all cache entries (requires authentication, rate limited)"""
     if not REDIS_AVAILABLE or not cache:
         raise HTTPException(status_code=503, detail="Cache service not available")
-    
+
     # Only admin can clear cache
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
-    
+
     if cache.clear_all_cache():
         logger.warning(f"Cache cleared by admin: {current_user.username}")
         return {"message": "Cache cleared successfully"}
     else:
         return {"message": "Failed to clear cache", "status": "error"}
-
-
-# ==================== WebSocket Endpoints ====================
-
-# Note: WebSocket routes need to be registered without the router prefix
-# They should be added directly to the app in main.py
-
-async def authenticate_websocket(websocket: WebSocket) -> Optional[User]:
-    """Authenticate WebSocket connection via token in query params"""
-    try:
-        # Get token from query parameters
-        token = websocket.query_params.get("token")
-        if not token:
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Missing authentication token")
-            return None
-
-        # Verify token
-        payload = verify_token(token)
-        if not payload:
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid authentication token")
-            return None
-
-        # Get user from database
-        username = payload.get("sub")
-        if not username:
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token payload")
-            return None
-
-        db = SessionLocal()
-        try:
-            user = db.query(User).filter(User.username == username).first()
-            if not user or not user.is_active:
-                await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="User not found or inactive")
-                return None
-            return user
-        finally:
-            db.close()
-
-    except Exception as e:
-        logger.error(f"WebSocket authentication error: {e}")
-        await websocket.close(code=status.WS_1011_INTERNAL_ERROR, reason="Authentication error")
-        return None
-
-
-async def websocket_general_handler(websocket: WebSocket):
-    """WebSocket endpoint for general system updates (requires authentication)"""
-    # Authenticate before accepting connection
-    user = await authenticate_websocket(websocket)
-    if not user:
-        return  # Connection already closed in authenticate_websocket
-
-    await manager.connect(websocket)
-    try:
-        # Send connection confirmation
-        await manager.send_personal_message(json.dumps({
-            "type": "connection_established",
-            "message": "Connected to general updates",
-            "user": user.username,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }), websocket)
-
-        while True:
-            # Keep connection alive and handle any client messages
-            data = await websocket.receive_text()
-            # Echo back for testing
-            await manager.send_personal_message(f"Echo: {data}", websocket)
-
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
-
-
-async def websocket_batch_handler(websocket: WebSocket, batch_id: str):
-    """WebSocket endpoint for specific batch progress updates (requires authentication)"""
-    # Authenticate before accepting connection
-    user = await authenticate_websocket(websocket)
-    if not user:
-        return  # Connection already closed in authenticate_websocket
-
-    await manager.connect(websocket, batch_id)
-    try:
-        # Send connection confirmation with batch info
-        await manager.send_personal_message(json.dumps({
-            "type": "batch_connection_established",
-            "batch_id": batch_id,
-            "message": f"Connected to batch {batch_id} updates",
-            "user": user.username,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }), websocket)
-
-        while True:
-            # Keep connection alive and handle any client messages
-            data = await websocket.receive_text()
-            # Could handle client commands here (pause, cancel, etc.)
-            await manager.send_personal_message(f"Batch {batch_id} Echo: {data}", websocket)
-
-    except WebSocketDisconnect:
-        manager.disconnect(websocket, batch_id)
-
-
-@router.get("/connections")
-async def get_connection_stats(current_user: User = Depends(get_current_active_user)):
-    """Get WebSocket connection statistics (requires authentication)"""
-    return manager.get_connection_stats()

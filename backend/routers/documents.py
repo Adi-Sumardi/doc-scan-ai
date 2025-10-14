@@ -21,7 +21,6 @@ from auth import get_current_active_user
 from security import file_security, SecurityValidator
 from ai_processor import process_document_ai
 from batch_processor import batch_processor
-from websocket_manager import manager
 from config import get_upload_dir
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -118,7 +117,9 @@ async def upload_documents(
                 id=batch_id,
                 status="processing",
                 created_at=datetime.now(timezone.utc),
-                user_id=current_user.id
+                user_id=current_user.id,
+                total_files=len(files),  # Set total files count
+                processed_files=0
             )
             db.add(db_batch)
             db.commit()
@@ -285,10 +286,8 @@ async def upload_documents(
                 except:
                     pass
         
-        # Update batch with file count
+        # Commit all file records
         try:
-            db_batch.total_files = len(file_paths)
-            db_batch.processed_files = 0
             db.commit()
         except Exception as e:
             logger.error(f"Failed to update batch {batch_id}: {e}")
@@ -430,20 +429,20 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
         logger.info(f"Starting async processing for batch {batch_id}")
         
         # Send batch processing started notification
-        await manager.send_batch_progress(batch_id, {
-            "status": "started",
-            "total_files": len(file_paths),
-            "processed_files": 0,
-            "message": f"Starting processing of {len(file_paths)} files"
-        })
+        # WebSocket removed: await manager.send_batch_progress(batch_id, {
+        # "status": "started",
+        # "total_files": len(file_paths),
+        # "processed_files": 0,
+        # "message": f"Starting processing of {len(file_paths)} files"
+        # })
         
         batch = db.query(Batch).filter(Batch.id == batch_id).first()
         if not batch:
             logger.error(f"Batch {batch_id} not found in database")
-            await manager.send_batch_error(batch_id, {
-                "error": "Batch not found in database",
-                "batch_id": batch_id
-            })
+            # WebSocket removed: await manager.send_batch_error(batch_id, {
+            # "error": "Batch not found in database",
+            # "batch_id": batch_id
+            # })
             return
 
         if batch_processor.is_cancelled(batch_id):
@@ -452,13 +451,13 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
             batch.completed_at = datetime.now(timezone.utc)
             db.commit()
 
-            await manager.send_batch_complete(batch_id, {
-                "status": "cancelled",
-                "total_files": len(file_paths),
-                "processed_files": 0,
-                "success_rate": 0,
-                "message": "Batch processing cancelled by user"
-            })
+            # WebSocket removed: await manager.send_batch_complete(batch_id, {
+            # "status": "cancelled",
+            # "total_files": len(file_paths),
+            # "processed_files": 0,
+            # "success_rate": 0,
+            # "message": "Batch processing cancelled by user"
+            # })
             batch_processor.clear_cancel_request(batch_id)
             return
         
@@ -471,24 +470,24 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                 batch.completed_at = datetime.now(timezone.utc)
                 db.commit()
 
-                await manager.send_batch_complete(batch_id, {
-                    "status": "cancelled",
-                    "total_files": len(file_paths),
-                    "processed_files": processed_count,
-                    "success_rate": (processed_count / len(file_paths)) * 100 if file_paths else 0,
-                    "message": "Batch processing cancelled by user"
-                })
+                # WebSocket removed: await manager.send_batch_complete(batch_id, {
+                # "status": "cancelled",
+                # "total_files": len(file_paths),
+                # "processed_files": processed_count,
+                # "success_rate": (processed_count / len(file_paths)) * 100 if file_paths else 0,
+                # "message": "Batch processing cancelled by user"
+                # })
                 batch_processor.clear_cancel_request(batch_id)
                 return
             try:
                 # Send file processing started notification
-                await manager.send_file_progress(batch_id, {
-                    "filename": file_info.get("filename", "unknown"),
-                    "file_index": i + 1,
-                    "total_files": len(file_paths),
-                    "status": "processing",
-                    "message": f"Processing file {i + 1} of {len(file_paths)}"
-                })
+                # WebSocket removed: await manager.send_file_progress(batch_id, {
+                # "filename": file_info.get("filename", "unknown"),
+                # "file_index": i + 1,
+                # "total_files": len(file_paths),
+                # "status": "processing",
+                # "message": f"Processing file {i + 1} of {len(file_paths)}"
+                # })
                 
                 # Get file record from database
                 db_file = db.query(DocumentFile).filter(
@@ -498,12 +497,12 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                 
                 if not db_file:
                     logger.error(f"File record not found for {file_info['path']}")
-                    await manager.send_file_progress(batch_id, {
-                        "filename": file_info.get("filename", "unknown"),
-                        "file_index": i + 1,
-                        "status": "error",
-                        "error": "File record not found in database"
-                    })
+                    # WebSocket removed: await manager.send_file_progress(batch_id, {
+                    # "filename": file_info.get("filename", "unknown"),
+                    # "file_index": i + 1,
+                    # "status": "error",
+                    # "error": "File record not found in database"
+                    # })
                     continue
                 
                 # Update file status to processing
@@ -521,12 +520,12 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                 db.commit()
                 
                 # Send OCR processing notification
-                await manager.send_file_progress(batch_id, {
-                    "filename": db_file.name,
-                    "file_index": i + 1,
-                    "status": "ocr_processing",
-                    "message": f"Running OCR and AI analysis on {db_file.name}"
-                })
+                # WebSocket removed: await manager.send_file_progress(batch_id, {
+                # "filename": db_file.name,
+                # "file_index": i + 1,
+                # "status": "ocr_processing",
+                # "message": f"Running OCR and AI analysis on {db_file.name}"
+                # })
                 
                 # Process with AI
                 result = await process_document_ai(
@@ -585,24 +584,24 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                 db.commit()
                 
                 # Send file completion notification
-                await manager.send_file_progress(batch_id, {
-                    "filename": db_file.name,
-                    "file_index": i + 1,
-                    "status": "completed",
-                    "confidence": result.get("confidence", 0.0) * 100,
-                    "processing_time": result.get("processing_time", 0.0),
-                    "message": f"Successfully processed {db_file.name}"
-                })
+                # WebSocket removed: await manager.send_file_progress(batch_id, {
+                # "filename": db_file.name,
+                # "file_index": i + 1,
+                # "status": "completed",
+                # "confidence": result.get("confidence", 0.0) * 100,
+                # "processing_time": result.get("processing_time", 0.0),
+                # "message": f"Successfully processed {db_file.name}"
+                # })
                 
                 # Send overall batch progress update
-                await manager.send_batch_progress(batch_id, {
-                    "status": "processing",
-                    "total_files": len(file_paths),
-                    "processed_files": processed_count,
-                    "current_file": db_file.name,
-                    "progress_percentage": (processed_count / len(file_paths)) * 100,
-                    "message": f"Processed {processed_count} of {len(file_paths)} files"
-                })
+                # WebSocket removed: await manager.send_batch_progress(batch_id, {
+                # "status": "processing",
+                # "total_files": len(file_paths),
+                # "processed_files": processed_count,
+                # "current_file": db_file.name,
+                # "progress_percentage": (processed_count / len(file_paths)) * 100,
+                # "message": f"Processed {processed_count} of {len(file_paths)} files"
+                # })
                 
                 # Log success
                 log_entry = ProcessingLog(
@@ -619,13 +618,13 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                 logger.error(f"Error processing file {file_info.get('filename', 'unknown')}: {e}")
                 
                 # Send file error notification
-                await manager.send_file_progress(batch_id, {
-                    "filename": file_info.get("filename", "unknown"),
-                    "file_index": i + 1,
-                    "status": "error",
-                    "error": str(e),
-                    "message": f"Failed to process {file_info.get('filename', 'unknown')}"
-                })
+                # WebSocket removed: await manager.send_file_progress(batch_id, {
+                # "filename": file_info.get("filename", "unknown"),
+                # "file_index": i + 1,
+                # "status": "error",
+                # "error": str(e),
+                # "message": f"Failed to process {file_info.get('filename', 'unknown')}"
+                # })
                 
                 # Update file status to failed
                 if 'db_file' in locals() and db_file:
@@ -645,36 +644,36 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
         if processed_count == len(file_paths):
             batch.status = "completed"
             batch.completed_at = datetime.now(timezone.utc)
-            await manager.send_batch_complete(batch_id, {
-                "status": "completed",
-                "total_files": len(file_paths),
-                "processed_files": processed_count,
-                "success_rate": 100.0,
-                "message": f"All {len(file_paths)} files processed successfully"
-            })
+            # WebSocket removed: await manager.send_batch_complete(batch_id, {
+            # "status": "completed",
+            # "total_files": len(file_paths),
+            # "processed_files": processed_count,
+            # "success_rate": 100.0,
+            # "message": f"All {len(file_paths)} files processed successfully"
+            # })
             logger.info(f"Batch {batch_id} completed successfully")
         elif processed_count > 0:
             batch.status = "partial"
             batch.completed_at = datetime.now(timezone.utc)
             success_rate = (processed_count / len(file_paths)) * 100
-            await manager.send_batch_complete(batch_id, {
-                "status": "partial",
-                "total_files": len(file_paths),
-                "processed_files": processed_count,
-                "success_rate": success_rate,
-                "message": f"Partially completed: {processed_count} of {len(file_paths)} files processed ({success_rate:.1f}%)"
-            })
+            # WebSocket removed: await manager.send_batch_complete(batch_id, {
+            # "status": "partial",
+            # "total_files": len(file_paths),
+            # "processed_files": processed_count,
+            # "success_rate": success_rate,
+            # "message": f"Partially completed: {processed_count} of {len(file_paths)} files processed ({success_rate:.1f}%)"
+            # })
             logger.info(f"Batch {batch_id} partially completed ({processed_count}/{len(file_paths)})")
         else:
             batch.status = "failed"
             batch.error_message = "No files processed successfully"
             batch.completed_at = datetime.now(timezone.utc)
-            await manager.send_batch_error(batch_id, {
-                "error": "No files processed successfully",
-                "total_files": len(file_paths),
-                "processed_files": 0,
-                "message": "Batch processing failed - no files could be processed"
-            })
+            # WebSocket removed: await manager.send_batch_error(batch_id, {
+            # "error": "No files processed successfully",
+            # "total_files": len(file_paths),
+            # "processed_files": 0,
+            # "message": "Batch processing failed - no files could be processed"
+            # })
             logger.error(f"Batch {batch_id} failed - no files processed")
         
         db.commit()
@@ -682,10 +681,10 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
         
     except Exception as e:
         logger.error(f"Batch processing error for {batch_id}: {e}")
-        await manager.send_batch_error(batch_id, {
-            "error": str(e),
-            "message": f"Critical error during batch processing: {str(e)}"
-        })
+        # WebSocket removed: await manager.send_batch_error(batch_id, {
+        # "error": str(e),
+        # "message": f"Critical error during batch processing: {str(e)}"
+        # })
         # Update batch status to failed
         try:
             batch = db.query(Batch).filter(Batch.id == batch_id).first()
@@ -834,7 +833,9 @@ async def upload_zip_file(
                 id=batch_id,
                 status="processing",
                 created_at=datetime.now(timezone.utc),
-                user_id=current_user.id
+                user_id=current_user.id,
+                total_files=len(extracted_files),  # Set total files from extracted count
+                processed_files=0
             )
             db.add(db_batch)
             db.commit()
@@ -925,10 +926,13 @@ async def upload_zip_file(
 
         # Prepare file paths for background processing
         file_paths_data = []
-        for file_path in file_paths:
+        for i, file_path in enumerate(file_paths):
+            # Get filename from path
+            filename = Path(file_path).name
             file_paths_data.append({
                 "path": file_path,
-                "document_type": document_type
+                "document_type": document_type,
+                "filename": filename  # Add filename for progress notifications
             })
 
         # Start background processing
