@@ -191,10 +191,12 @@ class RekeningKoranExporter(BaseExporter):
         - "15/03" + "2025" → "15/03/2025"
         - "01 JAN" + "2025" → "01/01/2025"
         - "01/01/2025" + "2025" → "01/01/2025" (no change, already complete)
+        - "1/3" + "2025" → "01/03/2025" (with zero padding)
         """
         if not date_str or not isinstance(date_str, str):
             return date_str
 
+        original_date = date_str
         date_str = date_str.strip()
 
         # If already has 4-digit year, return as-is
@@ -202,28 +204,188 @@ class RekeningKoranExporter(BaseExporter):
         if re.search(r'\b20\d{2}\b', date_str):
             return date_str
 
-        # If format is DD/MM (like "01/01"), add year
-        if re.match(r'^\d{1,2}/\d{1,2}$', date_str):
-            return f"{date_str}/{year}" if year else date_str
+        # Provide default year if not provided
+        if not year:
+            from datetime import datetime
+            year = str(datetime.now().year)
+            logger.warning(f"⚠️ No year provided for date completion, using current year: {year}")
 
-        # If format is DD-MM (like "01-01"), add year
-        if re.match(r'^\d{1,2}-\d{1,2}$', date_str):
-            return f"{date_str}/{year}" if year else date_str
+        # If format is DD/MM (like "01/01" or "1/3"), add year and pad zeros
+        match = re.match(r'^(\d{1,2})/(\d{1,2})$', date_str)
+        if match:
+            day = match.group(1).zfill(2)
+            month = match.group(2).zfill(2)
+            completed = f"{day}/{month}/{year}"
+            if original_date != completed:
+                logger.debug(f"📅 Date completed: '{original_date}' → '{completed}'")
+            return completed
 
-        # If format is DD MMM (like "01 JAN"), convert to DD/MM/YYYY
-        month_match = re.match(r'^(\d{1,2})\s+(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)', date_str, re.IGNORECASE)
-        if month_match and year:
+        # If format is DD-MM (like "01-01"), convert to DD/MM/YYYY
+        match = re.match(r'^(\d{1,2})-(\d{1,2})$', date_str)
+        if match:
+            day = match.group(1).zfill(2)
+            month = match.group(2).zfill(2)
+            completed = f"{day}/{month}/{year}"
+            logger.debug(f"📅 Date completed: '{original_date}' → '{completed}'")
+            return completed
+
+        # If format is DD MMM (like "01 JAN" or "1 JANUARI"), convert to DD/MM/YYYY
+        month_map = {
+            'JAN': '01', 'JANUARI': '01', 'JANUARY': '01',
+            'FEB': '02', 'FEBRUARI': '02', 'FEBRUARY': '02',
+            'MAR': '03', 'MARET': '03', 'MARCH': '03',
+            'APR': '04', 'APRIL': '04',
+            'MAY': '05', 'MEI': '05',
+            'JUN': '06', 'JUNI': '06', 'JUNE': '06',
+            'JUL': '07', 'JULI': '07', 'JULY': '07',
+            'AUG': '08', 'AGUSTUS': '08', 'AUGUST': '08',
+            'SEP': '09', 'SEPTEMBER': '09',
+            'OCT': '10', 'OKTOBER': '10', 'OCTOBER': '10',
+            'NOV': '11', 'NOVEMBER': '11',
+            'DEC': '12', 'DESEMBER': '12', 'DECEMBER': '12'
+        }
+
+        month_match = re.match(r'^(\d{1,2})\s+([A-Z]+)(?:\s+(\d{4}))?$', date_str.upper())
+        if month_match:
             day = month_match.group(1).zfill(2)
-            month_name = month_match.group(2).upper()
-            month_map = {
-                'JAN': '01', 'FEB': '02', 'MAR': '03', 'APR': '04',
-                'MAY': '05', 'JUN': '06', 'JUL': '07', 'AUG': '08',
-                'SEP': '09', 'OCT': '10', 'NOV': '11', 'DEC': '12'
-            }
-            month = month_map.get(month_name, '01')
-            return f"{day}/{month}/{year}"
+            month_name = month_match.group(2)
+            year_from_date = month_match.group(3)
 
+            month = month_map.get(month_name, '01')
+            final_year = year_from_date if year_from_date else year
+
+            completed = f"{day}/{month}/{final_year}"
+            if original_date != completed:
+                logger.debug(f"📅 Date completed: '{original_date}' → '{completed}'")
+            return completed
+
+        # If no pattern matched, return as-is
+        logger.debug(f"⚠️ Date format not recognized, keeping as-is: '{date_str}'")
         return date_str
+
+    def _parse_date_for_sorting(self, date_str: str) -> tuple:
+        """
+        Parse date string to tuple (year, month, day) for sorting.
+        Handles various formats:
+        - "01/01/2025" → (2025, 1, 1)
+        - "01/01" → (9999, 1, 1)  # Put incomplete dates at end
+        - "01 JAN" → (9999, 1, 1)
+        - Invalid → (9999, 12, 31)  # Put invalid at very end
+
+        Returns tuple for easy sorting
+        """
+        if not date_str or not isinstance(date_str, str):
+            return (9999, 12, 31)
+
+        date_str = date_str.strip()
+
+        import re
+        from datetime import datetime
+
+        # Try DD/MM/YYYY format
+        match = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', date_str)
+        if match:
+            try:
+                day = int(match.group(1))
+                month = int(match.group(2))
+                year = int(match.group(3))
+                return (year, month, day)
+            except:
+                pass
+
+        # Try DD/MM format (incomplete - no year)
+        match = re.match(r'^(\d{1,2})/(\d{1,2})$', date_str)
+        if match:
+            try:
+                day = int(match.group(1))
+                month = int(match.group(2))
+                # Return with placeholder year 9999 to put at end
+                # But keep month/day for sorting within incomplete dates
+                return (9999, month, day)
+            except:
+                pass
+
+        # Try DD-MM format
+        match = re.match(r'^(\d{1,2})-(\d{1,2})$', date_str)
+        if match:
+            try:
+                day = int(match.group(1))
+                month = int(match.group(2))
+                return (9999, month, day)
+            except:
+                pass
+
+        # Try DD MMM or DD MONTH format
+        month_map = {
+            'JAN': 1, 'JANUARI': 1, 'JANUARY': 1,
+            'FEB': 2, 'FEBRUARI': 2, 'FEBRUARY': 2,
+            'MAR': 3, 'MARET': 3, 'MARCH': 3,
+            'APR': 4, 'APRIL': 4,
+            'MAY': 5, 'MEI': 5,
+            'JUN': 6, 'JUNI': 6, 'JUNE': 6,
+            'JUL': 7, 'JULI': 7, 'JULY': 7,
+            'AUG': 8, 'AGUSTUS': 8, 'AUGUST': 8,
+            'SEP': 9, 'SEPTEMBER': 9,
+            'OCT': 10, 'OKTOBER': 10, 'OCTOBER': 10,
+            'NOV': 11, 'NOVEMBER': 11,
+            'DEC': 12, 'DESEMBER': 12, 'DECEMBER': 12
+        }
+
+        match = re.match(r'^(\d{1,2})\s+([A-Z]+)(?:\s+(\d{4}))?$', date_str.upper())
+        if match:
+            try:
+                day = int(match.group(1))
+                month_name = match.group(2)
+                year_str = match.group(3)
+
+                month = month_map.get(month_name, 1)
+                year = int(year_str) if year_str else 9999
+
+                return (year, month, day)
+            except:
+                pass
+
+        # Default: invalid date - put at very end
+        return (9999, 12, 31)
+
+    def _sort_transactions_by_month(self, transaksi: list) -> list:
+        """
+        Sort transactions by date, prioritizing complete dates first,
+        then sorting by month (lowest first).
+
+        Args:
+            transaksi: List of transaction dicts with 'tanggal' field
+
+        Returns:
+            Sorted list of transactions
+        """
+        if not transaksi or not isinstance(transaksi, list):
+            return transaksi
+
+        logger.info(f"📅 Sorting {len(transaksi)} transactions by date...")
+
+        # Create list of (transaction, sort_key) tuples
+        trans_with_keys = []
+        for trans in transaksi:
+            if not isinstance(trans, dict):
+                continue
+
+            tanggal = trans.get('tanggal', '')
+            sort_key = self._parse_date_for_sorting(tanggal)
+            trans_with_keys.append((trans, sort_key))
+
+        # Sort by the tuple (year, month, day)
+        trans_with_keys.sort(key=lambda x: x[1])
+
+        # Extract sorted transactions
+        sorted_transaksi = [trans for trans, _ in trans_with_keys]
+
+        # Log sample of sorted dates
+        if sorted_transaksi:
+            sample_dates = [t.get('tanggal', 'N/A') for t in sorted_transaksi[:5]]
+            logger.info(f"✅ Transactions sorted. First 5 dates: {sample_dates}")
+
+        return sorted_transaksi
 
     def _fix_misread_amount(self, value: str) -> str:
         """
@@ -338,6 +500,10 @@ class RekeningKoranExporter(BaseExporter):
                         'cabang': trans.get('cabang') or trans.get('branch') or ''
                     }
                     structured['transaksi'].append(transaction_item)
+
+            # Sort transactions by date (month ascending)
+            if structured.get('transaksi'):
+                structured['transaksi'] = self._sort_transactions_by_month(structured['transaksi'])
 
         logger.info(f"✅ Rekening Koran Smart Mapper data converted to structured format with {len(structured.get('transaksi', []))} transactions")
 
@@ -791,16 +957,58 @@ class RekeningKoranExporter(BaseExporter):
             logger.error(f"❌ Rekening Koran PDF export failed: {e}", exc_info=True)
             return False
     
+    def _extract_year_from_batch(self, results: list) -> str:
+        """
+        Extract year from batch of results by analyzing all periode fields.
+        Returns the most common year found, or current year as fallback.
+        """
+        from collections import Counter
+        from datetime import datetime
+
+        years = []
+
+        for result_dict in results:
+            extracted_data = result_dict.get('extracted_data', {})
+
+            # Try smart_mapped first
+            if 'smart_mapped' in extracted_data and extracted_data['smart_mapped']:
+                bank_info = extracted_data['smart_mapped'].get('bank_info', {})
+                periode = bank_info.get('periode') or bank_info.get('period', '')
+            elif 'structured_data' in extracted_data:
+                periode = extracted_data['structured_data'].get('periode', '')
+            else:
+                periode = extracted_data.get('periode', '')
+
+            # Extract year from periode
+            if periode:
+                year = self._extract_year_from_periode(periode)
+                if year:
+                    years.append(year)
+
+        if years:
+            # Return most common year
+            most_common_year = Counter(years).most_common(1)[0][0]
+            logger.info(f"✅ Extracted batch year: {most_common_year} (from {len(years)} documents)")
+            return most_common_year
+        else:
+            # Fallback to current year
+            current_year = str(datetime.now().year)
+            logger.warning(f"⚠️ No year found in batch, using current year: {current_year}")
+            return current_year
+
     def batch_export_to_excel(self, batch_id: str, results: list, output_path: str) -> bool:
         """Export multiple Rekening Koran entries to single Excel file"""
         try:
             if not HAS_OPENPYXL:
                 logger.error("❌ openpyxl not available for batch Excel export")
                 return False
-            
+
             wb = Workbook()
             ws = wb.active
             ws.title = "Batch Mutasi Bank"
+
+            # Extract year from batch for completing incomplete dates
+            batch_year = self._extract_year_from_batch(results)
             
             # Styles
             header_fill = PatternFill(start_color="7c3aed", end_color="7c3aed", fill_type="solid")
@@ -840,6 +1048,9 @@ class RekeningKoranExporter(BaseExporter):
             # Data rows - handle multiple documents and their transactions
             transaction_row_idx = 0  # For alternating colors
 
+            # Collect ALL transactions from ALL documents for global sorting
+            all_transactions = []
+
             for doc_idx, result_dict in enumerate(results):
                 extracted_data = result_dict.get('extracted_data', {})
 
@@ -859,116 +1070,100 @@ class RekeningKoranExporter(BaseExporter):
 
                 if isinstance(transaksi, list) and transaksi:
                     # Multiple transactions from this document
-                    logger.info(f"📊 Processing {len(transaksi)} transactions from document {doc_idx+1}")
+                    logger.info(f"📊 Collecting {len(transaksi)} transactions from document {doc_idx+1}")
 
+                    # Complete any incomplete dates with batch_year
                     for trans in transaksi:
-                        if not isinstance(trans, dict):
-                            continue
+                        if isinstance(trans, dict) and trans.get('tanggal'):
+                            tanggal_raw = trans['tanggal']
+                            # Re-complete date with batch_year (in case it wasn't completed before)
+                            tanggal_complete = self._complete_date_with_year(tanggal_raw, batch_year)
+                            trans['tanggal'] = tanggal_complete
 
-                        # Get kredit/debet with mutasi handling
-                        kredit = trans.get('kredit', trans.get('credit', ''))
-                        debet = trans.get('debet', trans.get('debit', ''))
-
-                        # Fallback mutasi handling
-                        if not kredit and not debet:
-                            mutasi = trans.get('mutasi', trans.get('mutation', ''))
-                            if mutasi:
-                                mutasi_str = str(mutasi).strip()
-                                mutasi_clean = mutasi_str.replace('Rp', '').replace('IDR', '').replace('.', '').replace(',', '').strip()
-                                if mutasi_clean.startswith('+') or (mutasi_clean and not mutasi_clean.startswith('-')):
-                                    kredit = mutasi_clean.replace('+', '')
-                                elif mutasi_clean.startswith('-'):
-                                    debet = mutasi_clean.replace('-', '')
-
-                        # Get other fields
-                        tanggal = trans.get('tanggal', trans.get('date', 'N/A'))
-                        keterangan = trans.get('keterangan', trans.get('description', trans.get('remarks', 'N/A')))
-                        saldo = trans.get('saldo', trans.get('balance', 'N/A'))
-
-                        # Format to rupiah
-                        kredit_formatted = self._format_rupiah(kredit)
-                        debet_formatted = self._format_rupiah(debet)
-                        saldo_formatted = self._format_rupiah(saldo)
-
-                        # Clean and format keterangan
-                        keterangan_cleaned = self._clean_prefix_keterangan(keterangan)
-                        keterangan_formatted = self._format_title_case(keterangan_cleaned)
-
-                        # Determine sumber/tujuan
-                        sumber_masuk = keterangan_formatted if kredit_formatted != '-' else '-'
-                        tujuan_keluar = keterangan_formatted if debet_formatted != '-' else '-'
-
-                        data_row = [
-                            tanggal,
-                            kredit_formatted,
-                            debet_formatted,
-                            saldo_formatted,
-                            sumber_masuk,
-                            tujuan_keluar,
-                            keterangan_formatted
-                        ]
-
-                        fill = data_fill_1 if transaction_row_idx % 2 == 0 else data_fill_2
-
-                        for col_idx, value in enumerate(data_row, start=1):
-                            cell = ws.cell(row=row, column=col_idx, value=value)
-                            cell.fill = fill
-                            # Right align for numeric columns
-                            if col_idx in [2, 3, 4]:
-                                cell.alignment = right_align
-                            else:
-                                cell.alignment = left_align
-                            cell.border = border_thin
-                            cell.font = Font(size=10)
-
-                        row += 1
-                        transaction_row_idx += 1
+                    # Add all transactions to global list
+                    all_transactions.extend(transaksi)
 
                 else:
-                    # Legacy: Single transaction per document (fallback)
-                    kredit = structured.get('kredit', structured.get('credit', 'N/A'))
-                    debet = structured.get('debet', structured.get('debit', 'N/A'))
-                    keterangan = structured.get('keterangan', structured.get('description', 'N/A'))
-                    saldo = structured.get('saldo', 'N/A')
+                    # Legacy: Single transaction per document
+                    tanggal_raw = structured.get('tanggal', 'N/A')
+                    tanggal_complete = self._complete_date_with_year(tanggal_raw, batch_year)
 
-                    # Format to rupiah
-                    kredit_formatted = self._format_rupiah(kredit)
-                    debet_formatted = self._format_rupiah(debet)
-                    saldo_formatted = self._format_rupiah(saldo)
+                    single_trans = {
+                        'tanggal': tanggal_complete,
+                        'kredit': structured.get('kredit', structured.get('credit', '')),
+                        'debet': structured.get('debet', structured.get('debit', '')),
+                        'keterangan': structured.get('keterangan', structured.get('description', 'N/A')),
+                        'saldo': structured.get('saldo', 'N/A')
+                    }
+                    all_transactions.append(single_trans)
 
-                    # Clean and format keterangan
-                    keterangan_cleaned = self._clean_prefix_keterangan(keterangan)
-                    keterangan_formatted = self._format_title_case(keterangan_cleaned)
+            # Sort ALL transactions globally by date
+            logger.info(f"📅 Sorting {len(all_transactions)} total transactions globally...")
+            all_transactions = self._sort_transactions_by_month(all_transactions)
 
-                    # Determine sumber/tujuan based on transaction type
-                    sumber_masuk = keterangan_formatted if kredit_formatted != '-' else '-'
-                    tujuan_keluar = keterangan_formatted if debet_formatted != '-' else '-'
+            # Now render all sorted transactions
+            for trans in all_transactions:
+                if not isinstance(trans, dict):
+                    continue
 
-                    data_row = [
-                        structured.get('tanggal', 'N/A'),
-                        kredit_formatted,
-                        debet_formatted,
-                        saldo_formatted,
-                        sumber_masuk,
-                        tujuan_keluar,
-                        keterangan_formatted
-                    ]
+                # Get kredit/debet with mutasi handling
+                kredit = trans.get('kredit', trans.get('credit', ''))
+                debet = trans.get('debet', trans.get('debit', ''))
 
-                    fill = data_fill_1 if transaction_row_idx % 2 == 0 else data_fill_2
+                # Fallback mutasi handling
+                if not kredit and not debet:
+                    mutasi = trans.get('mutasi', trans.get('mutation', ''))
+                    if mutasi:
+                        mutasi_str = str(mutasi).strip()
+                        mutasi_clean = mutasi_str.replace('Rp', '').replace('IDR', '').replace('.', '').replace(',', '').strip()
+                        if mutasi_clean.startswith('+') or (mutasi_clean and not mutasi_clean.startswith('-')):
+                            kredit = mutasi_clean.replace('+', '')
+                        elif mutasi_clean.startswith('-'):
+                            debet = mutasi_clean.replace('-', '')
 
-                    for col_idx, value in enumerate(data_row, start=1):
-                        cell = ws.cell(row=row, column=col_idx, value=value)
-                        cell.fill = fill
-                        # Right align for numeric columns
-                        if col_idx in [2, 3, 4]:
-                            cell.alignment = right_align
-                        else:
-                            cell.alignment = left_align
-                        cell.border = border_thin
-                        cell.font = Font(size=10)
+                # Get other fields
+                tanggal = trans.get('tanggal', trans.get('date', 'N/A'))
+                keterangan = trans.get('keterangan', trans.get('description', trans.get('remarks', 'N/A')))
+                saldo = trans.get('saldo', trans.get('balance', 'N/A'))
 
-                    row += 1
-                    transaction_row_idx += 1
+                # Format to rupiah
+                kredit_formatted = self._format_rupiah(kredit)
+                debet_formatted = self._format_rupiah(debet)
+                saldo_formatted = self._format_rupiah(saldo)
+
+                # Clean and format keterangan
+                keterangan_cleaned = self._clean_prefix_keterangan(keterangan)
+                keterangan_formatted = self._format_title_case(keterangan_cleaned)
+
+                # Determine sumber/tujuan
+                sumber_masuk = keterangan_formatted if kredit_formatted != '-' else '-'
+                tujuan_keluar = keterangan_formatted if debet_formatted != '-' else '-'
+
+                data_row = [
+                    tanggal,
+                    kredit_formatted,
+                    debet_formatted,
+                    saldo_formatted,
+                    sumber_masuk,
+                    tujuan_keluar,
+                    keterangan_formatted
+                ]
+
+                fill = data_fill_1 if transaction_row_idx % 2 == 0 else data_fill_2
+
+                for col_idx, value in enumerate(data_row, start=1):
+                    cell = ws.cell(row=row, column=col_idx, value=value)
+                    cell.fill = fill
+                    # Right align for numeric columns
+                    if col_idx in [2, 3, 4]:
+                        cell.alignment = right_align
+                    else:
+                        cell.alignment = left_align
+                    cell.border = border_thin
+                    cell.font = Font(size=10)
+
+                row += 1
+                transaction_row_idx += 1
 
             logger.info(f"✅ Exported {transaction_row_idx} total transactions from {len(results)} documents")
 

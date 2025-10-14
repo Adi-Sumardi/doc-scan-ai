@@ -20,12 +20,22 @@ logger = logging.getLogger(__name__)
 class BatchProcessor:
     """
     Process multiple documents in batch with progress tracking
+    Supports parallel processing with configurable concurrency limit
     """
-    
-    def __init__(self):
+
+    def __init__(self, max_concurrent_tasks: int = 5):
+        """
+        Initialize batch processor with parallel processing support
+
+        Args:
+            max_concurrent_tasks: Maximum number of files to process simultaneously
+                                 Default: 5 (to avoid API rate limits)
+        """
         self.batches: Dict[str, Dict[str, Any]] = {}
         self._cancel_requests: Set[str] = set()
-        logger.info("✅ Batch Processor initialized")
+        self.max_concurrent_tasks = max_concurrent_tasks
+        self._semaphore = asyncio.Semaphore(max_concurrent_tasks)
+        logger.info(f"✅ Batch Processor initialized with max {max_concurrent_tasks} concurrent tasks")
     
     async def create_batch(self, file_paths: List[str], document_type: str, user_id: Optional[str] = None) -> str:
         """
@@ -75,70 +85,102 @@ class BatchProcessor:
         
         return batch_id
     
-    async def process_batch(self, batch_id: str) -> Dict[str, Any]:
+    async def _process_single_file(
+        self,
+        batch_id: str,
+        file_info: Dict[str, Any],
+        idx: int,
+        total_files: int
+    ) -> None:
         """
-        Process all files in a batch
-        
+        Process a single file with semaphore control for rate limiting
+
         Args:
             batch_id: Batch identifier
-        
-        Returns:
-            Batch processing summary
+            file_info: File information dictionary
+            idx: File index (0-based)
+            total_files: Total number of files in batch
         """
-        if batch_id not in self.batches:
-            raise ValueError(f"Batch {batch_id} not found")
-        
-        batch_info = self.batches[batch_id]
-        batch_info["status"] = "processing"
-        batch_info["updated_at"] = datetime.now(timezone.utc).isoformat()
-        
-        logger.info(f"🚀 Starting batch processing for {batch_id}")
-        
-        # Process each file
-        for idx, file_info in enumerate(batch_info["files"]):
+        async with self._semaphore:  # Limit concurrent processing
             if self.is_cancelled(batch_id):
-                logger.info("🛑 Batch %s cancellation requested. Halting remaining files.", batch_id)
-                batch_info["status"] = "cancelled"
-                batch_info["updated_at"] = datetime.now(timezone.utc).isoformat()
-                break
+                logger.info(f"⏭️ Skipping file {idx + 1}/{total_files} (batch cancelled)")
+                return
+
             try:
                 file_info["status"] = "processing"
-                
-                logger.info(f"📄 Processing file {idx + 1}/{batch_info['total_files']}: {file_info['filename']}")
-                
+                batch_info = self.batches[batch_id]
+
+                logger.info(f"📄 Processing file {idx + 1}/{total_files}: {file_info['filename']}")
+
                 # Process document
                 result = await process_document_ai(
                     file_path=file_info["file_path"],
                     document_type=file_info["document_type"]
                 )
-                
+
                 # Add metadata
                 result["filename"] = file_info["filename"]
                 result["document_type"] = file_info["document_type"]
                 result["batch_id"] = batch_id
                 result["processed_at"] = datetime.now(timezone.utc).isoformat()
-                
+
                 # Store result
                 file_info["result"] = result
                 file_info["status"] = "completed"
                 batch_info["results"].append(result)
                 batch_info["processed_files"] += 1
-                
-                logger.info(f"✅ File {idx + 1} processed successfully (confidence: {result['confidence']:.2%})")
-                
+
+                logger.info(f"✅ File {idx + 1}/{total_files} processed successfully (confidence: {result['confidence']:.2%})")
+
             except Exception as e:
                 logger.error(f"❌ Failed to process file {file_info['filename']}: {e}")
                 file_info["status"] = "failed"
                 file_info["error"] = str(e)
+                batch_info = self.batches[batch_id]
                 batch_info["failed_files"] += 1
                 batch_info["errors"].append({
                     "filename": file_info["filename"],
                     "error": str(e)
                 })
-            
-            # Update progress
-            batch_info["updated_at"] = datetime.now(timezone.utc).isoformat()
-        
+
+            finally:
+                # Update progress timestamp
+                batch_info = self.batches[batch_id]
+                batch_info["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    async def process_batch(self, batch_id: str) -> Dict[str, Any]:
+        """
+        Process all files in a batch with PARALLEL processing
+
+        Args:
+            batch_id: Batch identifier
+
+        Returns:
+            Batch processing summary
+        """
+        if batch_id not in self.batches:
+            raise ValueError(f"Batch {batch_id} not found")
+
+        batch_info = self.batches[batch_id]
+        batch_info["status"] = "processing"
+        batch_info["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        logger.info(f"🚀 Starting PARALLEL batch processing for {batch_id} ({len(batch_info['files'])} files, max {self.max_concurrent_tasks} concurrent)")
+
+        # Create tasks for parallel processing
+        tasks = []
+        for idx, file_info in enumerate(batch_info["files"]):
+            task = self._process_single_file(
+                batch_id=batch_id,
+                file_info=file_info,
+                idx=idx,
+                total_files=batch_info["total_files"]
+            )
+            tasks.append(task)
+
+        # Process all files in parallel with asyncio.gather
+        await asyncio.gather(*tasks, return_exceptions=True)
+
         # Update final status
         if self.is_cancelled(batch_id):
             batch_info["status"] = "cancelled"
@@ -150,9 +192,9 @@ class BatchProcessor:
             batch_info["status"] = "failed"
         else:
             batch_info["status"] = "partial"  # Some succeeded, some failed
-        
+
         batch_info["completed_at"] = datetime.now(timezone.utc).isoformat()
-        
+
         logger.info(f"🏁 Batch {batch_id} processing completed: {batch_info['processed_files']} success, {batch_info['failed_files']} failed")
         self._cancel_requests.discard(batch_id)
 
@@ -289,5 +331,13 @@ class BatchProcessor:
         self._cancel_requests.discard(batch_id)
 
 
-# Global batch processor instance
-batch_processor = BatchProcessor()
+# Global batch processor instance with config-based concurrency
+# Import config here to avoid circular dependency
+try:
+    from config import settings
+    batch_processor = BatchProcessor(max_concurrent_tasks=settings.max_concurrent_processing)
+    logger.info(f"🚀 Batch processor initialized with max_concurrent_processing={settings.max_concurrent_processing}")
+except ImportError:
+    # Fallback if config not available
+    batch_processor = BatchProcessor(max_concurrent_tasks=5)
+    logger.warning("⚠️ Config not available, using default max_concurrent_tasks=5")

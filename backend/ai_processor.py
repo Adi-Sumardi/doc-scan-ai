@@ -497,29 +497,34 @@ async def _process_document_chunked(file_path: str, document_type: str, start_ti
         logger.info(f"🔗 Merging {len(chunk_results)} chunk results")
         merged_result = pdf_chunker.merge_extracted_data(chunk_results, document_type)
 
-        # Calculate final confidence
+        # Calculate final confidence using raw_text (not extracted_data)
+        merged_raw_text = merged_result.get('raw_text', '')
+        if not merged_raw_text:
+            # Fallback: concatenate raw_text from chunks if merge didn't preserve it
+            merged_raw_text = '\n'.join(chunk.get('raw_text', '') for chunk in chunk_results)
+
         final_confidence = calculate_confidence(
-            merged_result.get('extracted_data', {}),
+            merged_raw_text,
             document_type
         )
 
         # Calculate processing time
         processing_time = asyncio.get_event_loop().time() - start_time
 
-        # Return final result
+        # Return final result - matching normal processing structure
         final_result = {
-            'document_type': document_type,
             'extracted_data': merged_result.get('extracted_data', {}),
-            'raw_text': merged_result.get('raw_text', ''),
-            'extracted_text': merged_result.get('extracted_text', ''),
             'confidence': final_confidence,
-            'total_processing_time': processing_time,
+            'raw_text': merged_result.get('raw_text', ''),
+            'processing_time': processing_time,
+            # Additional metadata for chunked processing
             'ocr_engine_used': 'Google Document AI (Chunked)',
             'chunks_processed': len(chunk_results),
             'total_pages': page_count
         }
 
         logger.info(f"✅ Chunked processing complete: {len(chunk_results)} chunks, {page_count} pages, {processing_time:.2f}s")
+        logger.info(f"✅ Merged extracted data keys: {list(final_result['extracted_data'].keys()) if isinstance(final_result['extracted_data'], dict) else 'N/A'}")
 
         return final_result
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Brain, Sparkles, Loader2 } from 'lucide-react';
+import { Brain, Sparkles, Loader2, FileText, FolderOpen, CheckCircle } from 'lucide-react';
 
 interface RealtimeOCRProcessingProps {
   batchId: string;
@@ -28,6 +28,11 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
   const [scanProgress, setScanProgress] = useState(0);
   const [statusText, setStatusText] = useState('Initializing AI Scanner...');
   const canvasRef = useRef<HTMLDivElement>(null);
+  const animationTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const completeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isMountedRef = useRef(true);
+  const hasStartedRef = useRef(false); // Prevent restart after completion
+  const currentBatchIdRef = useRef<string | null>(null); // Track current batch
 
   // Generate particles for visual effects
   useEffect(() => {
@@ -45,47 +50,101 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
     setParticles(newParticles);
   }, []);
 
-  // Animate particles using CSS animations instead of setState for better performance
-  // Removed setInterval-based animation to reduce re-renders
-
-  // Smooth progress animation
+  // Pure animation - no WebSocket, always smooth fallback
   useEffect(() => {
+    // Reset flag if batchId changed (new batch)
+    if (currentBatchIdRef.current !== batchId) {
+      console.log('🔄 New batch detected, resetting animation');
+      hasStartedRef.current = false;
+      currentBatchIdRef.current = batchId;
+    }
+
+    // IMPORTANT: Prevent animation from restarting ONLY if it's currently running
+    // Check if timer exists - if it was cleared, we need to restart
+    if (hasStartedRef.current && animationTimerRef.current !== null) {
+      console.log('⏭️ Animation already running for this batch, skipping restart');
+      return;
+    }
+
+    console.log('🎬 Starting animation for batch:', batchId);
+    hasStartedRef.current = true;
+    isMountedRef.current = true;
+
     const statuses = [
       'Initializing AI Scanner...',
+      'Connecting to processing server...',
       'Analyzing document structure...',
       'Extracting text with AI...',
       'Processing document data...',
+      'Applying intelligent parsing...',
       'Optimizing results...',
-      'Finalizing scan...',
-      'Complete!'
+      'Finalizing extraction...',
+      'Almost complete...',
+      'Processing Smart Mapper AI'
     ];
 
-    const totalDuration = 8000; // 8 seconds total
+    const totalDuration = 6000; // 6 seconds for smooth animation
     const startTime = Date.now();
-    
+    let lastProgress = 0;
+    let hasCalledComplete = false; // Prevent multiple calls
+
     const progressInterval = setInterval(() => {
       const elapsed = Date.now() - startTime;
-      const progress = Math.min(100, (elapsed / totalDuration) * 100);
-      
-      setScanProgress(progress);
-      
-      // Update status text based on progress
-      const statusIndex = Math.min(Math.floor(progress / 15), statuses.length - 1);
-      setStatusText(statuses[statusIndex]);
-      
-      if (progress >= 100) {
+      const rawProgress = Math.min(100, (elapsed / totalDuration) * 100);
+
+      // Smooth easing function (ease-out)
+      const progress = Math.min(100, rawProgress + (100 - rawProgress) * 0.1);
+
+      // Only update if progress changed significantly
+      if (Math.abs(progress - lastProgress) > 0.5) {
+        setScanProgress(progress);
+        lastProgress = progress;
+
+        // Update status text based on progress
+        const statusIndex = Math.min(
+          Math.floor((progress / 100) * (statuses.length - 1)),
+          statuses.length - 1
+        );
+        setStatusText(statuses[statusIndex]);
+      }
+
+      if (progress >= 99.5 && !hasCalledComplete) {
+        hasCalledComplete = true;
+        console.log('✅ Animation complete, calling onComplete');
         clearInterval(progressInterval);
+        setScanProgress(100);
+        setStatusText('Processing Smart Mapper AI');
         setShowConfetti(true);
-        
-        setTimeout(() => {
-          setShowConfetti(false);
-          onComplete?.();
+
+        completeTimeoutRef.current = setTimeout(() => {
+          if (isMountedRef.current) {
+            setShowConfetti(false);
+            if (onComplete) {
+              console.log('🔄 Executing onComplete callback');
+              onComplete();
+            }
+          }
         }, 1500);
       }
     }, 50);
 
-    return () => clearInterval(progressInterval);
-  }, [batchId, onComplete]);
+    animationTimerRef.current = progressInterval;
+
+    return () => {
+      console.log('🧹 Cleaning up animation');
+      isMountedRef.current = false;
+      // Don't reset hasStartedRef here - let it persist across re-renders for same batch
+      // hasStartedRef is only reset when batchId changes (see above)
+      if (animationTimerRef.current) {
+        clearInterval(animationTimerRef.current);
+        animationTimerRef.current = null;
+      }
+      if (completeTimeoutRef.current) {
+        clearTimeout(completeTimeoutRef.current);
+        completeTimeoutRef.current = null;
+      }
+    };
+  }, [batchId]); // Dependency: batchId - animation restarts when batch changes
 
   return (
     <div className={`bg-white rounded-lg p-8 shadow-sm border relative overflow-hidden ${className}`}>
@@ -156,58 +215,113 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
         </div>
       </div>
 
-      {/* Circular Progress Indicator */}
+      {/* Circular Progress Indicator OR Document Organizing Animation */}
       <div className="flex justify-center mb-8 relative z-10">
-        <div className="relative inline-flex items-center justify-center">
-          <svg className="w-48 h-48 transform -rotate-90">
-            <circle 
-              cx="96" 
-              cy="96" 
-              r="88" 
-              stroke="#E5E7EB" 
-              strokeWidth="8" 
-              fill="none" 
-            />
-            <circle 
-              cx="96" 
-              cy="96" 
-              r="88" 
-              stroke="url(#gradient)" 
-              strokeWidth="8" 
-              fill="none"
-              strokeDasharray={`${2 * Math.PI * 88}`}
-              strokeDashoffset={`${2 * Math.PI * 88 * (1 - scanProgress / 100)}`}
-              className="transition-all duration-300"
-              strokeLinecap="round"
-            />
-            <defs>
-              <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#8B5CF6" />
-                <stop offset="50%" stopColor="#3B82F6" />
-                <stop offset="100%" stopColor="#10B981" />
-              </linearGradient>
-            </defs>
-          </svg>
-          <div className="absolute flex flex-col items-center">
-            <div className="text-5xl font-bold bg-gradient-to-r from-purple-600 via-blue-600 to-green-600 bg-clip-text text-transparent">
-              {Math.round(scanProgress)}%
+        {scanProgress >= 100 ? (
+          /* Document Organizing Animation at 100% */
+          <div className="relative flex flex-col items-center justify-center h-48">
+            {/* Animated folder container */}
+            <div className="relative w-32 h-32 mb-4">
+              {/* Folder */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                <FolderOpen className="w-24 h-24 text-blue-500 animate-pulse" />
+              </div>
+
+              {/* Flying documents into folder */}
+              {[0, 1, 2, 3, 4].map((i) => (
+                <div
+                  key={`doc-${i}`}
+                  className="absolute"
+                  style={{
+                    animation: `flyIntoFolder 1.5s ease-in-out infinite`,
+                    animationDelay: `${i * 0.3}s`,
+                    left: `${-20 + i * 10}px`,
+                    top: `-${30 + i * 5}px`,
+                  }}
+                >
+                  <FileText className="w-8 h-8 text-purple-500" />
+                </div>
+              ))}
+
+              {/* Check mark appears */}
+              <div
+                className="absolute top-0 right-0"
+                style={{
+                  animation: 'popIn 0.5s ease-out 1.5s both'
+                }}
+              >
+                <div className="bg-green-500 rounded-full p-1">
+                  <CheckCircle className="w-6 h-6 text-white" />
+                </div>
+              </div>
             </div>
-            <Loader2 className="w-6 h-6 text-blue-500 animate-spin mt-2" />
+
+            {/* Organizing text */}
+            <div className="text-center">
+              <p className="text-lg font-semibold text-gray-700 animate-pulse">
+                Organizing documents...
+              </p>
+              <p className="text-sm text-gray-500 mt-1">
+                Preparing your results
+              </p>
+            </div>
           </div>
-        </div>
+        ) : (
+          /* Original Circular Progress */
+          <div className="relative inline-flex items-center justify-center">
+            <svg className="w-48 h-48 transform -rotate-90">
+              <circle
+                cx="96"
+                cy="96"
+                r="88"
+                stroke="#E5E7EB"
+                strokeWidth="8"
+                fill="none"
+              />
+              <circle
+                cx="96"
+                cy="96"
+                r="88"
+                stroke="url(#gradient)"
+                strokeWidth="8"
+                fill="none"
+                strokeDasharray={`${2 * Math.PI * 88}`}
+                strokeDashoffset={`${2 * Math.PI * 88 * (1 - scanProgress / 100)}`}
+                className="transition-all duration-300"
+                strokeLinecap="round"
+              />
+              <defs>
+                <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#8B5CF6" />
+                  <stop offset="50%" stopColor="#3B82F6" />
+                  <stop offset="100%" stopColor="#10B981" />
+                </linearGradient>
+              </defs>
+            </svg>
+            <div className="absolute flex flex-col items-center">
+              <div className="text-5xl font-bold bg-gradient-to-r from-purple-600 via-blue-600 to-green-600 bg-clip-text text-transparent">
+                {Math.round(scanProgress)}%
+              </div>
+              <Loader2 className="w-6 h-6 text-blue-500 animate-spin mt-2" />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Status Text */}
-      <div className="text-center mb-6 relative z-10">
+      <div className="text-center mb-4 relative z-10">
         <p className="text-lg font-medium text-gray-700 animate-pulse">
           {statusText}
+        </p>
+        <p className="text-sm text-blue-600 mt-2">
+          Processing your documents with AI...
         </p>
       </div>
 
       {/* Enhanced Progress Bar */}
-      <div className="relative z-10 px-4">
+      <div className="relative z-10 px-4 mb-4">
         <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden shadow-inner relative">
-          <div 
+          <div
             className="bg-gradient-to-r from-purple-500 via-blue-500 to-green-500 h-4 rounded-full transition-all duration-300 relative overflow-hidden"
             style={{ width: `${scanProgress}%` }}
           >
@@ -216,6 +330,9 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
             {/* Glowing edge */}
             <div className="absolute right-0 top-0 bottom-0 w-2 bg-white opacity-70 blur-sm" />
           </div>
+        </div>
+        <div className="flex justify-center mt-1 text-xs text-gray-600">
+          <span>{Math.round(scanProgress)}% Complete</span>
         </div>
       </div>
 
