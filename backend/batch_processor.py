@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ai_processor import process_document_ai
 from confidence_calculator import detect_document_type_from_filename
+from utils.pdf_page_analyzer import PDFPageAnalyzer, get_pdf_page_count
 
 logger = logging.getLogger(__name__)
 
@@ -23,19 +24,23 @@ class BatchProcessor:
     Supports parallel processing with configurable concurrency limit
     """
 
-    def __init__(self, max_concurrent_tasks: int = 5):
+    def __init__(self, max_concurrent_tasks: int = 5, max_pages_per_chunk: int = 10):
         """
         Initialize batch processor with parallel processing support
 
         Args:
             max_concurrent_tasks: Maximum number of files to process simultaneously
                                  Default: 5 (to avoid API rate limits)
+            max_pages_per_chunk: Maximum pages to process per PDF chunk
+                                Default: 10 pages
         """
         self.batches: Dict[str, Dict[str, Any]] = {}
         self._cancel_requests: Set[str] = set()
         self.max_concurrent_tasks = max_concurrent_tasks
+        self.max_pages_per_chunk = max_pages_per_chunk
         self._semaphore = asyncio.Semaphore(max_concurrent_tasks)
-        logger.info(f"✅ Batch Processor initialized with max {max_concurrent_tasks} concurrent tasks")
+        self._pdf_analyzer = PDFPageAnalyzer(max_pages_per_chunk=max_pages_per_chunk)
+        logger.info(f"✅ Batch Processor initialized with max {max_concurrent_tasks} concurrent tasks, {max_pages_per_chunk} pages per chunk")
     
     async def create_batch(self, file_paths: List[str], document_type: str, user_id: Optional[str] = None) -> str:
         """
@@ -51,12 +56,21 @@ class BatchProcessor:
         """
         batch_id = str(uuid.uuid4())
         
+        # Count total pages for PDFs
+        total_pages = 0
+        for file_path in file_paths:
+            if str(file_path).lower().endswith('.pdf'):
+                page_count = get_pdf_page_count(file_path)
+                total_pages += page_count
+
         batch_info = {
             "batch_id": batch_id,
             "user_id": user_id,
             "document_type": document_type,
             "total_files": len(file_paths),
+            "total_pages": total_pages,  # NEW: Total pages across all PDFs
             "processed_files": 0,
+            "processed_pages": 0,  # NEW: Track page-level progress
             "failed_files": 0,
             "status": "pending",  # pending, processing, completed, failed
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -70,18 +84,28 @@ class BatchProcessor:
         for file_path in file_paths:
             filename = Path(file_path).name
             detected_type = detect_document_type_from_filename(filename) if document_type == 'auto' else document_type
-            
+
+            # Get page count for PDFs
+            page_count = 0
+            if str(file_path).lower().endswith('.pdf'):
+                page_count = get_pdf_page_count(file_path)
+
             batch_info["files"].append({
                 "file_path": file_path,
                 "filename": filename,
                 "document_type": detected_type,
+                "page_count": page_count,  # NEW: Track pages per file
+                "processed_pages": 0,  # NEW: Track processed pages
                 "status": "pending",  # pending, processing, completed, failed
                 "result": None,
                 "error": None
             })
         
         self.batches[batch_id] = batch_info
-        logger.info(f"📦 Batch {batch_id} created with {len(file_paths)} files")
+        if total_pages > 0:
+            logger.info(f"📦 Batch {batch_id} created with {len(file_paths)} files ({total_pages} total pages)")
+        else:
+            logger.info(f"📦 Batch {batch_id} created with {len(file_paths)} files")
         
         return batch_id
     
@@ -203,19 +227,19 @@ class BatchProcessor:
     def get_batch_status(self, batch_id: str) -> Dict[str, Any]:
         """
         Get current status of a batch
-        
+
         Args:
             batch_id: Batch identifier
-        
+
         Returns:
-            Current batch status with progress
+            Current batch status with progress (file and page level)
         """
         if batch_id not in self.batches:
             raise ValueError(f"Batch {batch_id} not found")
-        
+
         batch_info = self.batches[batch_id]
-        
-        return {
+
+        status = {
             "batch_id": batch_id,
             "status": batch_info["status"],
             "total_files": batch_info["total_files"],
@@ -225,6 +249,14 @@ class BatchProcessor:
             "created_at": batch_info["created_at"],
             "updated_at": batch_info["updated_at"]
         }
+
+        # Add page-level progress if available
+        if batch_info.get("total_pages", 0) > 0:
+            status["total_pages"] = batch_info["total_pages"]
+            status["processed_pages"] = batch_info.get("processed_pages", 0)
+            status["page_progress_percentage"] = (batch_info.get("processed_pages", 0) / batch_info["total_pages"] * 100)
+
+        return status
     
     def get_batch_summary(self, batch_id: str) -> Dict[str, Any]:
         """
@@ -335,9 +367,12 @@ class BatchProcessor:
 # Import config here to avoid circular dependency
 try:
     from config import settings
-    batch_processor = BatchProcessor(max_concurrent_tasks=settings.max_concurrent_processing)
-    logger.info(f"🚀 Batch processor initialized with max_concurrent_processing={settings.max_concurrent_processing}")
+    batch_processor = BatchProcessor(
+        max_concurrent_tasks=settings.max_concurrent_processing,
+        max_pages_per_chunk=settings.pdf_chunk_size
+    )
+    logger.info(f"🚀 Batch processor initialized: {settings.max_concurrent_processing} concurrent tasks, {settings.pdf_chunk_size} pages per chunk")
 except ImportError:
     # Fallback if config not available
-    batch_processor = BatchProcessor(max_concurrent_tasks=5)
-    logger.warning("⚠️ Config not available, using default max_concurrent_tasks=5")
+    batch_processor = BatchProcessor(max_concurrent_tasks=5, max_pages_per_chunk=10)
+    logger.warning("⚠️ Config not available, using defaults: 5 concurrent tasks, 10 pages per chunk")

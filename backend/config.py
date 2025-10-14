@@ -50,8 +50,15 @@ class Settings(BaseSettings):
     
     # OCR Configuration
     ocr_timeout_seconds: int = 120
-    max_concurrent_processing: int = 5
+    max_concurrent_processing: int = 10  # Increased from 5 to 10 for better throughput
     enable_ocr_caching: bool = True
+
+    # Batch Processing Configuration
+    max_zip_files: int = 100  # Maximum files in ZIP (increased from 50)
+    max_zip_size_mb: int = 200  # Maximum ZIP size (increased from 100)
+    max_pdf_pages_per_file: int = 100  # Maximum pages per PDF to process
+    pdf_chunk_size: int = 10  # Process PDF in chunks of N pages
+    enable_page_chunking: bool = True  # Enable PDF page-by-page processing
     
     # Logging Configuration
     log_level: str = "INFO"

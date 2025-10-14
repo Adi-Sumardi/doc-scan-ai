@@ -13,9 +13,9 @@ import tempfile
 
 logger = logging.getLogger(__name__)
 
-# Configuration
-MAX_ZIP_SIZE_MB = 100  # Maximum ZIP file size in MB
-MAX_FILES_IN_ZIP = 50  # Maximum number of files in ZIP
+# Configuration (will be overridden by config.py if available)
+MAX_ZIP_SIZE_MB = 200  # Maximum ZIP file size in MB (increased for large batches)
+MAX_FILES_IN_ZIP = 100  # Maximum number of files in ZIP (increased from 50)
 ALLOWED_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.tif'}
 
 
