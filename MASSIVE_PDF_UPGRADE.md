@@ -12,6 +12,24 @@
 - **Before**: Max 50 files per ZIP, no multi-page handling, crashes on large PDFs
 - **After**: 100 files per ZIP, intelligent page chunking, can handle 1000+ pages!
 
+### ⚠️ **IMPORTANT: ZIP Upload Restriction**
+
+**ZIP upload is now RESTRICTED to tax documents only** to prevent excessive token usage:
+
+✅ **Allowed in ZIP:**
+- Faktur Pajak (Tax Invoice)
+- PPh21 (Income Tax)
+- PPh23 (Withholding Tax)
+- SPT (Tax Return)
+- NPWP (Tax ID)
+
+❌ **NOT Allowed in ZIP (upload individually):**
+- **Rekening Koran** (Bank Statements) - Can be 50+ pages per file!
+- **Invoice** (Business Invoices) - Can be many pages
+
+**Why this restriction?**
+Bank statements and invoices often have 30-50+ pages per document. Uploading 20 files x 50 pages = 1000 pages = MASSIVE token consumption! Upload these individually to control costs.
+
 ### ✨ New Features
 
 1. **Increased ZIP Limits**

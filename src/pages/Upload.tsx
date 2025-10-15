@@ -33,37 +33,45 @@ const documentTypes = [
     label: 'Faktur Pajak',
     icon: '📋',
     accuracy: '99.6%',
-    description: 'Optimized for Indonesian tax invoices'
+    description: 'Optimized for Indonesian tax invoices',
+    allowZip: true  // Tax documents are allowed in ZIP
   },
   {
     id: 'pph21',
     label: 'Bukti Potong PPh 21',
     icon: '📄',
     accuracy: '95%+',
-    description: 'Income tax withholding certificates'
+    description: 'Income tax withholding certificates',
+    allowZip: true  // Tax documents are allowed in ZIP
   },
   {
     id: 'pph23',
     label: 'Bukti Potong PPh 23',
     icon: '📄',
     accuracy: '95%+',
-    description: 'Service tax withholding certificates'
+    description: 'Service tax withholding certificates',
+    allowZip: true  // Tax documents are allowed in ZIP
   },
   {
     id: 'rekening_koran',
     label: 'Rekening Koran',
     icon: '🏦',
     accuracy: '90%+',
-    description: 'Bank account statements'
+    description: 'Bank account statements',
+    allowZip: false  // NOT allowed in ZIP (50+ pages = token waste)
   },
   {
     id: 'invoice',
     label: 'Invoice',
     icon: '🧾',
     accuracy: '85%+',
-    description: 'General business invoices'
+    description: 'General business invoices',
+    allowZip: false  // NOT allowed in ZIP (many pages = token waste)
   }
 ];
+
+// Get only document types that allow ZIP upload
+const zipAllowedDocTypes = documentTypes.filter(dt => dt.allowZip);
 
 // Separate component for Submit Button to avoid React warnings
 const SubmitButton: React.FC<{
@@ -320,6 +328,17 @@ const Upload = () => {
 
       if (!response.ok) {
         const error = await response.json();
+
+        // Handle specific error codes
+        if (error.detail?.error_code === 'RESTRICTED_DOCUMENT_TYPE') {
+          const allowedTypes = error.detail.allowed_zip_types?.join(', ') || 'Faktur Pajak, PPh21, PPh23';
+          toast.error(
+            `${error.detail.message}\n\nAllowed ZIP types: ${allowedTypes}`,
+            { duration: 6000 }
+          );
+          throw new Error(error.detail.message);
+        }
+
         const errorMessage = typeof error.detail === 'object'
           ? error.detail.message || JSON.stringify(error.detail)
           : error.detail || 'ZIP upload failed';
@@ -350,7 +369,7 @@ const Upload = () => {
             <p className="text-gray-600 mt-1">
               {uploadMode === 'files'
                 ? 'Upload 1-10 files per document type for AI-powered scanning'
-                : 'Upload a ZIP file containing multiple documents for batch processing'
+                : 'Upload a ZIP file containing tax documents (Faktur Pajak, PPh21, PPh23) for batch processing'
               }
             </p>
           </div>
@@ -603,9 +622,12 @@ const Upload = () => {
         <div className="space-y-6">
           {/* Document Type Selector for ZIP */}
           <div className="bg-white rounded-lg p-6 shadow-sm border">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Document Type</h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-              {documentTypes.map((docType) => (
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Document Type (Tax Documents Only)</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              ⚠️ ZIP upload is only available for tax documents. Rekening Koran and Invoice must be uploaded individually to prevent excessive token usage.
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {zipAllowedDocTypes.map((docType) => (
                 <button
                   key={docType.id}
                   onClick={() => setZipDocType(docType.id)}
@@ -743,7 +765,10 @@ const Upload = () => {
                   Drop a ZIP file here or click to browse
                 </p>
                 <p className="text-xs text-gray-500">
-                  Max 100MB • Contains PDF, JPG, PNG, TIFF files • Max 50 files in ZIP
+                  Max 200MB • Contains PDF, JPG, PNG, TIFF files • Max 100 tax document files
+                </p>
+                <p className="text-xs text-red-500 mt-2">
+                  ⚠️ Only for tax documents (Faktur Pajak, PPh21, PPh23)
                 </p>
                 <div className="mt-6 flex items-center justify-center space-x-6 text-xs text-gray-500">
                   <div className="flex items-center space-x-1">

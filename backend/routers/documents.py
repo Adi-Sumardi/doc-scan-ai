@@ -713,12 +713,23 @@ async def upload_zip_file(
     """
     Upload a ZIP file containing multiple documents for batch processing.
 
-    The ZIP file will be extracted and all valid documents will be processed.
-    Supported file types: PDF, PNG, JPG, JPEG, TIFF
+    ⚠️ RESTRICTED: ZIP upload is only available for tax documents to prevent token waste.
+    For rekening_koran and invoice (which can be 50+ pages), please upload individual files.
+
+    Supported ZIP document types:
+    - faktur_pajak (Tax Invoice)
+    - pph21 (Income Tax)
+    - pph23 (Withholding Tax)
+    - spt (Tax Return)
+    - npwp (Tax ID)
+
+    NOT supported in ZIP (upload individually):
+    - rekening_koran (Bank Statements - can be 50+ pages)
+    - invoice (Invoices - can be many pages)
 
     Args:
-        file: ZIP file containing documents
-        document_type: Document type for all files in ZIP (faktur_pajak, pph21, pph23, rekening_koran, etc.)
+        file: ZIP file containing tax documents
+        document_type: Document type (faktur_pajak, pph21, pph23, spt, npwp only)
 
     Returns:
         BatchResponse with batch_id and extraction info
@@ -728,19 +739,34 @@ async def upload_zip_file(
     extract_dir = None
 
     try:
-        # Validate document type
-        valid_types = ["invoice", "receipt", "id_card", "passport", "driver_license", "other",
-                       "faktur_pajak", "pph21", "pph23", "rekening_koran", "spt", "npwp", "faktur"]
+        # Validate document type - RESTRICTED to tax documents only
+        # Rekening koran and invoice excluded due to high page counts (50+ pages = token waste)
+        valid_zip_types = ["faktur_pajak", "pph21", "pph23", "spt", "npwp", "faktur"]
+        restricted_types = ["rekening_koran", "invoice"]  # Must upload individually
 
         document_type = document_type.lower().strip()
 
-        if document_type not in valid_types:
+        # Check if document type is restricted
+        if document_type in restricted_types:
             raise HTTPException(
                 status_code=400,
                 detail={
-                    "error": "Invalid document type",
-                    "message": f"Document type '{document_type}' is not supported. Valid types: {', '.join(valid_types)}",
-                    "error_code": "INVALID_DOCUMENT_TYPE"
+                    "error": "Document type not allowed for ZIP upload",
+                    "message": f"'{document_type}' cannot be uploaded via ZIP because these documents typically have 50+ pages, which would consume excessive API tokens. Please upload {document_type} files individually instead.",
+                    "error_code": "RESTRICTED_DOCUMENT_TYPE",
+                    "suggestion": f"Upload {document_type} files one by one through the regular upload endpoint.",
+                    "allowed_zip_types": valid_zip_types
+                }
+            )
+
+        if document_type not in valid_zip_types:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "Invalid document type for ZIP upload",
+                    "message": f"Document type '{document_type}' is not supported for ZIP upload. Supported types: {', '.join(valid_zip_types)}",
+                    "error_code": "INVALID_DOCUMENT_TYPE",
+                    "allowed_zip_types": valid_zip_types
                 }
             )
 

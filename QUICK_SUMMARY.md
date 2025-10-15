@@ -6,7 +6,24 @@
 
 ## ✅ Latest Changes
 
-### 1. **Massive PDF Processing Upgrade** (Oct 14, 2025)
+### 1. **ZIP Upload Restriction** (Oct 14, 2025) ⚠️ NEW
+
+**Problem**: ZIP upload for Rekening Koran and Invoice wastes massive tokens (50+ pages per file!)
+
+**Solution**: Restrict ZIP upload to tax documents only
+
+✅ **Allowed in ZIP**:
+- Faktur Pajak, PPh21, PPh23, SPT, NPWP (tax documents - usually 1-3 pages)
+
+❌ **NOT Allowed in ZIP** (must upload individually):
+- Rekening Koran (Bank Statements - 30-50+ pages each!)
+- Invoice (Business Invoices - can be many pages)
+
+**Why?** 20 files x 50 pages = 1000 pages = MASSIVE token costs!
+
+---
+
+### 2. **Massive PDF Processing Upgrade** (Oct 14, 2025)
 
 **Problem Solved**: Can't handle 20 files x 50 pages = 1000 pages in ZIP upload
 
@@ -18,7 +35,7 @@
 - ✅ Memory-efficient handling (no more OOM errors)
 
 **Key Features**:
-- Process 1000+ pages in one batch
+- Process 1000+ pages in one batch (for individual uploads)
 - Real-time page progress updates
 - Stable memory usage (~500MB)
 - 20% faster processing
@@ -28,7 +45,7 @@
 
 ---
 
-### 2. **Documentation Cleanup** (Oct 14, 2025)
+### 3. **Documentation Cleanup** (Oct 14, 2025)
 
 **Problem**: Too many redundant .md files (33 files!)
 
@@ -48,8 +65,10 @@
 ## 📊 Current Capabilities
 
 ### Upload Limits
-- **Single upload**: Up to 50 files
-- **ZIP upload**: Up to 100 files, 200MB max
+- **Single upload**: Up to 50 files (any document type)
+- **ZIP upload**: Up to 100 **tax documents** only, 200MB max
+  - ✅ Allowed: Faktur Pajak, PPh21, PPh23, SPT, NPWP
+  - ❌ Restricted: Rekening Koran, Invoice (upload individually)
 - **File size**: 50MB per file
 - **PDF pages**: Up to 100 pages per PDF
 
