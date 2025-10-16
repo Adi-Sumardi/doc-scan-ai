@@ -41,6 +41,8 @@ class PPh23Exporter(BaseExporter):
             "PPh",
             "Jenis Dokumen Dasar",
             "Tanggal Dokumen Dasar",
+            "Nomor Dokumen",
+            "Nomor SP2D",
             "NPWP/NIK Pemotong",
             "NITKU/Subunit Pemotong",
             "Nama Pemotong",
@@ -140,8 +142,30 @@ class PPh23Exporter(BaseExporter):
             'N/A'
         )
         
-        # Jenis PPh
-        structured['jenis_pph'] = objek_pajak.get('jenis_pph') or 'PPh 23'
+        # Jenis PPh - Support "Pasal 23" dan "Pasal 4 ayat 2"
+        jenis_pph_raw = objek_pajak.get('jenis_pph') or objek_pajak.get('jenis') or ''
+
+        # Normalize jenis_pph
+        if jenis_pph_raw:
+            jenis_pph_lower = jenis_pph_raw.lower()
+            # Check for Pasal 4 ayat 2
+            if 'pasal 4' in jenis_pph_lower or 'ps 4' in jenis_pph_lower or '4 ayat 2' in jenis_pph_lower or 'ps.4' in jenis_pph_lower:
+                structured['jenis_pph'] = 'Pasal 4 ayat 2'
+            # Check for Pasal 23
+            elif 'pasal 23' in jenis_pph_lower or 'ps 23' in jenis_pph_lower or 'ps.23' in jenis_pph_lower:
+                structured['jenis_pph'] = 'Pasal 23'
+            # Check for PPh 23
+            elif 'pph 23' in jenis_pph_lower or 'pph23' in jenis_pph_lower:
+                structured['jenis_pph'] = 'Pasal 23'
+            # Check for PPh 4(2)
+            elif 'pph 4' in jenis_pph_lower or 'pph4' in jenis_pph_lower:
+                structured['jenis_pph'] = 'Pasal 4 ayat 2'
+            else:
+                # Use as-is if already in correct format
+                structured['jenis_pph'] = jenis_pph_raw
+        else:
+            # Default to Pasal 23
+            structured['jenis_pph'] = 'Pasal 23'
         
         # Kode Objek Pajak
         structured['kode_objek'] = objek_pajak.get('kode') or objek_pajak.get('code') or 'N/A'
@@ -180,7 +204,9 @@ class PPh23Exporter(BaseExporter):
         # Dasar Dokumen
         structured['dokumen_dasar_jenis'] = dokumen_dasar.get('jenis') or dokumen_dasar.get('type') or 'N/A'
         structured['dokumen_dasar_tanggal'] = dokumen_dasar.get('tanggal') or dokumen_dasar.get('date') or 'N/A'
-        
+        structured['dokumen_dasar_nomor'] = dokumen_dasar.get('nomor') or dokumen_dasar.get('number') or 'N/A'
+        structured['dokumen_dasar_nomor_sp2d'] = dokumen_dasar.get('nomor_sp2d') or dokumen_dasar.get('nomor SP2D') or 'N/A'
+
         # Identitas Pemotong
         structured['pemotong_npwp'] = pemotong.get('npwp') or pemotong.get('nik') or 'N/A'
         # Try multiple keys for NITKU/Subunit
@@ -253,7 +279,7 @@ class PPh23Exporter(BaseExporter):
                 structured.get('penerima_npwp', 'N/A'),
                 structured.get('penerima_nama', 'N/A'),
                 structured.get('penerima_nitku', 'N/A'),
-                structured.get('jenis_pph', 'PPh 23'),
+                structured.get('jenis_pph', 'Pasal 23'),
                 structured.get('kode_objek', 'N/A'),
                 structured.get('objek_pajak', 'N/A'),
                 self._format_rupiah(structured.get('dpp', 'N/A')),
@@ -261,6 +287,8 @@ class PPh23Exporter(BaseExporter):
                 self._format_rupiah(structured.get('pph', 'N/A')),
                 structured.get('dokumen_dasar_jenis', 'N/A'),
                 self._format_date(structured.get('dokumen_dasar_tanggal', 'N/A')),
+                structured.get('dokumen_dasar_nomor', 'N/A'),
+                structured.get('dokumen_dasar_nomor_sp2d', 'N/A'),
                 structured.get('pemotong_npwp', 'N/A'),
                 structured.get('pemotong_nitku', 'N/A'),
                 structured.get('pemotong_nama', 'N/A'),
@@ -273,12 +301,12 @@ class PPh23Exporter(BaseExporter):
                 cell.border = border
                 cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
             
-            # Adjust column widths
+            # Adjust column widths (21 columns: A-U)
             column_widths = {
                 'A': 15, 'B': 15, 'C': 20, 'D': 20, 'E': 20,
                 'F': 25, 'G': 20, 'H': 12, 'I': 15, 'J': 30,
                 'K': 15, 'L': 10, 'M': 15, 'N': 20, 'O': 15,
-                'P': 20, 'Q': 20, 'R': 25, 'S': 15, 'T': 25,
+                'P': 18, 'Q': 18, 'R': 20, 'S': 15, 'T': 20, 'U': 15, 'V': 25,
             }
             
             for col, width in column_widths.items():
@@ -513,7 +541,7 @@ class PPh23Exporter(BaseExporter):
                     structured.get('penerima_npwp', 'N/A'),
                     structured.get('penerima_nama', 'N/A'),
                     structured.get('penerima_nitku', 'N/A'),
-                    structured.get('jenis_pph', 'PPh 23'),
+                    structured.get('jenis_pph', 'Pasal 23'),
                     structured.get('kode_objek', 'N/A'),
                     structured.get('objek_pajak', 'N/A'),
                     self._format_rupiah(structured.get('dpp', 'N/A')),
@@ -521,6 +549,8 @@ class PPh23Exporter(BaseExporter):
                     self._format_rupiah(structured.get('pph', 'N/A')),
                     structured.get('dokumen_dasar_jenis', 'N/A'),
                     self._format_date(structured.get('dokumen_dasar_tanggal', 'N/A')),
+                    structured.get('dokumen_dasar_nomor', 'N/A'),
+                    structured.get('dokumen_dasar_nomor_sp2d', 'N/A'),
                     structured.get('pemotong_npwp', 'N/A'),
                     structured.get('pemotong_nitku', 'N/A'),
                     structured.get('pemotong_nama', 'N/A'),
@@ -535,12 +565,12 @@ class PPh23Exporter(BaseExporter):
 
                 current_row += 1
             
-            # Adjust column widths
+            # Adjust column widths (21 columns: A-U)
             column_widths = {
                 'A': 15, 'B': 15, 'C': 20, 'D': 20, 'E': 20,
                 'F': 25, 'G': 20, 'H': 12, 'I': 15, 'J': 30,
                 'K': 15, 'L': 10, 'M': 15, 'N': 20, 'O': 15,
-                'P': 20, 'Q': 20, 'R': 25, 'S': 15, 'T': 25,
+                'P': 18, 'Q': 18, 'R': 20, 'S': 15, 'T': 20, 'U': 15, 'V': 25,
             }
             
             for col, width in column_widths.items():

@@ -46,13 +46,18 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, isAuthenticated]);
 
-  // Debug: Log batches state changes
+  // Debug: Log batches state changes (wrapped to avoid render warnings)
   React.useEffect(() => {
-    console.log('📊 Batches state updated. Total:', batches.length);
-    if (batches.length > 0) {
-      console.log('First batch:', batches[0]);
-      console.log('Last batch:', batches[batches.length - 1]);
-    }
+    // Use setTimeout to avoid state update warnings during render
+    const timer = setTimeout(() => {
+      console.log('📊 Batches state updated. Total:', batches.length);
+      if (batches.length > 0) {
+        console.log('First batch:', batches[0]);
+        console.log('Last batch:', batches[batches.length - 1]);
+      }
+    }, 0);
+
+    return () => clearTimeout(timer);
   }, [batches]);
 
   // Cleanup polling intervals and timeouts on unmount to prevent memory leaks

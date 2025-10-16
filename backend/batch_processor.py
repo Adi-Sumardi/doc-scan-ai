@@ -374,5 +374,5 @@ try:
     logger.info(f"🚀 Batch processor initialized: {settings.max_concurrent_processing} concurrent tasks, {settings.pdf_chunk_size} pages per chunk")
 except ImportError:
     # Fallback if config not available
-    batch_processor = BatchProcessor(max_concurrent_tasks=5, max_pages_per_chunk=10)
-    logger.warning("⚠️ Config not available, using defaults: 5 concurrent tasks, 10 pages per chunk")
+    batch_processor = BatchProcessor(max_concurrent_tasks=5, max_pages_per_chunk=3)
+    logger.warning("⚠️ Config not available, using defaults: 5 concurrent tasks, 3 pages per chunk")

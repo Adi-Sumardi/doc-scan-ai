@@ -195,20 +195,41 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
                     if not raw_response:
                         logger.warning("⚠️ No raw OCR response available for Smart Mapper")
         elif document_type == 'rekening_koran':
-            extracted_data = parser.parse_rekening_koran(extracted_text)
-            # Merge structured fields from Google Document AI if available
+            # Get OCR metadata for enhanced processing
             ocr_metadata = ocr_processor.get_last_ocr_metadata()
-            if ocr_metadata:
-                cloud_fields = ocr_metadata.get('extracted_fields', {})
-                if cloud_fields:
-                    logger.info("✅ Merging structured data from Google Document AI for Rekening Koran")
-                    extracted_data['extracted_content']['structured_fields'] = cloud_fields
-            # Apply Smart Mapper for Rekening Koran
-            logger.info(f"🔍 DEBUG: HAS_SMART_MAPPER={HAS_SMART_MAPPER}, smart_mapper_service={smart_mapper_service is not None}, extracted_data type={type(extracted_data)}")
-            if HAS_SMART_MAPPER and smart_mapper_service and isinstance(extracted_data, dict):
+
+            # Build OCR result structure for bank adapters
+            ocr_result = {
+                'text': extracted_text,
+                'tables': ocr_metadata.get('tables', []) if ocr_metadata else [],
+                'raw_response': ocr_metadata.get('raw_response') if ocr_metadata else None
+            }
+
+            # Use Enhanced Hybrid Processor (Bank Adapters + Smart Mapper)
+            logger.info("🏦 Processing Rekening Koran with Enhanced Hybrid Processor")
+            extracted_data = parser.parse_rekening_koran(
+                extracted_text,
+                ocr_result=ocr_result,
+                ocr_metadata=ocr_metadata
+            )
+
+            # If enhanced processor returned structured data, we're done!
+            if extracted_data and extracted_data.get('transactions'):
+                logger.info(f"✅ Enhanced processor returned {len(extracted_data.get('transactions', []))} transactions")
+                # Merge any Cloud AI structured fields if available
+                if ocr_metadata:
+                    cloud_fields = ocr_metadata.get('extracted_fields', {})
+                    if cloud_fields:
+                        logger.info("✅ Merging structured data from Google Document AI for Rekening Koran")
+                        if 'extracted_content' not in extracted_data:
+                            extracted_data['extracted_content'] = {}
+                        extracted_data['extracted_content']['structured_fields'] = cloud_fields
+
+            # Fallback: If enhanced processor failed, try Smart Mapper only
+            elif HAS_SMART_MAPPER and smart_mapper_service and isinstance(extracted_data, dict):
+                logger.warning("⚠️ Enhanced processor failed, trying Smart Mapper fallback...")
                 logger.info("✅ Smart Mapper conditions met, loading template...")
                 template = smart_mapper_service.load_template(document_type)
-                ocr_metadata = ocr_processor.get_last_ocr_metadata()
                 ocr_meta_dict = ocr_metadata if isinstance(ocr_metadata, dict) else {}
                 raw_response = ocr_meta_dict.get('raw_response')
                 logger.info(f"🔍 DEBUG: template={template is not None}, raw_response={raw_response is not None}")

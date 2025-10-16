@@ -37,7 +37,7 @@
       "name": "objek_pajak",
       "description": "Detail objek pajak yang dipotong",
       "fields": [
-        {"name": "jenis_pph", "label": "Jenis PPh", "required": false, "notes": "Default: PPh 23"},
+        {"name": "jenis_pph", "label": "Jenis PPh", "required": false, "notes": "Bisa 'Pasal 23' atau 'Pasal 4 ayat 2'. Extract as-is dari dokumen. Jangan tulis 'PPh 23' tapi tulis 'Pasal 23' atau 'Pasal 4 ayat 2' sesuai yang tertulis di dokumen."},
         {"name": "kode", "label": "Kode Objek Pajak", "required": true, "notes": "Kode jenis penghasilan (01-99)"},
         {"name": "objek", "label": "Objek Pajak", "required": true, "notes": "Deskripsi jenis penghasilan yang dipotong"}
       ]
@@ -56,7 +56,9 @@
       "description": "Informasi dokumen dasar pemotongan",
       "fields": [
         {"name": "jenis", "label": "Jenis Dokumen Dasar", "required": false, "notes": "Faktur/Invoice/Kontrak/Lainnya"},
-        {"name": "tanggal", "label": "Tanggal Dokumen Dasar", "required": false, "format": "YYYY-MM-DD"}
+        {"name": "tanggal", "label": "Tanggal Dokumen Dasar", "required": false, "format": "YYYY-MM-DD"},
+        {"name": "nomor", "label": "Nomor Dokumen", "required": false, "notes": "Nomor referensi dokumen dasar. Cari label 'NOMOR' di bagian dokumen dasar"},
+        {"name": "nomor_sp2d", "label": "Nomor SP2D", "required": false, "notes": "Nomor Surat Perintah Pencairan Dana. Cari di bagian B.11 atau label 'NOMOR SP2D'"}
       ]
     }
   ],
@@ -91,7 +93,9 @@
     },
     "dokumen_dasar": {
       "jenis": "string",
-      "tanggal": "string"
+      "tanggal": "string",
+      "nomor": "string",
+      "nomor_sp2d": "string"
     },
     "notes": "string",
     "confidence": "number"

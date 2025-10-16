@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     max_zip_files: int = 100  # Maximum files in ZIP (increased from 50)
     max_zip_size_mb: int = 200  # Maximum ZIP size (increased from 100)
     max_pdf_pages_per_file: int = 100  # Maximum pages per PDF to process
-    pdf_chunk_size: int = 10  # Process PDF in chunks of N pages
+    pdf_chunk_size: int = 3  # Process PDF in chunks of 3 pages for better detail
     enable_page_chunking: bool = True  # Enable PDF page-by-page processing
     
     # Logging Configuration

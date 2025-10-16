@@ -1,0 +1,196 @@
+"""
+Adapter untuk Bank Mandiri versi 2
+Format: Nama, Nomer Rekening, Tanggal Transaksi, Ket. Kode Transaksi, Jenis Trans, Remark, Amount, Saldo
+"""
+
+from typing import Dict, Any, List, Tuple
+from .base import BaseBankAdapter, StandardizedTransaction
+from decimal import Decimal
+
+
+class MandiriV2Adapter(BaseBankAdapter):
+    """
+    Adapter untuk Rekening Koran Bank Mandiri Versi 2
+    Special: Amount perlu di-parse dari context (debit/credit detection)
+    """
+
+    BANK_NAME = "Bank Mandiri"
+    BANK_CODE = "MANDIRI_V2"
+
+    DETECTION_KEYWORDS = [
+        "PT BANK MANDIRI",
+        "BANK MANDIRI (PERSERO)",
+        "KET. KODE TRANSAKSI",
+        "JENIS TRANS",
+        "NOMER REKENING",  # Typo di format asli bank
+    ]
+
+    def parse(self, ocr_result: Dict[str, Any]) -> List[StandardizedTransaction]:
+        """
+        Parse OCR result dari Bank Mandiri V2
+        """
+        self.raw_ocr_data = ocr_result
+        self.transactions = []
+
+        # Extract account info
+        self.account_info = self.extract_account_info(ocr_result)
+
+        # Parse transactions
+        if 'tables' in ocr_result:
+            self._parse_from_tables(ocr_result['tables'])
+        else:
+            self._parse_from_text(ocr_result)
+
+        return self.transactions
+
+    def extract_account_info(self, ocr_result: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Extract informasi rekening Mandiri V2
+        """
+        text = self.extract_text_from_ocr(ocr_result)
+        info = {
+            'bank_name': self.BANK_NAME,
+            'account_number': '',
+            'account_holder': '',
+            'period_start': '',
+            'period_end': '',
+        }
+
+        import re
+
+        # Mandiri account format: 123-45-67890123-4
+        acc_match = re.search(r'(\d{3}-\d{2}-\d{8,11}-\d)', text)
+        if acc_match:
+            info['account_number'] = acc_match.group(1)
+
+        # Extract account holder
+        name_match = re.search(r'(?:NAMA|NAME)[:\s]*([A-Z\s.]+?)(?:\n|REKENING|NOMOR)', text, re.IGNORECASE)
+        if name_match:
+            info['account_holder'] = name_match.group(1).strip()
+
+        return info
+
+    def _parse_amount(self, ket_kode: str, jenis_trans: str, amount: Decimal) -> Tuple[Decimal, Decimal]:
+        """
+        Parse amount menjadi debit atau credit berdasarkan context
+
+        Returns:
+            Tuple[debit, credit]
+        """
+        # Keywords untuk debit (pengeluaran)
+        debit_keywords = [
+            'TARIK', 'BAYAR', 'TRANSFER KE', 'POTONGAN', 'BIAYA', 'ADMIN',
+            'PURCHASE', 'BELANJA', 'SETOR KE', 'PEMBELIAN', 'PEMBAYARAN',
+            'ATM WITHDRAWAL', 'DEBIT'
+        ]
+
+        # Keywords untuk credit (pemasukan)
+        credit_keywords = [
+            'SETOR', 'TERIMA', 'TRANSFER DARI', 'BUNGA', 'CREDIT',
+            'DEPOSIT', 'PENERIMAAN', 'MASUK', 'INCOME', 'REVERSAL'
+        ]
+
+        combined = f"{ket_kode} {jenis_trans}".upper()
+
+        # Check debit keywords first
+        for keyword in debit_keywords:
+            if keyword in combined:
+                return (amount, Decimal('0.00'))  # (debit, credit)
+
+        # Check credit keywords
+        for keyword in credit_keywords:
+            if keyword in combined:
+                return (Decimal('0.00'), amount)  # (debit, credit)
+
+        # Default: jika tidak detect, assume credit (safe default)
+        return (Decimal('0.00'), amount)
+
+    def _parse_from_tables(self, tables: List[Dict[str, Any]]):
+        """
+        Parse transaksi dari table structure
+        Mandiri V2: Nama | Nomer Rekening | Tgl Trans | Ket Kode | Jenis Trans | Remark | Amount | Saldo
+        """
+        for table in tables:
+            if 'rows' not in table:
+                continue
+
+            # Skip header row
+            for row_idx, row in enumerate(table['rows']):
+                if row_idx == 0:  # Skip header
+                    continue
+
+                cells = row.get('cells', [])
+                if len(cells) < 7:  # Minimal columns
+                    continue
+
+                try:
+                    nama = ""
+                    nomer_rekening = ""
+                    tgl_trans = None
+                    ket_kode = ""
+                    jenis_trans = ""
+                    remark = ""
+                    amount = Decimal('0.00')
+                    saldo = Decimal('0.00')
+
+                    if len(cells) >= 8:
+                        # Full format: Nama | Nomer Rek | Tgl | Ket Kode | Jenis | Remark | Amount | Saldo
+                        nama = cells[0].get('text', '').strip()
+                        nomer_rekening = cells[1].get('text', '').strip()
+                        tgl_trans = self.parse_date(cells[2].get('text', '').strip())
+                        ket_kode = cells[3].get('text', '').strip()
+                        jenis_trans = cells[4].get('text', '').strip()
+                        remark = cells[5].get('text', '').strip()
+                        amount = self.clean_amount(cells[6].get('text', '').strip())
+                        saldo = self.clean_amount(cells[7].get('text', '').strip())
+
+                    elif len(cells) >= 5:
+                        # Simplified: Tgl | Ket Kode | Remark | Amount | Saldo
+                        tgl_trans = self.parse_date(cells[0].get('text', '').strip())
+                        ket_kode = cells[1].get('text', '').strip()
+                        remark = cells[2].get('text', '').strip()
+                        amount = self.clean_amount(cells[3].get('text', '').strip())
+                        saldo = self.clean_amount(cells[4].get('text', '').strip())
+
+                    if not tgl_trans:
+                        continue
+
+                    # Parse amount ke debit/credit
+                    debit, credit = self._parse_amount(ket_kode, jenis_trans, amount)
+
+                    # Use account info from table row if available, else from extracted info
+                    account_number = nomer_rekening if nomer_rekening else self.account_info.get('account_number', '')
+                    account_holder = nama if nama else self.account_info.get('account_holder', '')
+
+                    transaction = StandardizedTransaction(
+                        transaction_date=tgl_trans,
+                        description=remark,
+                        transaction_type=f"{ket_kode} - {jenis_trans}".strip(' -'),
+                        debit=debit,
+                        credit=credit,
+                        balance=saldo,
+                        bank_name=self.BANK_NAME,
+                        account_number=account_number,
+                        account_holder=account_holder,
+                        raw_data={
+                            'nama': nama,
+                            'nomer_rekening': nomer_rekening,
+                            'ket_kode_transaksi': ket_kode,
+                            'jenis_trans': jenis_trans,
+                            'remark': remark,
+                            'amount': str(amount),
+                        }
+                    )
+
+                    self.transactions.append(transaction)
+
+                except Exception as e:
+                    print(f"Error parsing Mandiri V2 row: {e}")
+                    continue
+
+    def _parse_from_text(self, ocr_result: Dict[str, Any]):
+        """
+        Parse transaksi dari raw text (fallback)
+        """
+        # TODO: Implement text-based parsing
+        pass

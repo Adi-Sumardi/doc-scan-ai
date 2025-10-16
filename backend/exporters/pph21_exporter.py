@@ -42,6 +42,7 @@ class PPh21Exporter(BaseExporter):
             "PPh",
             "Jenis Dokumen Dasar",
             "Tanggal Dokumen Dasar",
+            "Nomor Dokumen",
             "NPWP/NIK Pemotong",
             "NITKU/Subunit Pemotong",
             "Nama Pemotong",
@@ -182,7 +183,8 @@ class PPh21Exporter(BaseExporter):
         # Dasar Dokumen
         structured['dokumen_dasar_jenis'] = dokumen_dasar.get('jenis') or dokumen_dasar.get('type') or 'N/A'
         structured['dokumen_dasar_tanggal'] = dokumen_dasar.get('tanggal') or dokumen_dasar.get('date') or 'N/A'
-        
+        structured['dokumen_dasar_nomor'] = dokumen_dasar.get('nomor') or dokumen_dasar.get('number') or 'N/A'
+
         # Identitas Pemotong
         structured['pemotong_npwp'] = pemotong.get('npwp') or pemotong.get('nik') or 'N/A'
         # Try multiple keys for NITKU/Subunit
@@ -264,6 +266,7 @@ class PPh21Exporter(BaseExporter):
                 self._format_rupiah(structured.get('pph', 'N/A')),
                 structured.get('dokumen_dasar_jenis', 'N/A'),
                 self._format_date(structured.get('dokumen_dasar_tanggal', 'N/A')),
+                structured.get('dokumen_dasar_nomor', 'N/A'),
                 structured.get('pemotong_npwp', 'N/A'),
                 structured.get('pemotong_nitku', 'N/A'),
                 structured.get('pemotong_nama', 'N/A'),
@@ -522,6 +525,7 @@ class PPh21Exporter(BaseExporter):
                     self._format_rupiah(structured.get('pph', 'N/A')),
                     structured.get('dokumen_dasar_jenis', 'N/A'),
                     self._format_date(structured.get('dokumen_dasar_tanggal', 'N/A')),
+                    structured.get('dokumen_dasar_nomor', 'N/A'),
                     structured.get('pemotong_npwp', 'N/A'),
                     structured.get('pemotong_nitku', 'N/A'),
                     structured.get('pemotong_nama', 'N/A'),

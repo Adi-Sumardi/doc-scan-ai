@@ -57,7 +57,8 @@
       "description": "Informasi dokumen dasar pemotongan PPh 21",
       "fields": [
         {"name": "jenis", "label": "Jenis Dokumen Dasar", "required": false, "notes": "Slip Gaji/Bukti Pembayaran/Kontrak/Lainnya"},
-        {"name": "tanggal", "label": "Tanggal Dokumen Dasar", "required": false, "format": "YYYY-MM-DD"}
+        {"name": "tanggal", "label": "Tanggal Dokumen Dasar", "required": false, "format": "YYYY-MM-DD"},
+        {"name": "nomor", "label": "Nomor Dokumen", "required": false, "notes": "Nomor referensi dokumen dasar. Cari di bagian B.9 atau label 'NOMOR'"}
       ]
     }
   ],
@@ -93,7 +94,8 @@
     },
     "dokumen_dasar": {
       "jenis": "string",
-      "tanggal": "string"
+      "tanggal": "string",
+      "nomor": "string"
     },
     "notes": "string",
     "confidence": "number"

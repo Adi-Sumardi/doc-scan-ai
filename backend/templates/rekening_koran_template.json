@@ -96,7 +96,9 @@
 
     "step4_extract_all_rows": "⚠️⚠️⚠️ SUPER CRITICAL: Extract EVERY SINGLE ROW in the transaction table. Don't stop after a few rows. Count the rows in the table and make sure your array has the same count. Even if there are 100+ transactions, extract ALL of them.",
 
-    "step5_verify_completeness": "After extraction, verify: 1) Did you extract all transaction rows? 2) Are date, description, and amounts present? 3) Is the balance column captured?",
+    "step4b_duplicates_are_allowed": "⚠️⚠️⚠️ CRITICAL: DO NOT SKIP DUPLICATE TRANSACTIONS! If you see 3 identical transactions on the same date with the same amount, extract ALL 3 as separate entries in the array. Each row in the table = one entry in transactions array, even if they look identical. Bank statements can legitimately have multiple identical transactions on the same date (e.g., multiple purchases from the same merchant). DO NOT deduplicate or merge similar transactions!",
+
+    "step5_verify_completeness": "After extraction, verify: 1) Did you extract all transaction rows? 2) Are date, description, and amounts present? 3) Is the balance column captured? 4) Did you keep all duplicate/similar transactions as separate entries?",
 
     "column_header_variations": {
       "date": ["Tanggal", "Date", "Tgl", "Transaction Date", "TGL TRANSAKSI", "TANGGAL", "Tgl Transaksi"],

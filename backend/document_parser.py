@@ -211,9 +211,54 @@ class IndonesianTaxDocumentParser:
             "parsing_error": "Failed to parse PPh 23 document"
         }
 
-    def parse_rekening_koran(self, text: str) -> Dict[str, Any]:
-        """Return raw OCR text for Rekening Koran - Smart Mapper will handle extraction."""
-        return self._create_raw_text_response(text, "Rekening Koran")
+    def parse_rekening_koran(self, text: str, ocr_result: Dict[str, Any] = None, ocr_metadata: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Parse Rekening Koran using Enhanced Hybrid Processor
+
+        Strategy:
+        1. Bank Adapters (pattern matching - reliable for known banks)
+        2. Smart Mapper (AI extraction - flexible for all formats)
+        3. Intelligent merger (best of both worlds)
+
+        Args:
+            text: Raw OCR text
+            ocr_result: Full OCR result with tables (for bank adapters)
+            ocr_metadata: OCR metadata (for Smart Mapper)
+
+        Returns:
+            Structured data with transactions
+        """
+        try:
+            # Try enhanced processor if available
+            try:
+                from enhanced_bank_processor import process_bank_statement_enhanced
+
+                if ocr_result:
+                    logger.info("🚀 Using Enhanced Bank Statement Processor (Hybrid Mode)")
+                    result = process_bank_statement_enhanced(ocr_result, ocr_metadata)
+
+                    if result and result.get('transactions'):
+                        logger.info(f"✅ Enhanced processor success: {len(result['transactions'])} transactions")
+                        return result
+                    else:
+                        logger.warning("⚠️ Enhanced processor returned no transactions, falling back...")
+                else:
+                    logger.warning("⚠️ No OCR result provided, cannot use bank adapters")
+
+            except ImportError:
+                logger.warning("⚠️ Enhanced processor not available, using fallback")
+            except Exception as e:
+                logger.error(f"❌ Enhanced processor error: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+
+            # Fallback: Return raw text for Smart Mapper
+            logger.info("📝 Fallback: Returning raw text response")
+            return self._create_raw_text_response(text, "Rekening Koran")
+
+        except Exception as e:
+            logger.error(f"❌ Error parsing Rekening Koran: {e}")
+            return self._get_empty_rekening_result()
     
     def _extract_rekening_data_ai(self, full_text: str, lines: list, result: dict):
         """AI-powered Rekening Koran data extraction with transaction analysis"""

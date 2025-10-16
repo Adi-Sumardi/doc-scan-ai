@@ -305,5 +305,5 @@ class PDFChunker:
         return merged
 
 
-# Global instance
-pdf_chunker = PDFChunker(max_pages_per_chunk=10)
+# Global instance - 3 pages per chunk for better detail extraction
+pdf_chunker = PDFChunker(max_pages_per_chunk=3)

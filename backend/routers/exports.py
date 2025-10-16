@@ -227,30 +227,61 @@ async def export_batch(
         if format == 'excel':
             # Check if we should use specialized exporter for PPh 23
             if all_same_type and primary_doc_type in ['pph23', 'pph 23']:
-                # Use PPh 23 specialized exporter
-                from exporters.pph23_exporter import PPh23Exporter
-                exporter = PPh23Exporter()
-                success = exporter.export_batch_to_excel(batch_id, results_data, str(export_path))
+                try:
+                    # Use PPh 23 specialized exporter
+                    from exporters.pph23_exporter import PPh23Exporter
+                    exporter = PPh23Exporter()
+                    logger.info(f"📊 Using PPh23Exporter for batch {batch_id}")
+                    success = exporter.batch_export_to_excel(batch_id, results_data, str(export_path))
+                except Exception as e:
+                    logger.error(f"❌ PPh23 batch export failed: {e}", exc_info=True)
+                    raise HTTPException(status_code=500, detail=f"PPh23 batch export failed: {str(e)}")
             # Check if we should use specialized exporter for PPh 21
             elif all_same_type and primary_doc_type in ['pph21', 'pph 21']:
-                # Use PPh 21 specialized exporter
-                from exporters.pph21_exporter import PPh21Exporter
-                exporter = PPh21Exporter()
-                success = exporter.batch_export_to_excel(batch_id, results_data, str(export_path))
+                try:
+                    # Use PPh 21 specialized exporter
+                    from exporters.pph21_exporter import PPh21Exporter
+                    exporter = PPh21Exporter()
+                    logger.info(f"📊 Using PPh21Exporter for batch {batch_id}")
+                    success = exporter.batch_export_to_excel(batch_id, results_data, str(export_path))
+                except Exception as e:
+                    logger.error(f"❌ PPh21 batch export failed: {e}", exc_info=True)
+                    raise HTTPException(status_code=500, detail=f"PPh21 batch export failed: {str(e)}")
             # Check if we should use specialized exporter for Invoice
             elif all_same_type and primary_doc_type in ['invoice', 'invoice document']:
-                # Use Invoice specialized exporter
-                from exporters.invoice_exporter import InvoiceExporter
-                exporter = InvoiceExporter()
-                success = exporter.batch_export_to_excel(batch_id, results_data, str(export_path))
+                try:
+                    # Use Invoice specialized exporter
+                    from exporters.invoice_exporter import InvoiceExporter
+                    exporter = InvoiceExporter()
+                    logger.info(f"📊 Using InvoiceExporter for batch {batch_id}")
+                    success = exporter.batch_export_to_excel(batch_id, results_data, str(export_path))
+                except Exception as e:
+                    logger.error(f"❌ Invoice batch export failed: {e}", exc_info=True)
+                    raise HTTPException(status_code=500, detail=f"Invoice batch export failed: {str(e)}")
             # Check if we should use specialized exporter for Rekening Koran
             elif all_same_type and primary_doc_type in ['rekening_koran', 'rekening koran']:
-                # Use Rekening Koran specialized exporter
-                from exporters.rekening_koran_exporter import RekeningKoranExporter
-                exporter = RekeningKoranExporter()
-                success = exporter.batch_export_to_excel(batch_id, results_data, str(export_path))
+                try:
+                    # Use Rekening Koran specialized exporter
+                    from exporters.rekening_koran_exporter import RekeningKoranExporter
+                    exporter = RekeningKoranExporter()
+                    logger.info(f"📊 Using RekeningKoranExporter for batch {batch_id}")
+                    success = exporter.batch_export_to_excel(batch_id, results_data, str(export_path))
+                except Exception as e:
+                    logger.error(f"❌ Rekening Koran batch export failed: {e}", exc_info=True)
+                    raise HTTPException(status_code=500, detail=f"Rekening Koran batch export failed: {str(e)}")
+            # Check if we should use specialized exporter for Faktur Pajak
+            elif all_same_type and primary_doc_type in ['faktur_pajak', 'faktur pajak']:
+                try:
+                    # Use Faktur Pajak specialized exporter (with items support!)
+                    from exporters.faktur_pajak_exporter import FakturPajakExporter
+                    exporter = FakturPajakExporter()
+                    logger.info(f"📊 Using FakturPajakExporter for batch {batch_id}")
+                    success = exporter.batch_export_to_excel(batch_id, results_data, str(export_path))
+                except Exception as e:
+                    logger.error(f"❌ Faktur Pajak batch export failed: {e}", exc_info=True)
+                    raise HTTPException(status_code=500, detail=f"Faktur Pajak batch export failed: {str(e)}")
             else:
-                # Use generic table format for other types (including faktur_pajak)
+                # Use generic table format for other types
                 success = create_batch_excel_export(
                     batch_results=results_data,
                     output_path=str(export_path),
