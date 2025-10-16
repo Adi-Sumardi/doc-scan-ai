@@ -38,12 +38,31 @@ const EditableOCRResult = ({
 
     // Only show Smart Mapped data - skip raw_text, text_lines, and other legacy fields
     if (data.extracted_data) {
-      // Only include smart_mapped field
+      // Priority 1: Check for smart_mapped (nested structure)
       if (data.extracted_data.smart_mapped) {
         fields.push({
           key: 'smart_mapped',
           label: 'Smart Mapped Data',
           value: JSON.stringify(data.extracted_data.smart_mapped, null, 2),
+          type: 'json',
+          editable: true,
+        });
+      }
+      // Priority 2: Check for flat structure (transactions at root level)
+      else if (data.extracted_data.transactions && Array.isArray(data.extracted_data.transactions)) {
+        // Build a smart_mapped-like structure for display
+        const flatStructure = {
+          bank_info: data.extracted_data.bank_info || {},
+          saldo_info: data.extracted_data.saldo_info || {},
+          transactions: data.extracted_data.transactions,
+          document_type: data.extracted_data.document_type || data.document_type,
+          processing_strategy: data.extracted_data.processing_strategy || [],
+          confidence: data.extracted_data.confidence || 0
+        };
+        fields.push({
+          key: 'smart_mapped',
+          label: 'Smart Mapped Data (Enhanced Processor)',
+          value: JSON.stringify(flatStructure, null, 2),
           type: 'json',
           editable: true,
         });
