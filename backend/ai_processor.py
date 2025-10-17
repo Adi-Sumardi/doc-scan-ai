@@ -210,7 +210,8 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
             extracted_data = parser.parse_rekening_koran(
                 extracted_text,
                 ocr_result=ocr_result,
-                ocr_metadata=ocr_metadata
+                ocr_metadata=ocr_metadata,
+                page_offset=0  # No offset for non-chunked files
             )
 
             # If enhanced processor returned structured data, we're done!
