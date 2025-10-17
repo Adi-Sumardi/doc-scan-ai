@@ -199,9 +199,25 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
             ocr_metadata = ocr_processor.get_last_ocr_metadata()
 
             # Build OCR result structure for bank adapters
+            # ✅ CRITICAL FIX: Extract tables from Google Document AI raw_response.pages[].tables
+            tables = []
+            if ocr_metadata:
+                raw_response = ocr_metadata.get('raw_response')
+                if raw_response and isinstance(raw_response, dict):
+                    # Tables are in raw_response.pages[].tables (Google Document AI format)
+                    pages = raw_response.get('pages', [])
+                    for page in pages:
+                        if isinstance(page, dict) and 'tables' in page:
+                            page_tables = page.get('tables', [])
+                            if isinstance(page_tables, list):
+                                tables.extend(page_tables)
+
+                    if tables:
+                        logger.info(f"   📊 Extracted {len(tables)} tables from Google Document AI response (non-chunked)")
+
             ocr_result = {
                 'text': extracted_text,
-                'tables': ocr_metadata.get('tables', []) if ocr_metadata else [],
+                'tables': tables,  # ← Now has actual tables from Google Document AI!
                 'raw_response': ocr_metadata.get('raw_response') if ocr_metadata else None
             }
 
