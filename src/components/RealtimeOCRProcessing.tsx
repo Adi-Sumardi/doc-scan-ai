@@ -379,9 +379,15 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
             </svg>
 
             {/* Center content with breathing animation */}
-            <div className="absolute flex flex-col items-center" style={{ animation: 'breathe 3s ease-in-out infinite' }}>
-              <div className="text-5xl font-bold bg-gradient-to-r from-purple-600 via-blue-600 to-green-600 bg-clip-text text-transparent"
-                   style={{ animation: 'fadeInUp 0.8s ease-out' }}>
+            <div className="absolute flex flex-col items-center">
+              <div
+                className="text-6xl font-bold text-gray-800"
+                style={{
+                  animation: 'fadeInUp 0.8s ease-out',
+                  textShadow: '0 2px 8px rgba(139, 92, 246, 0.3), 0 4px 16px rgba(59, 130, 246, 0.2)',
+                  letterSpacing: '-0.02em'
+                }}
+              >
                 {Math.round(scanProgress)}%
               </div>
               <Loader2 className="w-6 h-6 text-blue-500 mt-2" style={{ animation: 'spin 1s linear infinite' }} />
