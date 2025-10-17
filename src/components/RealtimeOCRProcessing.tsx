@@ -35,6 +35,12 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
   const hasStartedRef = useRef(false); // Prevent restart after completion
   const currentBatchIdRef = useRef<string | null>(null); // Track current batch
   const lastProgressRef = useRef(0); // Track last progress to prevent regression
+  const onCompleteRef = useRef(onComplete); // Save callback to ref to prevent re-renders
+
+  // Keep onComplete ref updated
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
 
   // Generate particles for visual effects
   useEffect(() => {
@@ -139,9 +145,9 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
 
             // Call onComplete after fade animation
             setTimeout(() => {
-              if (isMountedRef.current && onComplete) {
+              if (isMountedRef.current && onCompleteRef.current) {
                 console.log('🔄 Executing onComplete callback');
-                onComplete();
+                onCompleteRef.current();
               }
             }, 600); // Match fade-out duration
           }
@@ -231,7 +237,7 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
         completeTimeoutRef.current = null;
       }
     };
-  }, [batchId, onComplete]); // Dependency: batchId and onComplete - animation restarts when batch changes
+  }, [batchId]); // Only depend on batchId - onComplete is stable via ref
 
   return (
     <div
