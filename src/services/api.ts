@@ -120,12 +120,13 @@ export interface NextGenOCRMetrics { confidence: number; layout_confidence: numb
 export interface ProcessingQuality { overall_score: number; text_clarity: number; structure_preservation: number; accuracy_rating: 'excellent' | 'good' | 'fair' | 'poor'; }
 export interface AIData { extracted_data: any; entities: any[]; document_type: string; confidence: number; }
 export interface Batch { id: string; files: DocumentFile[]; status: string; created_at: string; total_files: number; processed_files: number; completed_at?: string; error?: string; }
-export interface ScanResult { 
+export interface ScanResult {
   id: string; batch_id: string; filename: string; document_type: string; extracted_text?: string; extracted_data: any;
   confidence?: number; confidence_score?: number; ocr_engine_used?: string; created_at: string;
   ocr_processing_time?: number; processing_time?: number;
   original_filename?: string; file_type?: string; status?: string; ai_data?: AIData; export_formats?: string[];
   nextgen_metrics?: NextGenOCRMetrics; processing_quality?: ProcessingQuality; document_structure?: any; extracted_entities?: any;
+  raw_ocr_result?: any; // Raw OCR JSON from Google Document AI
 }
 
 // API Service

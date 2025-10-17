@@ -322,10 +322,27 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
         
         # STEP 5: Prepare result
         processing_time = asyncio.get_event_loop().time() - start_time
+
+        # Get raw OCR result for debugging/inspection
+        ocr_metadata = ocr_processor.get_last_ocr_metadata()
+        raw_ocr_json = None
+        if ocr_metadata and 'raw_response' in ocr_metadata:
+            raw_response = ocr_metadata['raw_response']
+            # Convert Document AI proto to dict for JSON serialization
+            try:
+                from google.protobuf.json_format import MessageToDict
+                if hasattr(raw_response, 'DESCRIPTOR'):  # It's a protobuf message
+                    raw_ocr_json = MessageToDict(raw_response, preserving_proto_field_name=True)
+                elif isinstance(raw_response, dict):
+                    raw_ocr_json = raw_response
+            except Exception as e:
+                logger.warning(f"⚠️ Could not convert raw OCR to JSON: {e}")
+
         result = {
             "extracted_data": extracted_data,
             "confidence": confidence,
             "raw_text": extracted_text,
+            "raw_ocr_result": raw_ocr_json,  # Add raw OCR JSON
             "processing_time": processing_time
         }
         

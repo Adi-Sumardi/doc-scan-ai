@@ -136,6 +136,12 @@ async def get_batch_results(
         # Format results for API response
         batch_results = []
         for result in results:
+            # Extract raw_ocr_result if it exists in extracted_data
+            extracted_data = result.extracted_data or {}
+            raw_ocr_result = None
+            if isinstance(extracted_data, dict) and "raw_ocr_result" in extracted_data:
+                raw_ocr_result = extracted_data.get("raw_ocr_result")
+
             result_data = {
                 "id": result.id,
                 "batch_id": result.batch_id,
@@ -143,6 +149,7 @@ async def get_batch_results(
                 "document_type": result.document_type,
                 "extracted_text": result.extracted_text,
                 "extracted_data": result.extracted_data,
+                "raw_ocr_result": raw_ocr_result,  # Expose raw OCR at top level
                 "confidence": result.confidence,
                 "ocr_engine_used": result.ocr_engine_used,
                 "created_at": result.created_at.isoformat(),
@@ -378,7 +385,12 @@ async def get_all_results(
                     extracted_data = {}
             elif not isinstance(extracted_data, dict):
                 extracted_data = {}
-            
+
+            # Extract raw_ocr_result if it exists in extracted_data
+            raw_ocr_result = None
+            if isinstance(extracted_data, dict) and "raw_ocr_result" in extracted_data:
+                raw_ocr_result = extracted_data.get("raw_ocr_result")
+
             result_data = {
                 "id": result.id,
                 "batch_id": result.batch_id,
@@ -387,7 +399,8 @@ async def get_all_results(
                 "confidence_score": result.confidence,
                 "processing_time": result.total_processing_time,
                 "created_at": result.created_at.isoformat(),
-                "extracted_data": extracted_data
+                "extracted_data": extracted_data,
+                "raw_ocr_result": raw_ocr_result  # Expose raw OCR at top level
             }
             results_list.append(result_data)
         

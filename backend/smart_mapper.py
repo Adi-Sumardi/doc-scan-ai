@@ -175,9 +175,9 @@ class SmartMapper:
 
             # Process first page (includes bank_info + saldo_info + transactions)
             first_page_json = {
-                "text": document_json.get("text", "")[:15000],  # Include text for metadata
+                "text": document_json.get("text", ""),  # ✅ FIX: Include ALL text
                 "pages": [pages[0]],  # Only first page
-                "entities": document_json.get("entities", [])[:50]  # Limited entities
+                "entities": document_json.get("entities", [])[:200]  # ✅ FIX: Increase from 50 to 200
             }
 
             logger.info(f"📄 Processing page 1/{total_pages} (with metadata)...")
@@ -216,7 +216,7 @@ class SmartMapper:
                 context_text = f"Bank: {bank_name}\nContinuation page {page_num}\n{page_text}"
 
                 page_json = {
-                    "text": context_text[:4000],  # Give bank context + page preview
+                    "text": context_text,  # ✅ FIX: Include ALL text, no truncation
                     "pages": [pages[page_idx]],
                     "entities": []  # No entities needed for continuation
                 }
@@ -562,12 +562,14 @@ class SmartMapper:
     ) -> Dict[str, Any]:
         """Cull Document AI JSON to a compact payload safe for prompting."""
         payload: Dict[str, Any] = {}
-        payload["document_preview"] = document_json.get("text", "")[:15000]
+        # ✅ FIX: Remove text limit - GPT-4o has 128K context window
+        payload["document_preview"] = document_json.get("text", "")
 
         entities = document_json.get("entities")
         if isinstance(entities, list):
             compact_entities = []
-            for entity in entities[:200]:  # limit to avoid token explosion
+            # ✅ FIX: Increase entity limit from 200 to 1000
+            for entity in entities[:1000]:
                 compact_entities.append(
                     {
                         "type": entity.get("type_", entity.get("type")),
@@ -578,7 +580,7 @@ class SmartMapper:
                 )
             payload["entities"] = compact_entities
 
-        # ⚠️ CRITICAL FIX: Extract TABLES from Document AI for bank statements
+        # ⚠️ CRITICAL FIX: Extract ALL TABLES from Document AI (no limits!)
         pages = document_json.get("pages", [])
         if isinstance(pages, list) and len(pages) > 0:
             extracted_tables = []
@@ -593,8 +595,9 @@ class SmartMapper:
                     continue
 
                 for table_idx, table in enumerate(page_tables):
-                    if table_count >= 50:  # Limit to 50 tables max to avoid token explosion
-                        break
+                    # ✅ FIX: Remove table limit - extract ALL tables
+                    # if table_count >= 50:  # REMOVED
+                    #     break
 
                     if not isinstance(table, dict):
                         continue
@@ -607,7 +610,8 @@ class SmartMapper:
                         "page": page_idx + 1,
                         "table_index": table_idx + 1,
                         "headers": self._extract_table_rows(header_rows, document_json.get("text", "")),
-                        "rows": self._extract_table_rows(body_rows, document_json.get("text", ""), limit=200)  # Limit rows
+                        # ✅ FIX: Remove row limit - extract ALL rows!
+                        "rows": self._extract_table_rows(body_rows, document_json.get("text", ""), limit=None)
                     }
 
                     extracted_tables.append(table_data)
@@ -615,7 +619,8 @@ class SmartMapper:
 
             if extracted_tables:
                 payload["tables"] = extracted_tables
-                logger.info(f"✅ Extracted {len(extracted_tables)} tables from Document AI for Smart Mapper")
+                total_rows = sum(len(t.get("rows", [])) for t in extracted_tables)
+                logger.info(f"✅ Extracted {len(extracted_tables)} tables with {total_rows} total rows from Document AI")
 
         if extracted_fields:
             payload["document_ai_fields"] = extracted_fields

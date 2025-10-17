@@ -550,6 +550,11 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                     logger.warning(f"extracted_data has unexpected type {type(extracted_data)} for {db_file.name}")
                     extracted_data = {"raw_text": str(extracted_data), "type_error": str(type(extracted_data))}
 
+                # Include raw_ocr_result if available (for debugging/inspection)
+                if "raw_ocr_result" in result and result["raw_ocr_result"] is not None:
+                    extracted_data["raw_ocr_result"] = result["raw_ocr_result"]
+                    logger.info(f"✅ Including raw OCR result in extracted_data for {db_file.name}")
+
                 # Persist normalized extracted data back to result payload for downstream consumers
                 result["extracted_data"] = extracted_data
 

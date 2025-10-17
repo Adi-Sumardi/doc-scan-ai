@@ -36,9 +36,19 @@ const EditableOCRResult = ({
   const parseDataToFields = (data: ScanResult): OCRField[] => {
     const fields: OCRField[] = [];
 
-    // Only show Smart Mapped data - skip raw_text, text_lines, and other legacy fields
-    if (data.extracted_data) {
-      // Priority 1: Check for smart_mapped (nested structure)
+    // Priority 1: Show RAW OCR result from Google Document AI if available
+    if (data.raw_ocr_result) {
+      fields.push({
+        key: 'raw_ocr_result',
+        label: 'Raw OCR Result (Google Document AI)',
+        value: JSON.stringify(data.raw_ocr_result, null, 2),
+        type: 'json',
+        editable: false, // Raw OCR should not be editable
+      });
+    }
+    // Priority 2: Show Smart Mapped data only if raw OCR not available
+    else if (data.extracted_data) {
+      // Check for smart_mapped (nested structure)
       if (data.extracted_data.smart_mapped) {
         fields.push({
           key: 'smart_mapped',
@@ -48,7 +58,7 @@ const EditableOCRResult = ({
           editable: true,
         });
       }
-      // Priority 2: Check for flat structure (transactions at root level)
+      // Check for flat structure (transactions at root level)
       else if (data.extracted_data.transactions && Array.isArray(data.extracted_data.transactions)) {
         // Build a smart_mapped-like structure for display
         const flatStructure = {
@@ -173,12 +183,21 @@ const EditableOCRResult = ({
         </div>
       </div>
 
-      {/* Metadata - Smart Mapper and Document Type Only */}
+      {/* Metadata - Display source type based on what data is shown */}
       <div className="bg-gray-50 px-6 py-3 border-b border-gray-200 text-sm">
         <div className="flex items-center space-x-6">
           <span className="flex items-center text-gray-600">
-            <span className="font-semibold text-blue-600 mr-2">Smart Mapped</span>
-            <span className="text-green-600 font-medium">✓ AI Processed</span>
+            {result.raw_ocr_result ? (
+              <>
+                <span className="font-semibold text-purple-600 mr-2">Raw OCR</span>
+                <span className="text-blue-600 font-medium">✓ Google Document AI</span>
+              </>
+            ) : (
+              <>
+                <span className="font-semibold text-blue-600 mr-2">Smart Mapped</span>
+                <span className="text-green-600 font-medium">✓ AI Processed</span>
+              </>
+            )}
           </span>
           <span className="text-gray-400">|</span>
           <span className="text-gray-600">
