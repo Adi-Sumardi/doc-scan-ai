@@ -39,7 +39,7 @@
       "notes": "PENTING: Ekstrak SEMUA transaksi yang terlihat dalam tabel mutasi. Setiap baris dalam tabel = 1 transaksi. Jangan skip transaksi apapun! Even if there are 100+ rows, extract ALL of them!",
       "fields": [
         {"name": "tanggal", "label": "Tanggal", "required": false, "format": "flexible", "notes": "Tanggal transaksi. Format bisa: 'DD/MM/YYYY', 'DD-MM-YYYY', 'DD MMM', 'DD/MM', '01 JAN', '01 JAN 2025', dll. Kolom ini biasanya di kolom paling kiri tabel."},
-        {"name": "keterangan", "label": "Keterangan", "required": false, "notes": "Deskripsi transaksi. Cari kolom dengan header: 'Keterangan', 'Description', 'Remarks', 'Details', 'Transaction Details', 'Uraian', 'Deskripsi'. Bisa berisi: 'TRANSFER', 'ATM WITHDRAWAL', 'BIAYA ADM', 'SETORAN TUNAI', 'KLIRING', 'BUNGA', dll."},
+        {"name": "keterangan", "label": "Keterangan", "required": false, "notes": "⚠️ CRITICAL JSON FORMATTING: Deskripsi transaksi. Cari kolom dengan header: 'Keterangan', 'Description', 'Remarks', 'Details', 'Transaction Details', 'Uraian', 'Deskripsi'. Bisa berisi: 'TRANSFER', 'ATM WITHDRAWAL', 'BIAYA ADM', 'SETORAN TUNAI', 'KLIRING', 'BUNGA', dll. ⚠️ IMPORTANT: If keterangan has multiple lines or special characters (newlines, tabs, quotes), you MUST properly escape them in JSON! Replace actual newlines with space ' ' or use escaped newline '\\n'. For example: 'TRSF E-BANKING DB 0107/FTSCY/WS95051 8800000.00 PETTY CASH' (all in one line with spaces). DO NOT include literal line breaks in the JSON string value!"},
         {"name": "kredit", "label": "Kredit/Uang Masuk", "required": false, "format": "currency", "notes": "Uang masuk. Cari kolom: 'Kredit', 'Credit', 'CR', 'Mutasi Kredit', 'Pemasukan', 'Masuk', 'Deposit', 'Incoming'. Kosongkan jika tidak ada nilai. Format: '1.234.567' atau '1234567'"},
         {"name": "debet", "label": "Debet/Uang Keluar", "required": false, "format": "currency", "notes": "Uang keluar. Cari kolom: 'Debet', 'Debit', 'DB', 'Mutasi Debet', 'Pengeluaran', 'Keluar', 'Withdrawal', 'Outgoing'. Kosongkan jika tidak ada nilai."},
         {"name": "mutasi", "label": "Mutasi", "required": false, "format": "currency", "notes": "Beberapa bank hanya punya 1 kolom 'Mutasi' dengan nilai positif (+) untuk kredit dan negatif (-) untuk debet. Extract nilai dengan tanda +/- nya."},
@@ -136,7 +136,7 @@
       "table_columns": "TANGGAL | KETERANGAN | CBG | MUTASI (DB | CR) | SALDO",
       "key_feature": "MUTASI column has TWO sub-columns: 'DB' (left, debet/out) and 'CR' (right, kredit/in)",
       "extraction_tip": "Check both DB and CR columns for each row. If DB has value → debet field. If CR has value → kredit field.",
-      "keterangan_multiline": "⚠️⚠️⚠️ SUPER CRITICAL FOR BCA: The KETERANGAN column often has MULTIPLE LINES of text for a single transaction. You MUST extract ALL lines/text in the keterangan column, not just the first line! Example: 'TRSF E-BANKING DB\\n0107/FTSCY/WS95051\\n8800000.00\\nPETTY CASH PERTGL\\n01/7/25S/D 05/7/25\\nSUSI SUSANTO' should be extracted as complete description including reference codes, transaction codes, and person names. DO NOT extract only 'TRSF E-BANKING DB' - that's incomplete! Extract the FULL description with all details.",
+      "keterangan_handling": "⚠️ BCA KETERANGAN: The KETERANGAN column often has MULTIPLE LINES of text. You MUST extract ALL text, but combine them into ONE line separated by spaces. Example: if you see multiline text like 'TRSF E-BANKING DB' + '0107/FTSCY/WS95051' + 'PETTY CASH', output as: 'TRSF E-BANKING DB 0107/FTSCY/WS95051 PETTY CASH'. DO NOT include literal newline characters in JSON - use spaces instead!",
       "date_format": "DD/MM (e.g., 01/01, 15/03)",
       "branch_column": "CBG column shows 3-4 digit branch code (optional to extract)"
     },
@@ -255,6 +255,7 @@
     "priority_3": "Identify bank format and adapt extraction strategy accordingly",
     "priority_4": "Be flexible - every bank is different, work with what you see",
     "priority_5": "Output clean numbers without currency symbols or formatting",
-    "priority_6": "Don't fail if some fields are missing - extract what's available"
+    "priority_6": "Don't fail if some fields are missing - extract what's available",
+    "priority_7": "🚨 CRITICAL JSON FORMATTING: Your output MUST be valid JSON! If a keterangan field contains multiline text, newlines, tabs, or special characters, you MUST combine them into a single line with spaces. DO NOT include literal newline characters (\\n, \\r, \\t) in string values - replace them with spaces. Example: CORRECT: \"keterangan\": \"TRSF E-BANKING DB 0107/FTSCY/WS95051 PETTY CASH\", WRONG: \"keterangan\": \"TRSF E-BANKING DB\\n0107/FTSCY/WS95051\\nPETTY CASH\" (literal newlines will break JSON parsing!)"
   }
 }

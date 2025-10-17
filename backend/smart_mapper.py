@@ -1071,12 +1071,35 @@ class SmartMapper:
             if cleaned.endswith("```"):
                 cleaned = cleaned[:-3]  # Remove trailing ```
             cleaned = cleaned.strip()
-            
+
             return json.loads(cleaned)
         except json.JSONDecodeError as exc:
-            logger.error(f"❌ Smart Mapper JSON decode error: {exc}")
-            logger.error(f"❌ Failed to parse: {value[:200]}")
-            return None
+            # Try to fix common JSON issues caused by unescaped control characters
+            logger.warning(f"⚠️ Initial JSON parse failed: {exc}")
+            logger.warning(f"⚠️ Attempting to fix control characters...")
+
+            try:
+                # Re-parse with strict=False to be more lenient
+                cleaned_value = value.strip()
+                if cleaned_value.startswith("```json"):
+                    cleaned_value = cleaned_value[7:]
+                elif cleaned_value.startswith("```"):
+                    cleaned_value = cleaned_value[3:]
+                if cleaned_value.endswith("```"):
+                    cleaned_value = cleaned_value[:-3]
+                cleaned_value = cleaned_value.strip()
+
+                # Try parsing with strict=False (allows control characters in some cases)
+                return json.loads(cleaned_value, strict=False)
+            except json.JSONDecodeError as exc2:
+                logger.error(f"❌ Smart Mapper JSON decode error (even after retry): {exc2}")
+                logger.error(f"❌ Error position: line {exc2.lineno} column {exc2.colno}")
+                logger.error(f"❌ Failed content around error: {value[max(0, exc2.pos-100):exc2.pos+100]}")
+
+                # Log first 500 chars for debugging
+                logger.error(f"❌ Response preview (first 500 chars): {value[:500]}")
+                logger.error(f"❌ Response preview (last 500 chars): {value[-500:]}")
+                return None
 
     def refine_adapter_result(
         self,

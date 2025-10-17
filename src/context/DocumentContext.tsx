@@ -80,7 +80,9 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
   const handleBatchCompletion = (batchId: string) => {
     if (!notifiedBatchesRef.current.has(batchId)) {
-      toast.success(`Batch #${batchId.slice(-8)} processed successfully!`);
+      setTimeout(() => {
+        toast.success(`Batch #${batchId.slice(-8)} processed successfully!`);
+      }, 0);
       notifiedBatchesRef.current.add(batchId);
     }
   };
@@ -106,11 +108,15 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       // Start polling for updates
       pollBatchStatus(batch.id);
 
-      toast.success(`Batch ${batch.id.slice(-8)} created with ${files.length} files`);
+      setTimeout(() => {
+        toast.success(`Batch ${batch.id.slice(-8)} created with ${files.length} files`);
+      }, 0);
       return batch;
     } catch (error) {
       console.error('Upload error:', error);
-      toast.error('Failed to upload documents');
+      setTimeout(() => {
+        toast.error('Failed to upload documents');
+      }, 0);
       throw error;
     } finally {
       setLoading(false);
@@ -168,9 +174,11 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
               pollingTimeoutsRef.current.push(retryTimeout); // Track timeout
             } else {
               if (isMountedRef.current) {
-                toast.error(`Polling failed for batch ${batchId.slice(-8)}. Please refresh the page.`, {
-                  duration: 6000,
-                });
+                setTimeout(() => {
+                  toast.error(`Polling failed for batch ${batchId.slice(-8)}. Please refresh the page.`, {
+                    duration: 6000,
+                  });
+                }, 0);
               }
             }
           };
@@ -231,7 +239,9 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       }
     } catch (error) {
       console.error('Refresh batch error:', error);
-      toast.error('Failed to refresh batch status');
+      setTimeout(() => {
+        toast.error('Failed to refresh batch status');
+      }, 0);
     }
   };
 
@@ -318,10 +328,14 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       }
       
       apiService.downloadFile(blob, filename);
-      toast.success(`${format.toUpperCase()} download started`);
+      setTimeout(() => {
+        toast.success(`${format.toUpperCase()} download started`);
+      }, 0);
     } catch (error) {
       console.error('Export error:', error);
-      toast.error(`Failed to export ${format.toUpperCase()}`);
+      setTimeout(() => {
+        toast.error(`Failed to export ${format.toUpperCase()}`);
+      }, 0);
     } finally {
       setLoading(false);
     }
@@ -332,12 +346,16 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       setLoading(true);
       const blob = await apiService.exportBatch(batchId, format);
       const filename = `batch_${batchId.slice(-8)}_results.${format === 'excel' ? 'xlsx' : 'pdf'}`;
-      
+
       apiService.downloadFile(blob, filename);
-      toast.success(`Batch ${format.toUpperCase()} download started`);
+      setTimeout(() => {
+        toast.success(`Batch ${format.toUpperCase()} download started`);
+      }, 0);
     } catch (error) {
       console.error('Batch export error:', error);
-      toast.error('Failed to export batch');
+      setTimeout(() => {
+        toast.error('Failed to export batch');
+      }, 0);
     } finally {
       setLoading(false);
     }
@@ -355,13 +373,15 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
       setLoading(true);
       await apiService.saveToGoogleDrive(resultId, format);
-      toast.success(`✅ Successfully saved to Google Drive as ${format.toUpperCase()}`);
+      setTimeout(() => {
+        toast.success(`✅ Successfully saved to Google Drive as ${format.toUpperCase()}`);
+      }, 0);
     } catch (error: any) {
       console.error('Google Drive save error:', error);
-      
+
       // Provide detailed error messages
       let errorMessage = 'Failed to save to Google Drive';
-      
+
       if (error.message) {
         errorMessage = error.message;
       } else if (error.response?.data?.detail) {
@@ -375,8 +395,10 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       } else if (error.response?.status >= 500) {
         errorMessage = 'Server error. Please try again later.';
       }
-      
-      toast.error(errorMessage);
+
+      setTimeout(() => {
+        toast.error(errorMessage);
+      }, 0);
       throw error;
     } finally {
       setLoading(false);
@@ -427,13 +449,17 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
             : result
         ));
 
-        toast.success('✅ Result updated successfully!');
+        setTimeout(() => {
+          toast.success('✅ Result updated successfully!');
+        }, 0);
       }
     } catch (error: any) {
       console.error('Update result error:', error);
       const errorMessage = error.message || error.response?.data?.detail || 'Failed to update result';
       if (isMountedRef.current) {
-        toast.error(errorMessage);
+        setTimeout(() => {
+          toast.error(errorMessage);
+        }, 0);
       }
       // Don't re-throw - handle error gracefully
     } finally {
@@ -463,12 +489,16 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       // Check if it's a 405 Method Not Allowed error
       if (error.response?.status === 405) {
         const errorMsg = 'Backend endpoint DELETE /api/batches/{batchId} belum tersedia. Hubungi administrator.';
-        toast.error(errorMsg);
+        setTimeout(() => {
+          toast.error(errorMsg);
+        }, 0);
         throw new Error(errorMsg);
       }
 
       const errorMessage = error.response?.data?.detail || error.message || 'Gagal menghapus batch';
-      toast.error(errorMessage);
+      setTimeout(() => {
+        toast.error(errorMessage);
+      }, 0);
       throw new Error(errorMessage);
     } finally {
       setLoading(false);

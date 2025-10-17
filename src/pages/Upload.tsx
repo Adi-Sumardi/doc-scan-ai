@@ -189,32 +189,47 @@ const Upload = () => {
 
     // Show errors for rejected files
     if (rejectedFiles.length > 0) {
-      toast.error(`Rejected files:\n${rejectedFiles.join('\n')}`, {
-        duration: 5000
-      });
+      setTimeout(() => {
+        toast.error(`Rejected files:\n${rejectedFiles.join('\n')}`, {
+          duration: 5000
+        });
+      }, 0);
     }
 
     // Add valid files
     if (validFiles.length > 0) {
+      let shouldShowMaxWarning = false;
+      let addedCount = 0;
+
       setSelectedFiles(prev => {
         const existingFiles = prev[documentType] || [];
         const combined = [...existingFiles, ...validFiles];
 
         // Limit to MAX_FILES maximum
         if (combined.length > MAX_FILES) {
-          toast.error(`Maximum ${MAX_FILES} files per document type. Only first ${MAX_FILES} files will be added.`);
+          shouldShowMaxWarning = true;
+          addedCount = MAX_FILES - existingFiles.length;
           return {
             ...prev,
             [documentType]: combined.slice(0, MAX_FILES)
           };
         }
 
-        toast.success(`${validFiles.length} file(s) added successfully`);
+        addedCount = validFiles.length;
         return {
           ...prev,
           [documentType]: combined
         };
       });
+
+      // Show toasts AFTER setState completes
+      setTimeout(() => {
+        if (shouldShowMaxWarning) {
+          toast.error(`Maximum ${MAX_FILES} files per document type. Only first ${MAX_FILES} files will be added.`);
+        } else {
+          toast.success(`${addedCount} file(s) added successfully`);
+        }
+      }, 0);
     }
   };
 
@@ -255,7 +270,9 @@ const Upload = () => {
     const fileEntries = Object.entries(selectedFiles).filter(([_, files]) => files && files.length > 0);
 
     if (fileEntries.length === 0) {
-      toast.error('Please select at least one file');
+      setTimeout(() => {
+        toast.error('Please select at least one file');
+      }, 0);
       return;
     }
 
@@ -285,27 +302,37 @@ const Upload = () => {
     const MAX_ZIP_SIZE = 100 * 1024 * 1024; // 100MB
 
     if (!file.name.toLowerCase().endsWith('.zip')) {
-      toast.error('Please select a ZIP file');
+      setTimeout(() => {
+        toast.error('Please select a ZIP file');
+      }, 0);
       return;
     }
 
     if (file.size > MAX_ZIP_SIZE) {
-      toast.error('ZIP file exceeds 100MB limit');
+      setTimeout(() => {
+        toast.error('ZIP file exceeds 100MB limit');
+      }, 0);
       return;
     }
 
     if (file.size === 0) {
-      toast.error('ZIP file is empty');
+      setTimeout(() => {
+        toast.error('ZIP file is empty');
+      }, 0);
       return;
     }
 
     setZipFile(file);
-    toast.success(`ZIP file selected: ${file.name}`);
+    setTimeout(() => {
+      toast.success(`ZIP file selected: ${file.name}`);
+    }, 0);
   };
 
   const handleZipSubmit = async () => {
     if (!zipFile) {
-      toast.error('Please select a ZIP file');
+      setTimeout(() => {
+        toast.error('Please select a ZIP file');
+      }, 0);
       return;
     }
 
@@ -332,10 +359,12 @@ const Upload = () => {
         // Handle specific error codes
         if (error.detail?.error_code === 'RESTRICTED_DOCUMENT_TYPE') {
           const allowedTypes = error.detail.allowed_zip_types?.join(', ') || 'Faktur Pajak, PPh21, PPh23';
-          toast.error(
-            `${error.detail.message}\n\nAllowed ZIP types: ${allowedTypes}`,
-            { duration: 6000 }
-          );
+          setTimeout(() => {
+            toast.error(
+              `${error.detail.message}\n\nAllowed ZIP types: ${allowedTypes}`,
+              { duration: 6000 }
+            );
+          }, 0);
           throw new Error(error.detail.message);
         }
 
@@ -346,13 +375,17 @@ const Upload = () => {
       }
 
       const batch = await response.json();
-      toast.success(`ZIP uploaded! Processing ${batch.total_files} files...`);
+      setTimeout(() => {
+        toast.success(`ZIP uploaded! Processing ${batch.total_files} files...`);
+      }, 0);
 
       // Navigate to results
       navigate(`/scan-results/${batch.id}`);
     } catch (error) {
       console.error('ZIP upload failed:', error);
-      toast.error(error instanceof Error ? error.message : 'ZIP upload failed');
+      setTimeout(() => {
+        toast.error(error instanceof Error ? error.message : 'ZIP upload failed');
+      }, 0);
     }
   };
 
@@ -739,7 +772,9 @@ const Upload = () => {
                   if (files.length > 0 && files[0].name.toLowerCase().endsWith('.zip')) {
                     handleZipFileSelect(files[0]);
                   } else {
-                    toast.error('Please drop a ZIP file');
+                    setTimeout(() => {
+                      toast.error('Please drop a ZIP file');
+                    }, 0);
                   }
                 }}
                 onClick={() => {
