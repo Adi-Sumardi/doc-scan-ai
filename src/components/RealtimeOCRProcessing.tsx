@@ -50,7 +50,7 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
     setParticles(newParticles);
   }, []);
 
-  // Pure animation - no WebSocket, always smooth fallback
+  // Real-time polling animation with backend status check
   useEffect(() => {
     // Reset flag if batchId changed (new batch)
     if (currentBatchIdRef.current !== batchId) {
@@ -83,37 +83,34 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
       'Processing Smart Mapper AI'
     ];
 
-    const totalDuration = 6000; // 6 seconds for smooth animation
     const startTime = Date.now();
     let lastProgress = 0;
     let hasCalledComplete = false; // Prevent multiple calls
 
-    const progressInterval = setInterval(() => {
-      const elapsed = Date.now() - startTime;
-      const rawProgress = Math.min(100, (elapsed / totalDuration) * 100);
-
-      // Smooth easing function (ease-out)
-      const progress = Math.min(100, rawProgress + (100 - rawProgress) * 0.1);
-
-      // Only update if progress changed significantly
-      if (Math.abs(progress - lastProgress) > 0.5) {
-        setScanProgress(progress);
-        lastProgress = progress;
-
-        // Update status text based on progress
-        const statusIndex = Math.min(
-          Math.floor((progress / 100) * (statuses.length - 1)),
-          statuses.length - 1
-        );
-        setStatusText(statuses[statusIndex]);
+    // ✅ FIX: Poll backend for REAL batch status
+    const checkBatchStatus = async () => {
+      try {
+        const response = await fetch(`http://localhost:8000/api/batches/${batchId}`);
+        if (!response.ok) return null;
+        const batch = await response.json();
+        return batch;
+      } catch (error) {
+        console.error('Failed to check batch status:', error);
+        return null;
       }
+    };
 
-      if (progress >= 99.5 && !hasCalledComplete) {
+    const progressInterval = setInterval(async () => {
+      // Check real backend status
+      const batch = await checkBatchStatus();
+
+      if (batch && batch.status === 'completed' && !hasCalledComplete) {
+        // ✅ Backend says processing is DONE!
         hasCalledComplete = true;
-        console.log('✅ Animation complete, calling onComplete');
+        console.log('✅ Backend processing complete, showing results');
         clearInterval(progressInterval);
         setScanProgress(100);
-        setStatusText('Processing Smart Mapper AI');
+        setStatusText('Processing Complete! Loading results...');
         setShowConfetti(true);
 
         completeTimeoutRef.current = setTimeout(() => {
@@ -125,8 +122,29 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
             }
           }
         }, 1500);
+        return;
       }
-    }, 50);
+
+      // Show smooth animation progress (not real progress, just visual)
+      const elapsed = Date.now() - startTime;
+      const rawProgress = Math.min(95, (elapsed / 10000) * 100); // Cap at 95% until backend confirms
+
+      // Smooth easing function (ease-out)
+      const progress = Math.min(95, rawProgress + (95 - rawProgress) * 0.1);
+
+      // Only update if progress changed significantly
+      if (Math.abs(progress - lastProgress) > 0.5) {
+        setScanProgress(progress);
+        lastProgress = progress;
+
+        // Update status text based on progress
+        const statusIndex = Math.min(
+          Math.floor((progress / 95) * (statuses.length - 1)),
+          statuses.length - 1
+        );
+        setStatusText(statuses[statusIndex]);
+      }
+    }, 1000); // Poll every 1 second
 
     animationTimerRef.current = progressInterval;
 
@@ -144,7 +162,7 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
         completeTimeoutRef.current = null;
       }
     };
-  }, [batchId]); // Dependency: batchId - animation restarts when batch changes
+  }, [batchId, onComplete]); // Dependency: batchId and onComplete - animation restarts when batch changes
 
   return (
     <div className={`bg-white rounded-lg p-8 shadow-sm border relative overflow-hidden ${className}`}>
