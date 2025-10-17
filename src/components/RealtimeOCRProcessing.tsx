@@ -183,22 +183,32 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
         targetProgress = milestones[milestones.length - 1][1];
       }
 
-      // Smooth transition to target progress
+      // Smooth transition to target progress - ALWAYS move forward!
       const currentProgress = lastProgressRef.current;
       const diff = targetProgress - currentProgress;
-      const smoothProgress = currentProgress + diff * 0.3; // Smooth lerp
 
-      // Ensure progress never goes backward
-      const finalProgress = Math.max(smoothProgress, lastProgressRef.current);
+      // Calculate smooth progress with lerp
+      let smoothProgress = currentProgress + diff * 0.3;
+
+      // CRITICAL: Ensure we NEVER go backward
+      smoothProgress = Math.max(smoothProgress, currentProgress);
+
+      // Also ensure we reach target eventually (snap when very close)
+      if (Math.abs(targetProgress - smoothProgress) < 0.1) {
+        smoothProgress = targetProgress;
+      }
+
+      // Debug logging
+      console.log(`⏱️ ${elapsed.toFixed(1)}s | Current: ${currentProgress.toFixed(1)}% | Target: ${targetProgress.toFixed(1)}% | Smooth: ${smoothProgress.toFixed(1)}%`);
 
       // Only update if progress changed significantly
-      if (Math.abs(finalProgress - lastProgressRef.current) > 0.5) {
-        setScanProgress(finalProgress);
-        lastProgressRef.current = finalProgress;
+      if (Math.abs(smoothProgress - lastProgressRef.current) > 0.1) {
+        setScanProgress(smoothProgress);
+        lastProgressRef.current = smoothProgress;
 
         // Update status text based on progress
         const statusIndex = Math.min(
-          Math.floor((finalProgress / 95) * (statuses.length - 1)),
+          Math.floor((smoothProgress / 95) * (statuses.length - 1)),
           statuses.length - 1
         );
         setStatusText(statuses[statusIndex]);
