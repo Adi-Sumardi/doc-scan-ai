@@ -211,7 +211,7 @@ class IndonesianTaxDocumentParser:
             "parsing_error": "Failed to parse PPh 23 document"
         }
 
-    def parse_rekening_koran(self, text: str, ocr_result: Dict[str, Any] = None, ocr_metadata: Dict[str, Any] = None, page_offset: int = 0) -> Dict[str, Any]:
+    async def parse_rekening_koran(self, text: str, ocr_result: Dict[str, Any] = None, ocr_metadata: Dict[str, Any] = None, page_offset: int = 0) -> Dict[str, Any]:
         """
         Parse Rekening Koran using Enhanced Hybrid Processor
 
@@ -240,11 +240,8 @@ class IndonesianTaxDocumentParser:
                     if page_offset > 0:
                         logger.info(f"   📄 Page offset: {page_offset} (chunk processing)")
 
-                    # Run async function
-                    loop = asyncio.get_event_loop()
-                    result = loop.run_until_complete(
-                        process_bank_statement_hybrid(ocr_result, ocr_metadata, page_offset)
-                    )
+                    # Await async function directly (we're already in async context)
+                    result = await process_bank_statement_hybrid(ocr_result, ocr_metadata, page_offset)
 
                     if result and result.get('transactions'):
                         logger.info(f"✅ Hybrid processor success: {len(result['transactions'])} transactions")

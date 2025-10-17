@@ -265,10 +265,19 @@ class HybridBankProcessor:
         logger.info("📊 PROCESSING SUMMARY")
         logger.info("=" * 60)
         logger.info(f"✅ Total Transactions: {metrics['total_transactions']}")
-        logger.info(f"✅ Rule-based Parsed: {metrics['rule_based_parsed']} "
-                   f"({metrics['rule_based_parsed'] / metrics['total_transactions'] * 100:.1f}%)")
-        logger.info(f"🤖 GPT Processed Chunks: {metrics['gpt_processed']}/{len(chunks)} "
-                   f"({metrics['gpt_processed'] / len(chunks) * 100:.1f}%)")
+
+        if metrics['total_transactions'] > 0:
+            logger.info(f"✅ Rule-based Parsed: {metrics['rule_based_parsed']} "
+                       f"({metrics['rule_based_parsed'] / metrics['total_transactions'] * 100:.1f}%)")
+        else:
+            logger.info(f"✅ Rule-based Parsed: {metrics['rule_based_parsed']} (0.0%)")
+
+        if len(chunks) > 0:
+            logger.info(f"🤖 GPT Processed Chunks: {metrics['gpt_processed']}/{len(chunks)} "
+                       f"({metrics['gpt_processed'] / len(chunks) * 100:.1f}%)")
+        else:
+            logger.info(f"🤖 GPT Processed Chunks: {metrics['gpt_processed']}/0 (0.0%)")
+
         logger.info(f"💰 Token Savings: {metrics['token_savings_percentage']:.1f}%")
         logger.info(f"⏱️ Processing Time: {metrics['processing_time']:.2f}s")
         logger.info("=" * 60)
@@ -511,7 +520,7 @@ class HybridBankProcessor:
 
         # Average transaction confidence
         txn_confidences = [t.get('confidence', 0.7) for t in transactions]
-        avg_txn_confidence = sum(txn_confidences) / len(txn_confidences)
+        avg_txn_confidence = (sum(txn_confidences) / len(txn_confidences)) if len(txn_confidences) > 0 else 0.7
 
         # Validation pass rate
         total_chunks = len(validations)

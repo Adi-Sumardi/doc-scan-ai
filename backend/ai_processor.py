@@ -207,7 +207,7 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
 
             # Use Enhanced Hybrid Processor (Bank Adapters + Smart Mapper)
             logger.info("🏦 Processing Rekening Koran with Enhanced Hybrid Processor")
-            extracted_data = parser.parse_rekening_koran(
+            extracted_data = await parser.parse_rekening_koran(
                 extracted_text,
                 ocr_result=ocr_result,
                 ocr_metadata=ocr_metadata,
@@ -478,7 +478,7 @@ async def _process_document_chunked(file_path: str, document_type: str, start_ti
                     logger.info(f"   📄 Applying page offset: {page_offset} (chunk starts at page {chunk_info['start_page']})")
 
                 # Parse chunk (rekening_koran specific) WITH OCR result for Hybrid Processor
-                chunk_extracted_data = parser.parse_rekening_koran(
+                chunk_extracted_data = await parser.parse_rekening_koran(
                     chunk_text,
                     ocr_result=chunk_ocr_result,
                     ocr_metadata=chunk_ocr_metadata,
