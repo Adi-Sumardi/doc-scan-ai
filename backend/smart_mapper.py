@@ -1078,6 +1078,179 @@ class SmartMapper:
             logger.error(f"❌ Failed to parse: {value[:200]}")
             return None
 
+    def refine_adapter_result(
+        self,
+        adapter_result: Dict[str, Any],
+        ocr_json: Dict[str, Any],
+        doc_type: str = "rekening_koran"
+    ) -> Optional[Dict[str, Any]]:
+        """
+        ✨ NEW: Lightweight refinement of bank adapter results using GPT-4o
+
+        This method takes the result from bank adapters and asks GPT to:
+        1. Validate extracted data
+        2. Fill any missing fields
+        3. Fix obvious errors
+        4. Add missing transactions
+
+        TOKEN SAVINGS: ~90% compared to full extraction
+        - Full extraction: 15,000 input + 2,000 output = 17,000 tokens
+        - Refinement: 500 input + 300 output = 800 tokens
+
+        Args:
+            adapter_result: Result from bank adapter (even if partial/empty)
+            ocr_json: Full OCR JSON from Google Document AI
+            doc_type: Document type (default: rekening_koran)
+
+        Returns:
+            Refinement suggestions (corrections, additions, etc.)
+        """
+        if not self.enabled or not self._client:
+            logger.debug("Smart Mapper disabled - skipping refinement")
+            return adapter_result
+
+        try:
+            logger.info("✨ Refining adapter result with GPT-4o...")
+
+            # Build lightweight refinement prompt
+            adapter_summary = {
+                "bank_info": adapter_result.get("bank_info", {}),
+                "saldo_info": adapter_result.get("saldo_info", {}),
+                "transaction_count": len(adapter_result.get("transactions", [])),
+                "transactions_sample": adapter_result.get("transactions", [])[:3],  # First 3 for context
+                "processing_strategy": adapter_result.get("processing_strategy", [])
+            }
+
+            # Extract tables summary (not full tables - just headers and count)
+            tables_summary = []
+            for table in ocr_json.get("tables", [])[:3]:  # Max 3 tables for context
+                tables_summary.append({
+                    "page": table.get("page", 0),
+                    "headers": table.get("headers", []),
+                    "row_count": len(table.get("rows", []))
+                })
+
+            refinement_prompt = (
+                f"🔍 TASK: Refine bank statement extraction\n\n"
+                f"BANK ADAPTER EXTRACTED:\n"
+                f"{json.dumps(adapter_summary, ensure_ascii=False, indent=2)}\n\n"
+                f"AVAILABLE OCR DATA (summary):\n"
+                f"- Total text length: {len(ocr_json.get('text', ''))} characters\n"
+                f"- Tables available: {len(ocr_json.get('tables', []))} tables\n"
+                f"- Sample tables:\n{json.dumps(tables_summary, ensure_ascii=False, indent=2)}\n\n"
+                f"YOUR TASK:\n"
+                f"1. Review the adapter's extraction\n"
+                f"2. Check if transaction count matches table row counts\n"
+                f"3. Identify any missing transactions\n"
+                f"4. Suggest corrections for obvious errors\n"
+                f"5. Fill any missing metadata fields\n\n"
+                f"OUTPUT FORMAT (JSON only):\n"
+                f"{{\n"
+                f"  \"validation\": {{\n"
+                f"    \"adapter_quality\": \"good|partial|poor\",\n"
+                f"    \"missing_transaction_count\": 0,\n"
+                f"    \"issues_found\": []\n"
+                f"  }},\n"
+                f"  \"corrections\": [\n"
+                f"    {{\"field\": \"bank_info.nama_bank\", \"current\": \"...\", \"corrected\": \"...\"}}\n"
+                f"  ],\n"
+                f"  \"missing_transactions\": [\n"
+                f"    {{\"tanggal\": \"...\", \"keterangan\": \"...\", \"debet\": \"...\", \"kredit\": \"...\", \"saldo\": \"...\"}}\n"
+                f"  ],\n"
+                f"  \"metadata_updates\": {{\n"
+                f"    \"confidence\": 0.95\n"
+                f"  }}\n"
+                f"}}\n\n"
+                f"⚠️ IMPORTANT:\n"
+                f"- Only include actual corrections/additions needed\n"
+                f"- If adapter result is perfect, return empty corrections\n"
+                f"- Be concise - this should be much smaller than full extraction\n"
+                f"- Focus on gaps and errors, not re-stating correct data\n"
+            )
+
+            # Call GPT with lightweight prompt
+            raw_response = self._invoke_llm(refinement_prompt, "Refine and validate the extraction")
+
+            if not raw_response:
+                logger.warning("⚠️ GPT refinement returned no response - using adapter result as-is")
+                return adapter_result
+
+            refinement = self._safe_json_loads(raw_response)
+
+            if not refinement:
+                logger.warning("⚠️ GPT refinement returned invalid JSON - using adapter result as-is")
+                return adapter_result
+
+            # Apply refinements
+            refined_result = self._apply_refinements(adapter_result, refinement)
+
+            # Log refinement stats
+            corrections_count = len(refinement.get("corrections", []))
+            additions_count = len(refinement.get("missing_transactions", []))
+
+            logger.info(f"✨ Refinement complete:")
+            logger.info(f"   - Corrections applied: {corrections_count}")
+            logger.info(f"   - Transactions added: {additions_count}")
+            logger.info(f"   - Adapter quality: {refinement.get('validation', {}).get('adapter_quality', 'unknown')}")
+
+            return refined_result
+
+        except Exception as exc:
+            logger.error(f"❌ Refinement error: {exc}")
+            # Return original adapter result on error
+            return adapter_result
+
+    def _apply_refinements(
+        self,
+        adapter_result: Dict[str, Any],
+        refinement: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Apply GPT refinements to adapter result"""
+
+        result = adapter_result.copy()
+
+        # Apply field corrections
+        for correction in refinement.get("corrections", []):
+            field_path = correction.get("field", "").split(".")
+            current_dict = result
+
+            # Navigate to nested field
+            for i, key in enumerate(field_path[:-1]):
+                if key not in current_dict:
+                    current_dict[key] = {}
+                current_dict = current_dict[key]
+
+            # Apply correction
+            if field_path:
+                current_dict[field_path[-1]] = correction.get("corrected")
+
+        # Add missing transactions
+        missing_transactions = refinement.get("missing_transactions", [])
+        if missing_transactions:
+            result.setdefault("transactions", [])
+            result["transactions"].extend(missing_transactions)
+
+            # Sort by date if possible
+            try:
+                result["transactions"].sort(key=lambda x: x.get("tanggal", ""))
+            except:
+                pass  # If sorting fails, keep as-is
+
+        # Update metadata
+        metadata_updates = refinement.get("metadata_updates", {})
+        for key, value in metadata_updates.items():
+            result[key] = value
+
+        # Add refinement metadata
+        result["refined_by_gpt"] = True
+        result["refinement_stats"] = {
+            "corrections": len(refinement.get("corrections", [])),
+            "additions": len(missing_transactions),
+            "adapter_quality": refinement.get("validation", {}).get("adapter_quality", "unknown")
+        }
+
+        return result
+
 
 smart_mapper_service = SmartMapper()
 

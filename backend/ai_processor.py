@@ -510,26 +510,29 @@ async def _process_document_chunked(file_path: str, document_type: str, start_ti
                     page_offset=page_offset
                 )
 
-                # Apply Smart Mapper if available
+                # ✨ NEW STRATEGY: ALWAYS refine with GPT-4o (Option A)
+                # Bank adapter runs first (fast, free), then GPT refines (cheap, accurate)
                 if HAS_SMART_MAPPER and smart_mapper_service:
-                    template = smart_mapper_service.load_template(document_type)
                     ocr_metadata = ocr_processor.get_last_ocr_metadata()
                     ocr_meta_dict = ocr_metadata if isinstance(ocr_metadata, dict) else {}
                     raw_response = ocr_meta_dict.get('raw_response')
 
-                    if template and raw_response:
-                        logger.info(f"🤖 Applying Smart Mapper to chunk {i}")
-                        mapped = smart_mapper_service.map_document(
-                            doc_type=document_type,
-                            document_json=raw_response,
-                            template=template,
-                            extracted_fields=ocr_meta_dict.get('extracted_fields'),
-                            fallback_fields=chunk_extracted_data.get('structured_data'),
+                    if raw_response:
+                        logger.info(f"✨ Refining chunk {i} with GPT-4o (Always Refine Strategy)")
+
+                        # Use lightweight refinement instead of full extraction
+                        refined = smart_mapper_service.refine_adapter_result(
+                            adapter_result=chunk_extracted_data,
+                            ocr_json=raw_response,
+                            doc_type=document_type
                         )
-                        if mapped:
-                            chunk_extracted_data.setdefault('structured_data', {})
-                            chunk_extracted_data['structured_data']['smart_mapper'] = mapped
-                            chunk_extracted_data['smart_mapped'] = mapped
+
+                        if refined:
+                            # Replace with refined result
+                            chunk_extracted_data = refined
+                            logger.info(f"✨ Chunk {i} refined successfully")
+                        else:
+                            logger.warning(f"⚠️ Chunk {i} refinement failed - using adapter result")
 
                 # ✅ FIX: Store raw_ocr_result for this chunk
                 chunk_raw_ocr = chunk_ocr_metadata.get('raw_response') if chunk_ocr_metadata else None
