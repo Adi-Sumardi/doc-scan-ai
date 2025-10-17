@@ -230,3 +230,115 @@
     opacity: 1;
   }
 }
+
+/* ============================================ */
+/* Enhanced Smooth Animations for Processing */
+/* ============================================ */
+
+/* Smooth floating up and down */
+@keyframes floatUpDown {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-15px);
+  }
+}
+
+/* Smooth floating left and right */
+@keyframes floatLeftRight {
+  0%, 100% {
+    transform: translateX(0px);
+  }
+  50% {
+    transform: translateX(10px);
+  }
+}
+
+/* Pulsing glow effect for particles */
+@keyframes pulseGlow {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.2);
+  }
+}
+
+/* Rotating scan beam */
+@keyframes rotateScan {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Gradient shift for icon background */
+@keyframes gradientShift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Twinkle effect for sparkles */
+@keyframes twinkle {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2) rotate(180deg);
+  }
+}
+
+/* Fade in up with smooth easing */
+@keyframes fadeInUp {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Smooth progress bar fill with easing */
+@keyframes progressFill {
+  0% {
+    stroke-dashoffset: 552;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Ripple effect */
+@keyframes ripple {
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+/* Breathing glow effect */
+@keyframes breathe {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(139, 92, 246, 0.8), 0 0 60px rgba(59, 130, 246, 0.6);
+  }
+}

@@ -178,13 +178,13 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
   }, [batchId, onComplete]); // Dependency: batchId and onComplete - animation restarts when batch changes
 
   return (
-    <div className={`bg-white rounded-lg p-8 shadow-sm border relative overflow-hidden ${className}`}>
-      {/* Animated Background Particles - Using CSS animations for better performance */}
+    <div className={`bg-gradient-to-br from-gray-50 to-blue-50 rounded-lg p-8 shadow-xl border border-gray-200 relative overflow-hidden ${className}`}>
+      {/* Animated Background Particles - Enhanced with better movement */}
       <div ref={canvasRef} className="absolute inset-0 pointer-events-none overflow-hidden">
         {particles.map(particle => (
           <div
             key={particle.id}
-            className="absolute rounded-full animate-pulse"
+            className="absolute rounded-full"
             style={{
               left: `${particle.x}%`,
               top: `${particle.y}%`,
@@ -192,12 +192,30 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
               height: `${particle.size}px`,
               backgroundColor: particle.color,
               opacity: particle.opacity,
-              boxShadow: `0 0 ${particle.size * 2}px ${particle.color}`,
-              animation: `float ${3 + particle.id * 0.5}s ease-in-out infinite, pulse ${2 + particle.id * 0.3}s ease-in-out infinite`,
-              animationDelay: `${particle.id * 0.1}s`
+              boxShadow: `0 0 ${particle.size * 3}px ${particle.color}, 0 0 ${particle.size * 6}px ${particle.color}`,
+              animation: `
+                floatUpDown ${4 + particle.id * 0.3}s ease-in-out infinite,
+                floatLeftRight ${5 + particle.id * 0.4}s ease-in-out infinite,
+                pulseGlow ${2 + particle.id * 0.2}s ease-in-out infinite
+              `,
+              animationDelay: `${particle.id * 0.15}s`,
+              filter: 'blur(1px)'
             }}
           />
         ))}
+      </div>
+
+      {/* Rotating Scanning Beam */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-30">
+        <div
+          className="absolute top-1/2 left-1/2 w-full h-1 origin-left"
+          style={{
+            background: 'linear-gradient(to right, transparent, rgba(59, 130, 246, 0.8), transparent)',
+            transform: 'translateY(-50%)',
+            animation: 'rotateScan 4s linear infinite',
+            boxShadow: '0 0 20px rgba(59, 130, 246, 0.6)'
+          }}
+        />
       </div>
 
       {/* Confetti Effect */}
@@ -231,17 +249,29 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
         />
       </div>
 
-      {/* Header */}
+      {/* Header with Enhanced Glow */}
       <div className="flex items-center justify-center space-x-3 mb-8 relative z-10">
-        <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl flex items-center justify-center animate-pulse-slow shadow-xl">
-          <Brain className="w-8 h-8 text-white" />
+        <div className="relative">
+          {/* Glowing ring effect */}
+          <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl opacity-50 blur-xl animate-pulse" />
+          <div
+            className="relative w-16 h-16 bg-gradient-to-r from-purple-500 via-blue-500 to-purple-500 rounded-xl flex items-center justify-center shadow-2xl"
+            style={{
+              animation: 'gradientShift 3s ease-in-out infinite, floatUpDown 2s ease-in-out infinite'
+            }}
+          >
+            <Brain className="w-8 h-8 text-white" style={{ animation: 'pulse 2s ease-in-out infinite' }} />
+          </div>
         </div>
         <div className="text-center">
-          <h3 className="text-2xl font-bold text-gray-900 mb-1">AI Document Scanner</h3>
+          <h3 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent mb-1"
+              style={{ animation: 'fadeInUp 0.6s ease-out' }}>
+            AI Document Scanner
+          </h3>
           <p className="text-sm text-gray-600 flex items-center gap-2 justify-center">
-            <Sparkles className="w-4 h-4 text-yellow-500 animate-pulse" />
-            Powered by Advanced AI
-            <Sparkles className="w-4 h-4 text-yellow-500 animate-pulse" />
+            <Sparkles className="w-4 h-4 text-yellow-500" style={{ animation: 'twinkle 1.5s ease-in-out infinite' }} />
+            <span style={{ animation: 'fadeInUp 0.6s ease-out 0.2s both' }}>Powered by Advanced AI</span>
+            <Sparkles className="w-4 h-4 text-yellow-500" style={{ animation: 'twinkle 1.5s ease-in-out infinite 0.5s' }} />
           </p>
         </div>
       </div>
@@ -298,54 +328,82 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
             </div>
           </div>
         ) : (
-          /* Original Circular Progress */
+          /* Enhanced Circular Progress with Ripple Effect */
           <div className="relative inline-flex items-center justify-center">
-            <svg className="w-48 h-48 transform -rotate-90">
+            {/* Ripple rings */}
+            <div className="absolute w-48 h-48 rounded-full border-2 border-purple-300 opacity-20" style={{ animation: 'ripple 2s ease-out infinite' }} />
+            <div className="absolute w-48 h-48 rounded-full border-2 border-blue-300 opacity-20" style={{ animation: 'ripple 2s ease-out infinite 0.5s' }} />
+            <div className="absolute w-48 h-48 rounded-full border-2 border-green-300 opacity-20" style={{ animation: 'ripple 2s ease-out infinite 1s' }} />
+
+            <svg className="w-48 h-48 transform -rotate-90" style={{ filter: 'drop-shadow(0 0 8px rgba(139, 92, 246, 0.3))' }}>
+              {/* Background circle with glow */}
               <circle
                 cx="96"
                 cy="96"
                 r="88"
                 stroke="#E5E7EB"
-                strokeWidth="8"
+                strokeWidth="10"
                 fill="none"
+                opacity="0.3"
               />
+              {/* Animated progress circle with smooth easing */}
               <circle
                 cx="96"
                 cy="96"
                 r="88"
                 stroke="url(#gradient)"
-                strokeWidth="8"
+                strokeWidth="10"
                 fill="none"
                 strokeDasharray={`${2 * Math.PI * 88}`}
                 strokeDashoffset={`${2 * Math.PI * 88 * (1 - scanProgress / 100)}`}
-                className="transition-all duration-300"
+                style={{
+                  transition: 'stroke-dashoffset 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                  filter: 'drop-shadow(0 0 4px currentColor)'
+                }}
                 strokeLinecap="round"
               />
+              {/* Gradient with animated colors */}
               <defs>
-                <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#8B5CF6" />
-                  <stop offset="50%" stopColor="#3B82F6" />
-                  <stop offset="100%" stopColor="#10B981" />
+                <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#8B5CF6">
+                    <animate attributeName="stop-color" values="#8B5CF6; #A78BFA; #8B5CF6" dur="3s" repeatCount="indefinite" />
+                  </stop>
+                  <stop offset="50%" stopColor="#3B82F6">
+                    <animate attributeName="stop-color" values="#3B82F6; #60A5FA; #3B82F6" dur="3s" repeatCount="indefinite" />
+                  </stop>
+                  <stop offset="100%" stopColor="#10B981">
+                    <animate attributeName="stop-color" values="#10B981; #34D399; #10B981" dur="3s" repeatCount="indefinite" />
+                  </stop>
                 </linearGradient>
               </defs>
             </svg>
-            <div className="absolute flex flex-col items-center">
-              <div className="text-5xl font-bold bg-gradient-to-r from-purple-600 via-blue-600 to-green-600 bg-clip-text text-transparent">
+
+            {/* Center content with breathing animation */}
+            <div className="absolute flex flex-col items-center" style={{ animation: 'breathe 3s ease-in-out infinite' }}>
+              <div className="text-5xl font-bold bg-gradient-to-r from-purple-600 via-blue-600 to-green-600 bg-clip-text text-transparent"
+                   style={{ animation: 'fadeInUp 0.8s ease-out' }}>
                 {Math.round(scanProgress)}%
               </div>
-              <Loader2 className="w-6 h-6 text-blue-500 animate-spin mt-2" />
+              <Loader2 className="w-6 h-6 text-blue-500 mt-2" style={{ animation: 'spin 1s linear infinite' }} />
             </div>
           </div>
         )}
       </div>
 
-      {/* Status Text */}
+      {/* Status Text with Smooth Transitions */}
       <div className="text-center mb-4 relative z-10">
-        <p className="text-lg font-medium text-gray-700 animate-pulse">
+        <p className="text-lg font-medium text-gray-800 mb-1"
+           style={{
+             animation: 'fadeInUp 0.5s ease-out',
+             textShadow: '0 2px 4px rgba(0,0,0,0.1)'
+           }}>
           {statusText}
         </p>
-        <p className="text-sm text-blue-600 mt-2">
-          Processing your documents with AI...
+        <p className="text-sm text-blue-600 mt-2 flex items-center justify-center gap-2"
+           style={{ animation: 'fadeInUp 0.6s ease-out 0.2s both' }}>
+          <span className="inline-block w-2 h-2 bg-blue-500 rounded-full" style={{ animation: 'pulseGlow 1.5s ease-in-out infinite' }} />
+          Processing your documents with AI
+          <span className="inline-block w-2 h-2 bg-blue-500 rounded-full" style={{ animation: 'pulseGlow 1.5s ease-in-out infinite 0.5s' }} />
         </p>
       </div>
 
