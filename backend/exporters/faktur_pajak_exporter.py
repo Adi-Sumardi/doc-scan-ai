@@ -888,36 +888,36 @@ class FakturPajakExporter(BaseExporter):
             cell.border = border_thin
             cell.font = Font(size=10)
 
-        # Column 15: Quantity (total)
+        # Column 15: Quantity (individual quantities per item, aligned top)
         if items and len(items) > 0:
             qty_text = self._calculate_total_quantity(items)
         else:
             qty_text = '-'
         cell = ws.cell(row=row, column=15, value=qty_text)
         cell.fill = data_fill
-        cell.alignment = Alignment(horizontal='center', vertical='center')
+        cell.alignment = Alignment(horizontal='center', vertical='top', wrap_text=True)
         cell.border = border_thin
         cell.font = Font(size=10)
 
-        # Column 16: Nilai Barang (satuan/unit price)
+        # Column 16: Nilai Barang (unit prices, aligned top)
         if items and len(items) > 0:
             nilai_satuan_text = self._calculate_nilai_barang_satuan(items)
         else:
             nilai_satuan_text = '-'
         cell = ws.cell(row=row, column=16, value=nilai_satuan_text)
         cell.fill = data_fill
-        cell.alignment = Alignment(horizontal='left', vertical='center')
+        cell.alignment = Alignment(horizontal='right', vertical='top', wrap_text=True)
         cell.border = border_thin
         cell.font = Font(size=10)
 
-        # Column 17: Total Nilai Barang (qty × unit_price)
+        # Column 17: Total Nilai Barang (subtotals + grand total, aligned top)
         if items and len(items) > 0:
             total_nilai_text = self._calculate_total_nilai_barang(items)
         else:
             total_nilai_text = '-'
         cell = ws.cell(row=row, column=17, value=total_nilai_text)
         cell.fill = data_fill
-        cell.alignment = Alignment(horizontal='right', vertical='center')
+        cell.alignment = Alignment(horizontal='right', vertical='top', wrap_text=True)
         cell.border = border_thin
         cell.font = Font(size=10)
         
@@ -1088,36 +1088,36 @@ class FakturPajakExporter(BaseExporter):
                     cell.border = border_thin
                     cell.font = Font(size=10)
 
-                # Column 15: Quantity (total)
+                # Column 15: Quantity (individual quantities per item, aligned top)
                 if items and len(items) > 0:
                     qty_text = self._calculate_total_quantity(items)
                 else:
                     qty_text = '-'
                 cell = ws.cell(row=row, column=15, value=qty_text)
                 cell.fill = fill
-                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.alignment = Alignment(horizontal='center', vertical='top', wrap_text=True)
                 cell.border = border_thin
                 cell.font = Font(size=10)
 
-                # Column 16: Nilai Barang (satuan/unit price)
+                # Column 16: Nilai Barang (unit prices, aligned top)
                 if items and len(items) > 0:
                     nilai_satuan_text = self._calculate_nilai_barang_satuan(items)
                 else:
                     nilai_satuan_text = '-'
                 cell = ws.cell(row=row, column=16, value=nilai_satuan_text)
                 cell.fill = fill
-                cell.alignment = Alignment(horizontal='left', vertical='center')
+                cell.alignment = Alignment(horizontal='right', vertical='top', wrap_text=True)
                 cell.border = border_thin
                 cell.font = Font(size=10)
 
-                # Column 17: Total Nilai Barang (qty × unit_price)
+                # Column 17: Total Nilai Barang (subtotals + grand total, aligned top)
                 if items and len(items) > 0:
                     total_nilai_text = self._calculate_total_nilai_barang(items)
                 else:
                     total_nilai_text = '-'
                 cell = ws.cell(row=row, column=17, value=total_nilai_text)
                 cell.fill = fill
-                cell.alignment = Alignment(horizontal='right', vertical='center')
+                cell.alignment = Alignment(horizontal='right', vertical='top', wrap_text=True)
                 cell.border = border_thin
                 cell.font = Font(size=10)
 
