@@ -230,7 +230,7 @@ class RekeningKoranExporter(BaseExporter):
             logger.debug(f"📅 Date completed: '{original_date}' → '{completed}'")
             return completed
 
-        # If format is DD MMM (like "01 JAN" or "1 JANUARI"), convert to DD/MM/YYYY
+        # If format is DD MMM (like "01 JAN", "1 JANUARI", or "31 Jan"), convert to DD/MM/YYYY
         month_map = {
             'JAN': '01', 'JANUARI': '01', 'JANUARY': '01',
             'FEB': '02', 'FEBRUARI': '02', 'FEBRUARY': '02',
@@ -671,6 +671,13 @@ class RekeningKoranExporter(BaseExporter):
         # Support both 'transaksi' (old format) and 'transactions' (enhanced processor format)
         transaksi = structured.get('transaksi', []) or structured.get('transactions', [])
 
+        # ✅ FIX: Extract year from periode for date completion (same as batch export)
+        periode = structured.get('periode', '')
+        year_for_completion = self._extract_year_from_periode(periode)
+        if not year_for_completion:
+            year_for_completion = str(datetime.now().year)
+        logger.info(f"📅 Using year {year_for_completion} for date completion in single export")
+
         if isinstance(transaksi, list) and transaksi:
             # Multiple transactions - iterate through array
             logger.info(f"📊 Processing {len(transaksi)} transactions for Excel export")
@@ -699,7 +706,9 @@ class RekeningKoranExporter(BaseExporter):
                             debet = mutasi_clean.replace('-', '')
 
                 # Get other fields with fallbacks
-                tanggal = trans.get('tanggal', trans.get('date', trans.get('transaction_date', 'N/A')))
+                tanggal_raw = trans.get('tanggal', trans.get('date', trans.get('transaction_date', 'N/A')))
+                # ✅ FIX: Complete date with year (same as batch export)
+                tanggal = self._complete_date_with_year(tanggal_raw, year_for_completion)
                 keterangan = trans.get('keterangan', trans.get('description', trans.get('remarks', trans.get('details', 'N/A'))))
                 saldo = trans.get('saldo', trans.get('balance', trans.get('running_balance', 'N/A')))
                 page = trans.get('page', 1)  # Get page number, default to 1
@@ -752,6 +761,10 @@ class RekeningKoranExporter(BaseExporter):
             keterangan = structured.get('keterangan', structured.get('description', 'N/A'))
             saldo = structured.get('saldo', 'N/A')
 
+            # ✅ FIX: Complete date with year for legacy single transaction
+            tanggal_raw = structured.get('tanggal', 'N/A')
+            tanggal = self._complete_date_with_year(tanggal_raw, year_for_completion)
+
             # Format to rupiah
             kredit_formatted = self._format_rupiah(kredit)
             debet_formatted = self._format_rupiah(debet)
@@ -765,7 +778,7 @@ class RekeningKoranExporter(BaseExporter):
             tujuan_keluar = keterangan_formatted if debet_formatted != '-' else '-'
 
             data_row = [
-                structured.get('tanggal', 'N/A'),
+                tanggal,  # ✅ Use completed date instead of raw
                 kredit_formatted,
                 debet_formatted,
                 saldo_formatted,
