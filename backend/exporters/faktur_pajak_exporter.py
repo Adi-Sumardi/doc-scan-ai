@@ -48,6 +48,8 @@ class FakturPajakExporter(BaseExporter):
             "Email Buyer",
             "Tgl",
             "Nomor Faktur",
+            "Harga Jual",  # Harga Jual / Penggantian / Uang Muka / Termin
+            "Uang Muka",   # Dikurangi Uang Muka yang telah diterima
             "DPP",
             "PPN",
             "Total",
@@ -689,10 +691,14 @@ class FakturPajakExporter(BaseExporter):
         logger.info(f"🔍 DEBUG - financials full data: {financials}")
         
         # Try BOTH lowercase and uppercase keys (case-insensitive)
+        harga_jual_value = financials.get('harga_jual') or financials.get('Harga_Jual') or ''
+        uang_muka_value = financials.get('uang_muka') or financials.get('Uang_Muka') or ''
         dpp_value = financials.get('dpp') or financials.get('DPP') or ''
         ppn_value = financials.get('ppn') or financials.get('PPN') or ''
         total_value = financials.get('total') or financials.get('Total') or financials.get('TOTAL') or ''
-        
+
+        logger.info(f"🔍 DEBUG - Extracted Harga Jual: '{harga_jual_value}'")
+        logger.info(f"🔍 DEBUG - Extracted Uang Muka: '{uang_muka_value}'")
         logger.info(f"🔍 DEBUG - Extracted DPP: '{dpp_value}'")
         logger.info(f"🔍 DEBUG - Extracted PPN: '{ppn_value}'")
         logger.info(f"🔍 DEBUG - Extracted Total: '{total_value}'")
@@ -723,6 +729,8 @@ class FakturPajakExporter(BaseExporter):
             'invoice': invoice.get('reference', ''),
 
             # Financial data
+            'harga_jual': harga_jual_value,
+            'uang_muka': uang_muka_value,
             'dpp': dpp_value,
             'ppn': ppn_value,
             'total': total_value,
@@ -855,16 +863,18 @@ class FakturPajakExporter(BaseExporter):
             structured.get('npwp_buyer') or 'N/A',
             structured.get('email_buyer') or 'N/A',
 
-            # Invoice & Financial data (columns 8-13)
+            # Invoice & Financial data (columns 8-15)
             self._format_date(structured.get('tanggal')) or 'N/A',
             structured.get('nomor_faktur') or 'N/A',
+            self._format_rupiah(structured.get('harga_jual')),  # Harga Jual / Penggantian / Uang Muka / Termin
+            self._format_rupiah(structured.get('uang_muka')),   # Dikurangi Uang Muka yang telah diterima
             self._format_rupiah(structured.get('dpp')),
             self._format_rupiah(structured.get('ppn')),
             self._format_rupiah(structured.get('total')),
             structured.get('invoice') or 'N/A',
         ]
 
-        # Write data row (columns 1-13)
+        # Write data row (columns 1-15)
         for col_idx, value in enumerate(data_row, start=1):
             cell = ws.cell(row=row, column=col_idx, value=value)
             cell.fill = data_fill
@@ -872,50 +882,50 @@ class FakturPajakExporter(BaseExporter):
             cell.border = border_thin
             cell.font = Font(size=10)
 
-        # Column 14: Nama Barang/Jasa (descriptions only)
+        # Column 16: Nama Barang/Jasa (descriptions only) - shifted from 14
         if items and len(items) > 0:
             desc_text = self._create_items_description_list(items)
-            cell = ws.cell(row=row, column=14, value=desc_text)
+            cell = ws.cell(row=row, column=16, value=desc_text)
             cell.fill = data_fill
             cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
             cell.border = border_thin
             cell.font = Font(size=10)
         else:
             # No items from smart mapper, use fallback text
-            cell = ws.cell(row=row, column=14, value=structured.get('nama_barang_jasa') or 'N/A')
+            cell = ws.cell(row=row, column=16, value=structured.get('nama_barang_jasa') or 'N/A')
             cell.fill = data_fill
             cell.alignment = left_align
             cell.border = border_thin
             cell.font = Font(size=10)
 
-        # Column 15: Quantity (individual quantities per item, aligned top)
+        # Column 17: Quantity (individual quantities per item, aligned top) - shifted from 15
         if items and len(items) > 0:
             qty_text = self._calculate_total_quantity(items)
         else:
             qty_text = '-'
-        cell = ws.cell(row=row, column=15, value=qty_text)
+        cell = ws.cell(row=row, column=17, value=qty_text)
         cell.fill = data_fill
         cell.alignment = Alignment(horizontal='center', vertical='top', wrap_text=True)
         cell.border = border_thin
         cell.font = Font(size=10)
 
-        # Column 16: Nilai Barang (unit prices, aligned top)
+        # Column 18: Nilai Barang (unit prices, aligned top) - shifted from 16
         if items and len(items) > 0:
             nilai_satuan_text = self._calculate_nilai_barang_satuan(items)
         else:
             nilai_satuan_text = '-'
-        cell = ws.cell(row=row, column=16, value=nilai_satuan_text)
+        cell = ws.cell(row=row, column=18, value=nilai_satuan_text)
         cell.fill = data_fill
         cell.alignment = Alignment(horizontal='right', vertical='top', wrap_text=True)
         cell.border = border_thin
         cell.font = Font(size=10)
 
-        # Column 17: Total Nilai Barang (subtotals + grand total, aligned top)
+        # Column 19: Total Nilai Barang (subtotals + grand total, aligned top) - shifted from 17
         if items and len(items) > 0:
             total_nilai_text = self._calculate_total_nilai_barang(items)
         else:
             total_nilai_text = '-'
-        cell = ws.cell(row=row, column=17, value=total_nilai_text)
+        cell = ws.cell(row=row, column=19, value=total_nilai_text)
         cell.fill = data_fill
         cell.alignment = Alignment(horizontal='right', vertical='top', wrap_text=True)
         cell.border = border_thin
@@ -931,14 +941,16 @@ class FakturPajakExporter(BaseExporter):
         ws.column_dimensions['G'].width = 30  # Email Buyer
         ws.column_dimensions['H'].width = 12  # Tgl
         ws.column_dimensions['I'].width = 18  # Nomor Faktur
-        ws.column_dimensions['J'].width = 15  # DPP
-        ws.column_dimensions['K'].width = 15  # PPN
-        ws.column_dimensions['L'].width = 15  # Total
-        ws.column_dimensions['M'].width = 18  # Invoice
-        ws.column_dimensions['N'].width = 40  # Nama Barang/Jasa
-        ws.column_dimensions['O'].width = 12  # Quantity
-        ws.column_dimensions['P'].width = 18  # Nilai Barang (satuan)
-        ws.column_dimensions['Q'].width = 20  # Total Nilai Barang
+        ws.column_dimensions['J'].width = 18  # Harga Jual
+        ws.column_dimensions['K'].width = 18  # Uang Muka
+        ws.column_dimensions['L'].width = 15  # DPP
+        ws.column_dimensions['M'].width = 15  # PPN
+        ws.column_dimensions['N'].width = 15  # Total
+        ws.column_dimensions['O'].width = 18  # Invoice
+        ws.column_dimensions['P'].width = 40  # Nama Barang/Jasa
+        ws.column_dimensions['Q'].width = 12  # Quantity
+        ws.column_dimensions['R'].width = 18  # Nilai Barang (satuan)
+        ws.column_dimensions['S'].width = 20  # Total Nilai Barang
 
         # Set row height for data row (increase if multiple items)
         if items and len(items) > 1:
@@ -1050,9 +1062,11 @@ class FakturPajakExporter(BaseExporter):
                     structured.get('npwp_buyer') or 'N/A',
                     structured.get('email_buyer') or 'N/A',
 
-                    # Invoice & Financial data (columns 8-13)
+                    # Invoice & Financial data (columns 8-15)
                     self._format_date(structured.get('tanggal')) or 'N/A',
                     structured.get('nomor_faktur') or 'N/A',
+                    self._format_rupiah(structured.get('harga_jual')),  # Harga Jual / Penggantian / Uang Muka / Termin
+                    self._format_rupiah(structured.get('uang_muka')),   # Dikurangi Uang Muka yang telah diterima
                     self._format_rupiah(structured.get('dpp')),
                     self._format_rupiah(structured.get('ppn')),
                     self._format_rupiah(structured.get('total')),
@@ -1061,7 +1075,7 @@ class FakturPajakExporter(BaseExporter):
 
                 fill = data_fill_1 if idx % 2 == 0 else data_fill_2
 
-                # Write data row (columns 1-13)
+                # Write data row (columns 1-15, now 1-17 with new Harga Jual & Uang Muka)
                 for col_idx, value in enumerate(data_row, start=1):
                     cell = ws.cell(row=row, column=col_idx, value=value)
                     cell.fill = fill
@@ -1069,10 +1083,10 @@ class FakturPajakExporter(BaseExporter):
                     cell.border = border_thin
                     cell.font = Font(size=10)
 
-                # Column 14: Nama Barang/Jasa (descriptions only)
+                # Column 16: Nama Barang/Jasa (descriptions only) - shifted from 14
                 if items and len(items) > 0:
                     desc_text = self._create_items_description_list(items)
-                    cell = ws.cell(row=row, column=14, value=desc_text)
+                    cell = ws.cell(row=row, column=16, value=desc_text)
                     cell.fill = fill
                     cell.alignment = Alignment(horizontal='left', vertical='top', wrap_text=True)
                     cell.border = border_thin
@@ -1082,40 +1096,40 @@ class FakturPajakExporter(BaseExporter):
                         estimated_height = (len(items) * 15) + 10
                         ws.row_dimensions[row].height = min(estimated_height, 150)
                 else:
-                    cell = ws.cell(row=row, column=14, value=structured.get('nama_barang_jasa') or 'N/A')
+                    cell = ws.cell(row=row, column=16, value=structured.get('nama_barang_jasa') or 'N/A')
                     cell.fill = fill
                     cell.alignment = left_align
                     cell.border = border_thin
                     cell.font = Font(size=10)
 
-                # Column 15: Quantity (individual quantities per item, aligned top)
+                # Column 17: Quantity (individual quantities per item, aligned top) - shifted from 15
                 if items and len(items) > 0:
                     qty_text = self._calculate_total_quantity(items)
                 else:
                     qty_text = '-'
-                cell = ws.cell(row=row, column=15, value=qty_text)
+                cell = ws.cell(row=row, column=17, value=qty_text)
                 cell.fill = fill
                 cell.alignment = Alignment(horizontal='center', vertical='top', wrap_text=True)
                 cell.border = border_thin
                 cell.font = Font(size=10)
 
-                # Column 16: Nilai Barang (unit prices, aligned top)
+                # Column 18: Nilai Barang (unit prices, aligned top) - shifted from 16
                 if items and len(items) > 0:
                     nilai_satuan_text = self._calculate_nilai_barang_satuan(items)
                 else:
                     nilai_satuan_text = '-'
-                cell = ws.cell(row=row, column=16, value=nilai_satuan_text)
+                cell = ws.cell(row=row, column=18, value=nilai_satuan_text)
                 cell.fill = fill
                 cell.alignment = Alignment(horizontal='right', vertical='top', wrap_text=True)
                 cell.border = border_thin
                 cell.font = Font(size=10)
 
-                # Column 17: Total Nilai Barang (subtotals + grand total, aligned top)
+                # Column 19: Total Nilai Barang (subtotals + grand total, aligned top) - shifted from 17
                 if items and len(items) > 0:
                     total_nilai_text = self._calculate_total_nilai_barang(items)
                 else:
                     total_nilai_text = '-'
-                cell = ws.cell(row=row, column=17, value=total_nilai_text)
+                cell = ws.cell(row=row, column=19, value=total_nilai_text)
                 cell.fill = fill
                 cell.alignment = Alignment(horizontal='right', vertical='top', wrap_text=True)
                 cell.border = border_thin
@@ -1133,14 +1147,16 @@ class FakturPajakExporter(BaseExporter):
             ws.column_dimensions['G'].width = 30  # Email Buyer
             ws.column_dimensions['H'].width = 12  # Tgl
             ws.column_dimensions['I'].width = 18  # Nomor Faktur
-            ws.column_dimensions['J'].width = 15  # DPP
-            ws.column_dimensions['K'].width = 15  # PPN
-            ws.column_dimensions['L'].width = 15  # Total
-            ws.column_dimensions['M'].width = 18  # Invoice
-            ws.column_dimensions['N'].width = 40  # Nama Barang/Jasa
-            ws.column_dimensions['O'].width = 12  # Quantity
-            ws.column_dimensions['P'].width = 18  # Nilai Barang (satuan)
-            ws.column_dimensions['Q'].width = 20  # Total Nilai Barang
+            ws.column_dimensions['J'].width = 18  # Harga Jual
+            ws.column_dimensions['K'].width = 18  # Uang Muka
+            ws.column_dimensions['L'].width = 15  # DPP
+            ws.column_dimensions['M'].width = 15  # PPN
+            ws.column_dimensions['N'].width = 15  # Total
+            ws.column_dimensions['O'].width = 18  # Invoice
+            ws.column_dimensions['P'].width = 40  # Nama Barang/Jasa
+            ws.column_dimensions['Q'].width = 12  # Quantity
+            ws.column_dimensions['R'].width = 18  # Nilai Barang (satuan)
+            ws.column_dimensions['S'].width = 20  # Total Nilai Barang
 
             wb.save(output_path)
             logger.info(f"✅ Batch Faktur Pajak Excel export created: {output_path} with {len(results)} documents")

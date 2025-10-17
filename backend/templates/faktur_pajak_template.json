@@ -33,10 +33,12 @@
     },
     {
       "name": "financials",
-      "description": "Ringkasan nilai transaksi.",
+      "description": "Ringkasan nilai transaksi. Extract dari tabel finansial di faktur pajak.",
       "fields": [
-        {"name": "dpp", "label": "Dasar Pengenaan Pajak", "required": true, "format": "currency"},
-        {"name": "ppn", "label": "PPN", "required": true, "format": "currency"},
+        {"name": "harga_jual", "label": "Harga Jual / Penggantian / Uang Muka / Termin", "required": false, "format": "currency", "notes": "Cari baris yang TEPAT dengan label 'Harga Jual / Penggantian / Uang Muka / Termin' diikuti nilai angka (Rp). Contoh: jika tertulis 'Harga Jual / Penggantian / Uang Muka / Termin 210.000.000,00' maka isi dengan '210000000'"},
+        {"name": "uang_muka", "label": "Dikurangi Uang Muka yang telah diterima", "required": false, "format": "currency", "notes": "Cari baris yang TEPAT dengan label 'Dikurangi Uang Muka yang telah diterima' diikuti nilai angka (Rp). Contoh: jika tertulis 'Dikurangi Uang Muka yang telah diterima 63.000.000,00' maka isi dengan '63000000'. Jika baris ini tidak ada atau nilai 0, isi dengan '0'"},
+        {"name": "dpp", "label": "Dasar Pengenaan Pajak", "required": true, "format": "currency", "notes": "Cari baris 'Dasar Pengenaan Pajak' diikuti nilai angka"},
+        {"name": "ppn", "label": "PPN", "required": true, "format": "currency", "notes": "Cari baris 'Jumlah PPN' atau 'Jumlah PPN (Pajak Pertambahan Nilai)' diikuti nilai angka"},
         {"name": "pph", "label": "PPh", "required": false, "format": "currency"},
         {"name": "total", "label": "Total", "required": true, "format": "currency"}
       ]
@@ -70,6 +72,8 @@
       "reference": "string"
     },
     "financials": {
+      "harga_jual": "string",
+      "uang_muka": "string",
       "dpp": "string",
       "ppn": "string",
       "pph": "string",
