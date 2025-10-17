@@ -71,6 +71,12 @@ const History = () => {
   };
 
   const handleDelete = async (batch: any) => {
+    const statusBadge = batch.status === 'completed'
+      ? '<span class="text-green-600">✓ Completed</span>'
+      : batch.status === 'processing'
+      ? '<span class="text-yellow-600">⏳ Processing</span>'
+      : '<span class="text-red-600">✗ Error</span>';
+
     const result = await Swal.fire({
       title: 'Delete Batch?',
       html: `
@@ -79,9 +85,11 @@ const History = () => {
           <div class="bg-gray-100 p-3 rounded-lg mb-3">
             <p class="font-semibold text-gray-900">Batch #${batch.id.slice(-8)}</p>
             <p class="text-sm text-gray-600">${batch.total_files} files</p>
-            <p class="text-sm text-red-600">Status: ${batch.status}</p>
+            <p class="text-sm">Status: ${statusBadge}</p>
+            <p class="text-xs text-gray-500 mt-1">${new Date(batch.created_at || Date.now()).toLocaleString()}</p>
           </div>
-          <p class="text-red-600 font-semibold">⚠️ Tindakan ini tidak dapat dibatalkan!</p>
+          <p class="text-red-600 font-semibold mb-2">⚠️ Tindakan ini tidak dapat dibatalkan!</p>
+          <p class="text-sm text-gray-600">Semua data scan results akan dihapus permanent dari database.</p>
         </div>
       `,
       icon: 'warning',
@@ -264,19 +272,20 @@ const History = () => {
                     </td>
                     <td className="px-3 md:px-6 py-4">
                       <div className="flex items-center justify-end gap-2">
-                        {(batch.status === 'error' || batch.status === 'failed') && (
-                          <button
-                            onClick={() => handleDelete(batch)}
-                            disabled={deletingBatchId === batch.id || loading}
-                            className="inline-flex items-center px-2 md:px-3 py-2 border border-transparent text-xs md:text-sm leading-4 font-medium rounded-md text-red-600 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Delete batch"
-                          >
-                            <Trash2 className="w-3 h-3 md:w-4 md:h-4" />
-                            <span className="hidden sm:inline ml-1">
-                              {deletingBatchId === batch.id ? 'Deleting...' : 'Delete'}
-                            </span>
-                          </button>
-                        )}
+                        {/* Delete button - available for ALL batches */}
+                        <button
+                          onClick={() => handleDelete(batch)}
+                          disabled={deletingBatchId === batch.id || loading}
+                          className="inline-flex items-center px-2 md:px-3 py-2 border border-transparent text-xs md:text-sm leading-4 font-medium rounded-md text-red-600 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Delete batch"
+                        >
+                          <Trash2 className="w-3 h-3 md:w-4 md:h-4" />
+                          <span className="hidden sm:inline ml-1">
+                            {deletingBatchId === batch.id ? 'Deleting...' : 'Delete'}
+                          </span>
+                        </button>
+
+                        {/* View Results button */}
                         <button
                           onClick={() => navigate(`/scan-results/${batch.id}`)}
                           className="inline-flex items-center px-2 md:px-3 py-2 border border-transparent text-xs md:text-sm leading-4 font-medium rounded-md text-blue-600 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
