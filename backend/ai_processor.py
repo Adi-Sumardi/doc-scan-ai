@@ -77,16 +77,7 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
             logger.info(f"🔍 Auto-detected document type: {detected_type}")
             document_type = detected_type
 
-        # SPECIAL HANDLING: Check if PDF needs chunking (for rekening_koran with 10+ pages)
-        file_ext = Path(file_path).suffix.lower()
-        is_pdf = file_ext == '.pdf'
-        is_rekening_koran = document_type in ['rekening_koran', 'rekening koran']
-
-        if is_pdf and is_rekening_koran and pdf_chunker.needs_chunking(file_path, threshold=10):
-            logger.info("📚 Multi-page rekening koran detected - using chunked processing")
-            return await _process_document_chunked(file_path, document_type, start_time)
-
-        # STEP 1: Extract text using OCR (normal flow for single documents or small PDFs)
+        # STEP 1: Extract text using OCR (all documents, including multi-page PDFs)
         extracted_text = await ocr_processor.extract_text(file_path)
         
         if not extracted_text:
@@ -203,17 +194,25 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
             tables = []
             if ocr_metadata:
                 raw_response = ocr_metadata.get('raw_response')
+                logger.info(f"   🔍 DEBUG: ocr_metadata exists, raw_response type: {type(raw_response)}")
                 if raw_response and isinstance(raw_response, dict):
                     # Tables are in raw_response.pages[].tables (Google Document AI format)
                     pages = raw_response.get('pages', [])
-                    for page in pages:
+                    logger.info(f"   🔍 DEBUG: Found {len(pages)} pages in raw_response")
+                    for i, page in enumerate(pages, 1):
                         if isinstance(page, dict) and 'tables' in page:
                             page_tables = page.get('tables', [])
+                            logger.info(f"   🔍 DEBUG: Page {i} has {len(page_tables)} tables")
                             if isinstance(page_tables, list):
                                 tables.extend(page_tables)
+                        else:
+                            logger.info(f"   🔍 DEBUG: Page {i} - no 'tables' key (keys: {list(page.keys())[:5] if isinstance(page, dict) else 'not a dict'})")
 
-                    if tables:
-                        logger.info(f"   📊 Extracted {len(tables)} tables from Google Document AI response (non-chunked)")
+                    logger.info(f"   📊 Total extracted: {len(tables)} tables from Google Document AI response (non-chunked)")
+                else:
+                    logger.warning(f"   ⚠️ raw_response is None or not a dict")
+            else:
+                logger.warning(f"   ⚠️ No ocr_metadata available")
 
             ocr_result = {
                 'text': extracted_text,
@@ -510,16 +509,26 @@ async def _process_document_chunked(file_path: str, document_type: str, start_ti
                 tables = []
                 raw_response = chunk_ocr_metadata.get('raw_response') if chunk_ocr_metadata else None
 
+                logger.info(f"   🔍 DEBUG CHUNKED: chunk_ocr_metadata exists = {chunk_ocr_metadata is not None}")
+                logger.info(f"   🔍 DEBUG CHUNKED: raw_response type = {type(raw_response)}")
+
                 if raw_response and isinstance(raw_response, dict):
                     # Tables might be in raw_response.pages[].tables
                     pages = raw_response.get('pages', [])
-                    for page in pages:
+                    logger.info(f"   🔍 DEBUG CHUNKED: Found {len(pages)} pages in raw_response")
+                    for idx, page in enumerate(pages, 1):
                         if isinstance(page, dict) and 'tables' in page:
                             page_tables = page.get('tables', [])
+                            logger.info(f"   🔍 DEBUG CHUNKED: Page {idx} has {len(page_tables)} tables")
                             if isinstance(page_tables, list):
                                 tables.extend(page_tables)
+                        else:
+                            page_keys = list(page.keys())[:5] if isinstance(page, dict) else 'not a dict'
+                            logger.info(f"   🔍 DEBUG CHUNKED: Page {idx} - no 'tables' key (keys: {page_keys})")
 
-                    logger.info(f"   📊 Extracted {len(tables)} tables from Google Document AI response")
+                    logger.info(f"   📊 CHUNKED: Extracted {len(tables)} tables from Google Document AI response")
+                else:
+                    logger.warning(f"   ⚠️ CHUNKED: raw_response is None or not a dict")
 
                 chunk_ocr_result = {
                     'text': chunk_text,
