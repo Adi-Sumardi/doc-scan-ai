@@ -157,42 +157,43 @@ class FakturPajakExporter(BaseExporter):
 
     def _create_items_description_list(self, items: list) -> str:
         """
-        Create simple description list for items (no qty, no price)
+        Create simple description list for items (no qty, no price, NO NUMBERING)
 
         Format for 1 item:
         Laptop Dell Inspiron 15
 
-        Format for multiple items:
-        1. Laptop Dell
-        2. Mouse Wireless
-        3. Keyboard Mechanical
+        Format for multiple items (NO NUMBERING):
+        Busbar Proteksi 500Kv Low Impedance
+        Panel Busbar Proteksi
+        Busbar Proteksi 500Kv Low Impedance
+        Panel Busbar Proteksi
         """
         if not items or len(items) == 0:
             return "N/A"
 
-        # If only 1 item, show simple format (just description)
-        if len(items) == 1:
-            item = items[0]
-            desc = item.get('description', 'N/A')
-            return desc
-
-        # Multiple items: Create numbered list with descriptions only
+        # Create list with item descriptions only (no numbers)
         items_text = []
-        for idx, item in enumerate(items, start=1):
+        for item in items:
             desc = item.get('description', 'N/A')
-            items_text.append(f"{idx}. {desc}")
+            items_text.append(desc)
 
         return "\n".join(items_text)
 
     def _calculate_total_quantity(self, items: list) -> str:
         """
-        Calculate total quantity from all items
-        Returns formatted quantity string
+        Show individual quantities for each item (NOT SUMMED)
+
+        Format for multiple items:
+        1
+        1
+        1
+        1
         """
         if not items or len(items) == 0:
             return "-"
 
-        total_qty = 0
+        # Create list with individual quantities (no summing)
+        qty_lines = []
         for item in items:
             qty_str = item.get('quantity', '-')
             if qty_str and qty_str != '-':
@@ -201,58 +202,50 @@ class FakturPajakExporter(BaseExporter):
                     qty_clean = re.sub(r'[^\d.]', '', str(qty_str))
                     if qty_clean:
                         qty = float(qty_clean)
-                        total_qty += qty
+                        # Return integer if whole number, otherwise with decimals
+                        if qty == int(qty):
+                            qty_lines.append(str(int(qty)))
+                        else:
+                            qty_lines.append(f"{qty:.2f}")
+                    else:
+                        qty_lines.append("-")
                 except:
-                    pass
+                    qty_lines.append("-")
+            else:
+                qty_lines.append("-")
 
-        if total_qty == 0:
+        if not qty_lines:
             return "-"
 
-        # Return integer if whole number, otherwise with decimals
-        if total_qty == int(total_qty):
-            return str(int(total_qty))
-        else:
-            return f"{total_qty:.2f}"
+        return "\n".join(qty_lines)
 
     def _calculate_nilai_barang_satuan(self, items: list) -> str:
         """
-        Get unit prices (nilai barang satuan) from ALL items, one per line
-        Returns formatted string with each item's unit price
+        Get unit prices (nilai barang satuan) from ALL items, one per line (NO NUMBERING)
+        Returns formatted string with each item's unit price in plain number format (not Rupiah)
 
-        Format for 1 item:
-        Rp 5.000.000
-
-        Format for multiple items:
-        1. Rp 5.000.000
-        2. Rp 3.000.000
-        3. Rp 7.500.000
+        Format for multiple items (plain numbers, no Rp prefix, no numbering):
+        119500000
+        24500000
+        119500000
+        24500000
         """
         if not items or len(items) == 0:
             return "-"
 
-        # If only 1 item, show simple format (just price)
-        if len(items) == 1:
-            item = items[0]
-            price_str = item.get('unit_price', '-')
-            if not price_str or price_str == '-':
-                return "-"
-            price = self._parse_price(price_str)
-            if price == 0:
-                return "-"
-            return self._format_rupiah(price)
-
-        # Multiple items: Create numbered list with unit prices
+        # Create list with unit prices only (no numbers, plain integer format)
         price_lines = []
-        for idx, item in enumerate(items, start=1):
+        for item in items:
             price_str = item.get('unit_price', '-')
             if not price_str or price_str == '-':
-                price_lines.append(f"{idx}. -")
+                price_lines.append("-")
             else:
                 price = self._parse_price(price_str)
                 if price == 0:
-                    price_lines.append(f"{idx}. -")
+                    price_lines.append("-")
                 else:
-                    price_lines.append(f"{idx}. {self._format_rupiah(price)}")
+                    # Plain number format (no Rp, no dots)
+                    price_lines.append(str(price))
 
         return "\n".join(price_lines)
 
@@ -317,14 +310,23 @@ class FakturPajakExporter(BaseExporter):
 
     def _calculate_total_nilai_barang(self, items: list) -> str:
         """
-        Calculate total nilai barang (quantity × unit_price for all items)
-        Returns formatted rupiah string
+        Calculate total nilai barang (quantity × unit_price) for EACH item + grand total
+        Returns list of subtotals (plain numbers) with grand total at the end
+
+        Format for multiple items:
+        119500000
+        24500000
+        119500000
+        24500000
+        288000000 (grand total)
         """
         if not items or len(items) == 0:
             return "-"
 
+        subtotal_lines = []
         grand_total = 0
-        for idx, item in enumerate(items, 1):
+
+        for item in items:
             qty_str = item.get('quantity', '-')
             price_str = item.get('unit_price', '-')
 
@@ -344,12 +346,13 @@ class FakturPajakExporter(BaseExporter):
 
             # Calculate subtotal (convert to int to avoid float issues)
             subtotal = int(qty * price) if qty > 0 and price > 0 else 0
+            subtotal_lines.append(str(subtotal))
             grand_total += subtotal
 
-        if grand_total == 0:
-            return "-"
+        # Add grand total at the end
+        subtotal_lines.append(str(grand_total))
 
-        return self._format_rupiah(grand_total)
+        return "\n".join(subtotal_lines)
 
     def _format_barang_jasa(self, value: Any) -> str:
         """Normalize barang/jasa data into a readable comma-separated list."""
