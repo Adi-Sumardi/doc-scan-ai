@@ -34,6 +34,7 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
   const isMountedRef = useRef(true);
   const hasStartedRef = useRef(false); // Prevent restart after completion
   const currentBatchIdRef = useRef<string | null>(null); // Track current batch
+  const lastProgressRef = useRef(0); // Track last progress to prevent regression
 
   // Generate particles for visual effects
   useEffect(() => {
@@ -58,6 +59,8 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
       console.log('🔄 New batch detected, resetting animation');
       hasStartedRef.current = false;
       currentBatchIdRef.current = batchId;
+      lastProgressRef.current = 0; // Reset progress for new batch
+      setScanProgress(0);
     }
 
     // IMPORTANT: Prevent animation from restarting ONLY if it's currently running
@@ -85,7 +88,7 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
     ];
 
     const startTime = Date.now();
-    let lastProgress = 0;
+    lastProgressRef.current = 0; // Reset for new batch
     let hasCalledComplete = false; // Prevent multiple calls
 
     // ✅ FIX: Poll backend for REAL batch status
@@ -181,18 +184,21 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
       }
 
       // Smooth transition to target progress
-      const currentProgress = lastProgress;
+      const currentProgress = lastProgressRef.current;
       const diff = targetProgress - currentProgress;
       const smoothProgress = currentProgress + diff * 0.3; // Smooth lerp
 
+      // Ensure progress never goes backward
+      const finalProgress = Math.max(smoothProgress, lastProgressRef.current);
+
       // Only update if progress changed significantly
-      if (Math.abs(smoothProgress - lastProgress) > 0.5) {
-        setScanProgress(smoothProgress);
-        lastProgress = smoothProgress;
+      if (Math.abs(finalProgress - lastProgressRef.current) > 0.5) {
+        setScanProgress(finalProgress);
+        lastProgressRef.current = finalProgress;
 
         // Update status text based on progress
         const statusIndex = Math.min(
-          Math.floor((smoothProgress / 95) * (statuses.length - 1)),
+          Math.floor((finalProgress / 95) * (statuses.length - 1)),
           statuses.length - 1
         );
         setStatusText(statuses[statusIndex]);
