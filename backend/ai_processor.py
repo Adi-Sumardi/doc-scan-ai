@@ -490,11 +490,25 @@ async def _process_document_chunked(file_path: str, document_type: str, start_ti
 
                 # ✅ CRITICAL FIX: Build proper ocr_result structure (same as normal processing path)
                 # The hybrid processor expects: {'text': ..., 'tables': ..., 'raw_response': ...}
-                # NOT just the raw_response alone!
+                # Extract tables from raw_response (Google Document AI format)
+                tables = []
+                raw_response = chunk_ocr_metadata.get('raw_response') if chunk_ocr_metadata else None
+
+                if raw_response and isinstance(raw_response, dict):
+                    # Tables might be in raw_response.pages[].tables
+                    pages = raw_response.get('pages', [])
+                    for page in pages:
+                        if isinstance(page, dict) and 'tables' in page:
+                            page_tables = page.get('tables', [])
+                            if isinstance(page_tables, list):
+                                tables.extend(page_tables)
+
+                    logger.info(f"   📊 Extracted {len(tables)} tables from Google Document AI response")
+
                 chunk_ocr_result = {
                     'text': chunk_text,
-                    'tables': chunk_ocr_metadata.get('tables', []) if chunk_ocr_metadata else [],
-                    'raw_response': chunk_ocr_metadata.get('raw_response') if chunk_ocr_metadata else None
+                    'tables': tables,  # ← Now has actual tables!
+                    'raw_response': raw_response
                 }
 
                 # Calculate page offset for this chunk (page 1 = offset 0, page 4 = offset 3)
