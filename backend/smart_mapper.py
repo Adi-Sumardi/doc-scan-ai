@@ -206,24 +206,37 @@ class SmartMapper:
             logger.info(f"🏦 Detected bank: {bank_name}")
 
             # Process remaining pages (transactions only)
+            full_document_text = document_json.get("text", "")
+
             for page_idx in range(1, total_pages):
                 page_num = page_idx + 1
 
-                # Extract text from this page for better context
-                page_text = self._get_text_from_page(pages[page_idx])
+                # ✅ FIX: Extract text segments that belong to this specific page
+                # Google Document AI stores text with page references
+                logger.info(f"📄 Processing page {page_num}/{total_pages} (transactions only) for {bank_name}...")
+
+                page_text = self._extract_text_for_page(
+                    full_document_text,
+                    pages[page_idx],
+                    document_json
+                )
 
                 # Add bank context to text
-                context_text = f"Bank: {bank_name}\nContinuation page {page_num}\n{page_text}"
+                context_text = f"Bank: {bank_name}\nContinuation page {page_num}\n\n{page_text}"
 
                 page_json = {
-                    "text": context_text,  # ✅ FIX: Include ALL text, no truncation
+                    "text": context_text,
                     "pages": [pages[page_idx]],
                     "entities": []  # No entities needed for continuation
                 }
 
-                # DEBUG: Check if page has tables
+                # DEBUG: Check page structure
                 page_tables = pages[page_idx].get("tables", []) if isinstance(pages[page_idx], dict) else []
-                logger.info(f"📄 Processing page {page_num}/{total_pages} (transactions only) for {bank_name}... (page has {len(page_tables)} tables)")
+                page_lines = pages[page_idx].get("lines", []) if isinstance(pages[page_idx], dict) else []
+                page_paragraphs = pages[page_idx].get("paragraphs", []) if isinstance(pages[page_idx], dict) else []
+
+                logger.info(f"   📊 Page {page_num} structure: {len(page_tables)} tables, {len(page_lines)} lines, {len(page_paragraphs)} paragraphs")
+                logger.info(f"   📝 Context text length: {len(context_text)} characters")
                 page_result = self._process_single_page(
                     page_json=page_json,
                     doc_type=doc_type,
@@ -662,60 +675,112 @@ class SmartMapper:
 
         return extracted_rows
 
-    def _get_text_from_page(self, page: Dict[str, Any]) -> str:
+    def _extract_text_for_page(
+        self,
+        full_document_text: str,
+        page: Dict[str, Any],
+        document_json: Dict[str, Any]
+    ) -> str:
         """
-        Extract text content from a single Document AI page.
-        This gives GPT-4o more context for continuation pages.
+        ✅ FIX: Extract text content that belongs to a specific page from full document text.
+
+        Google Document AI provides text with layout anchors that reference positions
+        in the full document text. We use these anchors to extract page-specific text.
         """
         if not isinstance(page, dict):
             return ""
 
-        # Try to get text from blocks/paragraphs
-        text_parts = []
+        if not full_document_text:
+            return ""
 
-        # Method 1: Extract from blocks
-        blocks = page.get("blocks", [])
-        if isinstance(blocks, list):
-            for block in blocks[:50]:  # Limit to first 50 blocks
-                if isinstance(block, dict):
-                    layout = block.get("layout", {})
+        page_text_parts = []
+
+        # Strategy 1: Extract from all paragraphs on this page
+        paragraphs = page.get("paragraphs", [])
+        if isinstance(paragraphs, list):
+            for paragraph in paragraphs:
+                if isinstance(paragraph, dict):
+                    layout = paragraph.get("layout", {})
                     if isinstance(layout, dict):
-                        text_anchor = layout.get("text_anchor", layout.get("textAnchor", {}))
-                        if isinstance(text_anchor, dict):
-                            # We need the full text to extract, but we don't have it here
-                            # So we'll use a simplified approach
-                            pass
+                        para_text = self._get_text_from_layout(layout, full_document_text)
+                        if para_text:
+                            page_text_parts.append(para_text)
 
-        # Method 2: Extract from table cells as text preview
+        # Strategy 2: Extract from all lines on this page
+        lines = page.get("lines", [])
+        if isinstance(lines, list):
+            for line in lines:
+                if isinstance(line, dict):
+                    layout = line.get("layout", {})
+                    if isinstance(layout, dict):
+                        line_text = self._get_text_from_layout(layout, full_document_text)
+                        if line_text:
+                            page_text_parts.append(line_text)
+
+        # Strategy 3: Extract from table cells if available
         tables = page.get("tables", [])
         if isinstance(tables, list):
-            for table in tables[:3]:  # First 3 tables
+            for table in tables:
                 if isinstance(table, dict):
-                    # Get header text
+                    # Extract from header rows
                     header_rows = table.get("header_rows", table.get("headerRows", []))
                     if isinstance(header_rows, list):
-                        for row in header_rows[:1]:  # First header row
-                            text_parts.append("HEADER: ")
+                        for row in header_rows:
                             if isinstance(row, dict):
                                 cells = row.get("cells", [])
                                 if isinstance(cells, list):
-                                    for cell in cells[:10]:
+                                    row_text = []
+                                    for cell in cells:
                                         if isinstance(cell, dict):
-                                            # Try to get cell text representation
-                                            text_parts.append(" | ")
+                                            layout = cell.get("layout", {})
+                                            if isinstance(layout, dict):
+                                                cell_text = self._get_text_from_layout(layout, full_document_text)
+                                                if cell_text:
+                                                    row_text.append(cell_text)
+                                    if row_text:
+                                        page_text_parts.append(" | ".join(row_text))
 
-                    # Get sample of body rows
+                    # Extract from body rows
                     body_rows = table.get("body_rows", table.get("bodyRows", []))
                     if isinstance(body_rows, list):
-                        text_parts.append(f"\n[TABLE: {len(body_rows)} rows]")
+                        for row in body_rows:
+                            if isinstance(row, dict):
+                                cells = row.get("cells", [])
+                                if isinstance(cells, list):
+                                    row_text = []
+                                    for cell in cells:
+                                        if isinstance(cell, dict):
+                                            layout = cell.get("layout", {})
+                                            if isinstance(layout, dict):
+                                                cell_text = self._get_text_from_layout(layout, full_document_text)
+                                                if cell_text:
+                                                    row_text.append(cell_text)
+                                    if row_text:
+                                        page_text_parts.append(" | ".join(row_text))
 
-        # Method 3: Simple heuristic - just indicate we have a page with tables
-        if not text_parts:
-            table_count = len(page.get("tables", []))
-            if table_count > 0:
-                return f"Page contains {table_count} transaction table(s). Extract ALL transaction rows."
+        # Combine all extracted text
+        if page_text_parts:
+            extracted_text = "\n".join(page_text_parts)
+            logger.info(f"   ✅ Extracted {len(extracted_text)} characters of text for this page")
+            return extracted_text
 
-        return "".join(text_parts)[:2000]
+        # Fallback: If no text extracted, return a helpful message
+        logger.warning(f"   ⚠️ Could not extract text for this page using layout anchors")
+        return "No text extracted. Please analyze any visible data in the page structure."
+
+    def _get_text_from_page(self, page: Dict[str, Any]) -> str:
+        """
+        DEPRECATED: Old method that didn't properly extract text.
+        Kept for compatibility but shouldn't be used anymore.
+        """
+        if not isinstance(page, dict):
+            return ""
+
+        table_count = len(page.get("tables", []))
+        if table_count > 0:
+            return f"Page contains {table_count} transaction table(s). Extract ALL transaction rows."
+
+        return "Page contains transaction data. Extract ALL transactions."
 
     def _get_text_from_layout(self, layout: dict, full_text: str) -> str:
         """Extract text from layout using text anchor segments"""
