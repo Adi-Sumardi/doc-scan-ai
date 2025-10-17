@@ -46,7 +46,8 @@
         {"name": "saldo", "label": "Saldo", "required": false, "format": "currency", "notes": "Saldo setelah transaksi. Cari kolom: 'Saldo', 'Balance', 'Running Balance', 'Saldo Akhir', 'Bal'. Biasanya di kolom paling kanan."},
         {"name": "referensi", "label": "Referensi", "required": false, "notes": "Nomor referensi/trace number jika ada. Cari: 'Ref', 'Reference', 'Trace', 'No. Ref', 'Referensi'"},
         {"name": "cabang", "label": "Cabang", "required": false, "notes": "Kode cabang transaksi jika ada. Contoh: 'CBG', '0123', 'KCP XXX'"},
-        {"name": "valuta", "label": "Valuta", "required": false, "notes": "Nilai tukar jika transaksi valas/foreign currency"}
+        {"name": "valuta", "label": "Valuta", "required": false, "notes": "Nilai tukar jika transaksi valas/foreign currency"},
+        {"name": "page", "label": "Halaman", "required": false, "format": "number", "notes": "Nomor halaman dokumen dimana transaksi ini ditemukan. Automatically populated by hybrid processor for page tracking."}
       ]
     }
   ],
@@ -78,7 +79,8 @@
         "saldo": "string",
         "referensi": "string",
         "cabang": "string",
-        "valuta": "string"
+        "valuta": "string",
+        "page": "number"
       }
     ],
     "notes": "string",
@@ -228,21 +230,21 @@
       "bank_info": {"nama_bank": "Bank BCA", "nomor_rekening": "1234567890", "nama_pemilik": "PT EXAMPLE", "periode": "Jan 2025"},
       "saldo_info": {"saldo_awal": "953628332", "saldo_akhir": "932867188", "notes": "Original values in PDF were '953,628,332.69' and '932,867,188.61' - decimals removed correctly"},
       "transactions": [
-        {"tanggal": "01/01", "keterangan": "TRANSFER MASUK", "kredit": "5000000", "debet": "", "saldo": "15000000"},
-        {"tanggal": "02/01", "keterangan": "BIAYA ADM", "kredit": "", "debet": "15000", "saldo": "14985000"}
+        {"tanggal": "01/01", "keterangan": "TRANSFER MASUK", "kredit": "5000000", "debet": "", "saldo": "15000000", "page": 1},
+        {"tanggal": "02/01", "keterangan": "BIAYA ADM", "kredit": "", "debet": "15000", "saldo": "14985000", "page": 1}
       ]
     },
     "mandiri_example": {
       "bank_info": {"nama_bank": "Bank Mandiri", "nomor_rekening": "123-00-4567890-1", "nama_pemilik": "BUDI", "periode": "01/01/2025 - 31/01/2025"},
       "transactions": [
-        {"tanggal": "01 JAN", "keterangan": "SETORAN TUNAI", "kredit": "3000000", "debet": "", "saldo": "8000000"}
+        {"tanggal": "01 JAN", "keterangan": "SETORAN TUNAI", "kredit": "3000000", "debet": "", "saldo": "8000000", "page": 1}
       ]
     },
     "bri_example": {
       "bank_info": {"nama_bank": "Bank BRI", "nomor_rekening": "0001-01-123456-50-3", "nama_pemilik": "SITI"},
       "transactions": [
-        {"tanggal": "15/01", "keterangan": "TRANSFER KE", "mutasi": "-500000", "saldo": "4500000"},
-        {"tanggal": "16/01", "keterangan": "TERIMA TRANSFER", "mutasi": "+1000000", "saldo": "5500000"}
+        {"tanggal": "15/01", "keterangan": "TRANSFER KE", "mutasi": "-500000", "saldo": "4500000", "page": 1},
+        {"tanggal": "16/01", "keterangan": "TERIMA TRANSFER", "mutasi": "+1000000", "saldo": "5500000", "page": 1}
       ]
     }
   },

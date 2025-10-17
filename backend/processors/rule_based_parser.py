@@ -26,6 +26,7 @@ class ParsedTransaction:
     saldo: Optional[float]
     referensi: Optional[str]
     confidence: float
+    page_number: Optional[int]  # Track which page this transaction is from
     raw_data: Dict
 
 
@@ -89,13 +90,14 @@ class RuleBasedTransactionParser:
             },
         }
 
-    def parse_table_row(self, row_cells: List[str], bank_name: str = None) -> ParsedTransaction:
+    def parse_table_row(self, row_cells: List[str], bank_name: str = None, page_number: int = None) -> ParsedTransaction:
         """
         Parse a table row from Document AI
 
         Args:
             row_cells: List of cell texts [date, desc, debit, credit, saldo]
             bank_name: Bank name for bank-specific parsing
+            page_number: Page number where this transaction is from
 
         Returns:
             ParsedTransaction with confidence score
@@ -161,6 +163,7 @@ class RuleBasedTransactionParser:
                 saldo=saldo,
                 referensi=referensi or '',
                 confidence=confidence,
+                page_number=page_number,
                 raw_data={
                     'row_cells': row_cells,
                     'cell_count': len(row_cells)
@@ -350,7 +353,7 @@ class RuleBasedTransactionParser:
 
         return score
 
-    def _low_confidence_result(self, row_cells: List[str]) -> ParsedTransaction:
+    def _low_confidence_result(self, row_cells: List[str], page_number: int = None) -> ParsedTransaction:
         """
         Return low-confidence result for failed parsing
         """
@@ -362,16 +365,18 @@ class RuleBasedTransactionParser:
             saldo=None,
             referensi='',
             confidence=0.0,
+            page_number=page_number,
             raw_data={'row_cells': row_cells, 'parse_failed': True}
         )
 
-    def parse_transactions(self, tables: List[Dict], bank_name: str = None) -> List[ParsedTransaction]:
+    def parse_transactions(self, tables: List[Dict], bank_name: str = None, page_number: int = None) -> List[ParsedTransaction]:
         """
         Parse all transactions from Document AI tables
 
         Args:
             tables: List of table dictionaries from Document AI
             bank_name: Bank name for bank-specific parsing
+            page_number: Page number for these tables
 
         Returns:
             List of ParsedTransaction objects
@@ -379,6 +384,9 @@ class RuleBasedTransactionParser:
         all_transactions = []
 
         for table in tables:
+            # Get page number from table if available, otherwise use parameter
+            table_page = table.get('page_number', page_number)
+
             # Skip header row
             rows = table.get('rows', [])[1:]  # Skip first row (header)
 
@@ -389,7 +397,7 @@ class RuleBasedTransactionParser:
                 if all(not cell.strip() for cell in cells):
                     continue
 
-                txn = self.parse_table_row(cells, bank_name)
+                txn = self.parse_table_row(cells, bank_name, page_number=table_page)
                 all_transactions.append(txn)
 
         logger.info(f"✅ Parsed {len(all_transactions)} transactions with rule-based parser")

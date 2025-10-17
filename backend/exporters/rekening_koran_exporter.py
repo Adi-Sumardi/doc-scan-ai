@@ -37,7 +37,7 @@ class RekeningKoranExporter(BaseExporter):
 
     def __init__(self):
         super().__init__("rekening_koran")
-        # Columns specific to Rekening Koran - Updated format
+        # Columns specific to Rekening Koran - Updated format with Page tracking
         self.columns = [
             "Tanggal",
             "Nilai Uang Masuk",
@@ -45,7 +45,8 @@ class RekeningKoranExporter(BaseExporter):
             "Saldo",
             "Sumber Uang Masuk",
             "Tujuan Uang Keluar",
-            "Keterangan"
+            "Keterangan",
+            "Halaman"  # NEW: Page number column
         ]
 
     def _format_rupiah(self, value) -> str:
@@ -611,7 +612,7 @@ class RekeningKoranExporter(BaseExporter):
         row = 1
 
         # ===== TITLE =====
-        ws.merge_cells(f'A{row}:G{row}')
+        ws.merge_cells(f'A{row}:H{row}')
         nama_bank = structured.get('nama_bank', 'N/A')
         ws[f'A{row}'] = f"🏦 REKENING KORAN - {nama_bank.upper()}"
         ws[f'A{row}'].font = Font(bold=True, size=14, color="FFFFFF")
@@ -631,7 +632,7 @@ class RekeningKoranExporter(BaseExporter):
         ws[f'A{row}'].alignment = left_align
         ws[f'A{row}'].border = border_thin
 
-        ws.merge_cells(f'D{row}:G{row}')
+        ws.merge_cells(f'D{row}:H{row}')
         ws[f'D{row}'] = f"Nama: {structured.get('nama_pemilik', 'N/A')}"
         ws[f'D{row}'].font = Font(bold=True, size=10)
         ws[f'D{row}'].fill = info_fill
@@ -648,7 +649,7 @@ class RekeningKoranExporter(BaseExporter):
         ws[f'A{row}'].border = border_thin
 
         saldo_akhir = structured.get('saldo_akhir', structured.get('saldo', 'N/A'))
-        ws.merge_cells(f'D{row}:G{row}')
+        ws.merge_cells(f'D{row}:H{row}')
         ws[f'D{row}'] = f"Saldo Akhir: {self._format_rupiah(saldo_akhir)}"
         ws[f'D{row}'].font = Font(bold=True, size=10, color="7c3aed")
         ws[f'D{row}'].fill = info_fill
@@ -701,6 +702,7 @@ class RekeningKoranExporter(BaseExporter):
                 tanggal = trans.get('tanggal', trans.get('date', trans.get('transaction_date', 'N/A')))
                 keterangan = trans.get('keterangan', trans.get('description', trans.get('remarks', trans.get('details', 'N/A'))))
                 saldo = trans.get('saldo', trans.get('balance', trans.get('running_balance', 'N/A')))
+                page = trans.get('page', 1)  # Get page number, default to 1
 
                 # Format kredit, debet, saldo to rupiah (no decimals)
                 kredit_formatted = self._format_rupiah(kredit)
@@ -722,14 +724,15 @@ class RekeningKoranExporter(BaseExporter):
                     saldo_formatted,
                     sumber_masuk,
                     tujuan_keluar,
-                    keterangan_formatted
+                    keterangan_formatted,
+                    page  # NEW: Page number column
                 ]
 
                 for col_idx, value in enumerate(data_row, start=1):
                     cell = ws.cell(row=row, column=col_idx, value=value)
                     cell.fill = data_fill
-                    # Right align for numeric columns (Nilai Uang Masuk, Keluar, Saldo)
-                    if col_idx in [2, 3, 4]:
+                    # Right align for numeric columns (Nilai Uang Masuk, Keluar, Saldo) and Page
+                    if col_idx in [2, 3, 4, 8]:
                         cell.alignment = right_align
                     else:
                         cell.alignment = left_align
@@ -768,13 +771,14 @@ class RekeningKoranExporter(BaseExporter):
                 saldo_formatted,
                 sumber_masuk,
                 tujuan_keluar,
-                keterangan_formatted
+                keterangan_formatted,
+                1  # Default page 1 for legacy single transaction
             ]
 
             for col_idx, value in enumerate(data_row, start=1):
                 cell = ws.cell(row=row, column=col_idx, value=value)
                 cell.fill = data_fill
-                if col_idx in [2, 3, 4]:
+                if col_idx in [2, 3, 4, 8]:
                     cell.alignment = right_align
                 else:
                     cell.alignment = left_align
@@ -789,6 +793,7 @@ class RekeningKoranExporter(BaseExporter):
         ws.column_dimensions['E'].width = 30  # Sumber Uang Masuk
         ws.column_dimensions['F'].width = 30  # Tujuan Uang Keluar
         ws.column_dimensions['G'].width = 30  # Keterangan
+        ws.column_dimensions['H'].width = 10  # Halaman (Page)
         
         ws.row_dimensions[3].height = 40
     
@@ -1088,7 +1093,7 @@ class RekeningKoranExporter(BaseExporter):
             row = 1
             
             # Batch info
-            ws.merge_cells(f'A{row}:G{row}')
+            ws.merge_cells(f'A{row}:H{row}')
             ws[f'A{row}'] = f"🏦 BATCH MUTASI BANK: {batch_id} | Total: {len(results)} | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             ws[f'A{row}'].font = Font(bold=True, size=12, color="FFFFFF")
             ws[f'A{row}'].fill = header_fill
@@ -1215,6 +1220,7 @@ class RekeningKoranExporter(BaseExporter):
                 tanggal = trans.get('tanggal', trans.get('date', 'N/A'))
                 keterangan = trans.get('keterangan', trans.get('description', trans.get('remarks', 'N/A')))
                 saldo = trans.get('saldo', trans.get('balance', 'N/A'))
+                page = trans.get('page', 1)  # Get page number, default to 1
 
                 # Format to rupiah
                 kredit_formatted = self._format_rupiah(kredit)
@@ -1236,7 +1242,8 @@ class RekeningKoranExporter(BaseExporter):
                     saldo_formatted,
                     sumber_masuk,
                     tujuan_keluar,
-                    keterangan_formatted
+                    keterangan_formatted,
+                    page  # Page number column
                 ]
 
                 fill = data_fill_1 if transaction_row_idx % 2 == 0 else data_fill_2
@@ -1244,8 +1251,8 @@ class RekeningKoranExporter(BaseExporter):
                 for col_idx, value in enumerate(data_row, start=1):
                     cell = ws.cell(row=row, column=col_idx, value=value)
                     cell.fill = fill
-                    # Right align for numeric columns
-                    if col_idx in [2, 3, 4]:
+                    # Right align for numeric columns and Page
+                    if col_idx in [2, 3, 4, 8]:
                         cell.alignment = right_align
                     else:
                         cell.alignment = left_align
@@ -1265,6 +1272,7 @@ class RekeningKoranExporter(BaseExporter):
             ws.column_dimensions['E'].width = 30
             ws.column_dimensions['F'].width = 30
             ws.column_dimensions['G'].width = 30
+            ws.column_dimensions['H'].width = 10  # Halaman (Page)
 
             wb.save(output_path)
             logger.info(f"✅ Batch Rekening Koran Excel export created: {output_path} with {len(results)} entries")

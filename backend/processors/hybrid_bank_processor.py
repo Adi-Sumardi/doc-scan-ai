@@ -112,6 +112,10 @@ class HybridBankProcessor:
         tables = self._extract_tables(ocr_result)
         logger.info(f"   Found {len(tables)} tables")
 
+        # Track page information
+        pages_info = self._extract_pages_info(ocr_result)
+        logger.info(f"   Processing {len(pages_info)} pages")
+
         parsed_transactions = self.rule_parser.parse_transactions(tables, bank_name)
         logger.info(f"   Parsed {len(parsed_transactions)} transactions")
 
@@ -216,6 +220,9 @@ class HybridBankProcessor:
             (chunks_saved / total_chunks * 100) if total_chunks > 0 else 0
         )
 
+        # Calculate page statistics
+        page_stats = self._calculate_page_statistics(all_transactions, pages_info)
+
         # Final result
         result = {
             'document_type': 'rekening_koran',
@@ -236,6 +243,7 @@ class HybridBankProcessor:
             'transactions': all_transactions,
             'summary': self._generate_summary(all_transactions),
             'confidence': self._calculate_overall_confidence(all_transactions, validations),
+            'pages_info': page_stats,  # NEW: Page tracking information
             'processing_metadata': {
                 'hybrid_processing': True,
                 'rule_based_percentage': (metrics['rule_based_parsed'] / metrics['total_transactions'] * 100)
@@ -348,11 +356,34 @@ class HybridBankProcessor:
         tables = []
 
         if 'pages' in ocr_result:
-            for page in ocr_result['pages']:
+            for page_idx, page in enumerate(ocr_result['pages']):
+                page_number = page.get('page_number', page_idx + 1)
                 page_tables = page.get('tables', [])
+
+                # Tag each table with page number
+                for table in page_tables:
+                    table['page_number'] = page_number
+
                 tables.extend(page_tables)
 
         return tables
+
+    def _extract_pages_info(self, ocr_result: Dict) -> List[Dict]:
+        """Extract page information for tracking"""
+        pages_info = []
+
+        if 'pages' in ocr_result:
+            for page_idx, page in enumerate(ocr_result['pages']):
+                page_number = page.get('page_number', page_idx + 1)
+                page_tables = page.get('tables', [])
+
+                pages_info.append({
+                    'page_number': page_number,
+                    'has_tables': len(page_tables) > 0,
+                    'table_count': len(page_tables),
+                })
+
+        return pages_info
 
     def _to_standard_format(self, parsed_txn) -> Dict:
         """Convert ParsedTransaction to standard dict format"""
@@ -364,6 +395,7 @@ class HybridBankProcessor:
             'saldo': parsed_txn.saldo or 0,
             'referensi': parsed_txn.referensi or '',
             'confidence': parsed_txn.confidence,
+            'page': parsed_txn.page_number or 1,  # Include page number
         }
 
     def _chunk_by_saldo_context(
@@ -484,3 +516,50 @@ class HybridBankProcessor:
         overall_confidence = (avg_txn_confidence * 0.6) + (validation_rate * 0.4)
 
         return overall_confidence
+
+    def _calculate_page_statistics(
+        self,
+        transactions: List[Dict],
+        pages_info: List[Dict]
+    ) -> Dict:
+        """
+        Calculate statistics per page
+
+        Returns detailed page information including:
+        - Total pages
+        - Transactions per page
+        - Page details (which pages have data, which don't)
+        """
+        # Count transactions per page
+        transactions_per_page = {}
+        for txn in transactions:
+            page = txn.get('page', 1)
+            transactions_per_page[page] = transactions_per_page.get(page, 0) + 1
+
+        # Build detailed page info
+        pages_detail = []
+        total_pages = len(pages_info) if pages_info else 1
+
+        for page_info in pages_info:
+            page_num = page_info['page_number']
+            txn_count = transactions_per_page.get(page_num, 0)
+
+            pages_detail.append({
+                'page_number': page_num,
+                'transaction_count': txn_count,
+                'has_tables': page_info.get('has_tables', False),
+                'table_count': page_info.get('table_count', 0),
+                'has_data': txn_count > 0,
+            })
+
+        # Summary
+        pages_with_data = sum(1 for p in pages_detail if p['has_data'])
+        pages_without_data = total_pages - pages_with_data
+
+        return {
+            'total_pages': total_pages,
+            'pages_with_transactions': pages_with_data,
+            'pages_without_transactions': pages_without_data,
+            'transactions_per_page': transactions_per_page,
+            'pages_detail': pages_detail,
+        }
