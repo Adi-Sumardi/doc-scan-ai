@@ -90,8 +90,21 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
     // ✅ FIX: Poll backend for REAL batch status
     const checkBatchStatus = async () => {
       try {
-        const response = await fetch(`http://localhost:8000/api/batches/${batchId}`);
-        if (!response.ok) return null;
+        // Get JWT token from localStorage
+        const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+
+        const response = await fetch(`http://localhost:8000/api/batches/${batchId}`, {
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : '',
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          console.error(`❌ Batch status check failed: ${response.status} ${response.statusText}`);
+          return null;
+        }
+
         const batch = await response.json();
         return batch;
       } catch (error) {
