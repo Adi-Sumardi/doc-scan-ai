@@ -487,7 +487,15 @@ async def _process_document_chunked(file_path: str, document_type: str, start_ti
 
                 # Get OCR metadata and result for hybrid processor
                 chunk_ocr_metadata = ocr_processor.get_last_ocr_metadata()
-                chunk_ocr_result = chunk_ocr_metadata.get('raw_response') if chunk_ocr_metadata else None
+
+                # ✅ CRITICAL FIX: Build proper ocr_result structure (same as normal processing path)
+                # The hybrid processor expects: {'text': ..., 'tables': ..., 'raw_response': ...}
+                # NOT just the raw_response alone!
+                chunk_ocr_result = {
+                    'text': chunk_text,
+                    'tables': chunk_ocr_metadata.get('tables', []) if chunk_ocr_metadata else [],
+                    'raw_response': chunk_ocr_metadata.get('raw_response') if chunk_ocr_metadata else None
+                }
 
                 # Calculate page offset for this chunk (page 1 = offset 0, page 4 = offset 3)
                 page_offset = chunk_info['start_page'] - 1
