@@ -531,13 +531,17 @@ async def _process_document_chunked(file_path: str, document_type: str, start_ti
                             chunk_extracted_data['structured_data']['smart_mapper'] = mapped
                             chunk_extracted_data['smart_mapped'] = mapped
 
+                # ✅ FIX: Store raw_ocr_result for this chunk
+                chunk_raw_ocr = chunk_ocr_metadata.get('raw_response') if chunk_ocr_metadata else None
+
                 # Store chunk result
                 chunk_result = {
                     'extracted_data': chunk_extracted_data,
                     'raw_text': chunk_text,
                     'extracted_text': chunk_text,
                     'chunk_number': i,
-                    'pages': f"{chunk_info['start_page']}-{chunk_info['end_page']}"
+                    'pages': f"{chunk_info['start_page']}-{chunk_info['end_page']}",
+                    'raw_ocr_result': chunk_raw_ocr  # Include raw OCR for split view
                 }
 
                 chunk_results.append(chunk_result)
@@ -572,11 +576,19 @@ async def _process_document_chunked(file_path: str, document_type: str, start_ti
         # Calculate processing time
         processing_time = asyncio.get_event_loop().time() - start_time
 
+        # ✅ FIX: Merge raw_ocr_result from all chunks for split view
+        # Use the first chunk's raw_ocr_result (it has all pages already from Google Document AI)
+        merged_raw_ocr = None
+        if chunk_results and chunk_results[0].get('raw_ocr_result'):
+            merged_raw_ocr = chunk_results[0]['raw_ocr_result']
+            logger.info(f"✅ Including raw_ocr_result from first chunk for split view")
+
         # Return final result - matching normal processing structure
         final_result = {
             'extracted_data': merged_result.get('extracted_data', {}),
             'confidence': final_confidence,
             'raw_text': merged_result.get('raw_text', ''),
+            'raw_ocr_result': merged_raw_ocr,  # Add for split view display
             'processing_time': processing_time,
             # Additional metadata for chunked processing
             'ocr_engine_used': 'Google Document AI (Chunked)',
