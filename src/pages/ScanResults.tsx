@@ -149,7 +149,12 @@ const ScanResults = () => {
           className="mb-6"
         />
       ) : batch.status === 'completed' ? (
-        <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-4 md:p-6 border border-green-200">
+        <div
+          className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-4 md:p-6 border border-green-200"
+          style={{
+            animation: 'fadeInUp 0.8s ease-out, scaleIn 0.8s ease-out'
+          }}
+        >
           <div className="flex items-center space-x-3 mb-4">
             <CheckCircle className="w-5 h-5 md:w-6 md:h-6 text-green-600 flex-shrink-0" />
             <h3 className="text-base md:text-lg font-semibold text-green-900">AI DocScan Processing Complete</h3>
@@ -184,7 +189,12 @@ const ScanResults = () => {
 
       {/* Results */}
       {scanResults.length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm border">
+        <div
+          className="bg-white rounded-lg shadow-sm border"
+          style={{
+            animation: 'fadeInUp 1s ease-out 0.3s both'
+          }}
+        >
           <div className="p-6 border-b">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">Extracted Data</h3>

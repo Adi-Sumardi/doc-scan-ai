@@ -218,9 +218,38 @@ class PDFChunker:
 
             # Get extracted_data
             extracted_data = chunk.get('extracted_data', {})
+            logger.info(f"  🔍 DEBUG MERGE: extracted_data type = {type(extracted_data)}")
+            if isinstance(extracted_data, dict):
+                logger.info(f"  🔍 DEBUG MERGE: extracted_data keys = {list(extracted_data.keys())}")
 
             if isinstance(extracted_data, dict):
-                # Extract bank_info and saldo_info from smart_mapped
+                # ✅ FIX: Check for transactions at ROOT LEVEL first (from enhanced_bank_processor)
+                # Enhanced processor returns: {'transactions': [...], 'bank_info': {...}, ...}
+                transactions_direct = extracted_data.get('transactions', [])
+                if transactions_direct and isinstance(transactions_direct, list):
+                    all_transactions.extend(transactions_direct)
+                    logger.info(f"  ✅ Found {len(transactions_direct)} transactions at root level")
+
+                    # Also get bank_info and saldo_info from root level
+                    bank_info = extracted_data.get('bank_info', {})
+                    if bank_info and not merged_bank_info:
+                        merged_bank_info = bank_info.copy()
+                        logger.info(f"  ✅ Found bank_info at root level in chunk {i+1}")
+
+                    saldo_info = extracted_data.get('saldo_info', {})
+                    if saldo_info:
+                        if 'saldo_awal' in saldo_info and not merged_saldo_info.get('saldo_awal'):
+                            merged_saldo_info['saldo_awal'] = saldo_info['saldo_awal']
+                            logger.info(f"  ✅ Found saldo_awal at root level in chunk {i+1}: {saldo_info['saldo_awal']}")
+                        if 'saldo_akhir' in saldo_info:
+                            merged_saldo_info['saldo_akhir'] = saldo_info['saldo_akhir']
+                            logger.info(f"  ✅ Found saldo_akhir at root level in chunk {i+1}: {saldo_info['saldo_akhir']}")
+                        for key in ['total_kredit', 'total_debet', 'mata_uang']:
+                            if key in saldo_info and not merged_saldo_info.get(key):
+                                merged_saldo_info[key] = saldo_info[key]
+                    continue
+
+                # Extract bank_info and saldo_info from smart_mapped (fallback)
                 smart_mapped = extracted_data.get('smart_mapped', {})
                 if smart_mapped and isinstance(smart_mapped, dict):
                     # Get bank_info (prefer first non-empty)

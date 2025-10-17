@@ -278,6 +278,19 @@ class CloudAIProcessor:
             raw_response_dict = documentai.Document.to_dict(document) # type: ignore
             raw_response_dict['text'] = raw_text  # Add full document text to the dict
 
+            # 🔍 DEBUG: Log table detection
+            total_tables = 0
+            if 'pages' in raw_response_dict:
+                for i, page in enumerate(raw_response_dict['pages'], 1):
+                    if isinstance(page, dict) and 'tables' in page:
+                        page_table_count = len(page['tables'])
+                        total_tables += page_table_count
+                        if page_table_count > 0:
+                            logger.info(f"   📊 Page {i}: detected {page_table_count} tables")
+
+            if total_tables == 0:
+                logger.warning(f"   ⚠️ Google Document AI detected 0 tables in document")
+
             return CloudOCRResult(
                 raw_text=raw_text,
                 confidence=avg_confidence * 100,

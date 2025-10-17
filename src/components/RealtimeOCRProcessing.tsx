@@ -27,6 +27,7 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
   const [particles, setParticles] = useState<Particle[]>([]);
   const [scanProgress, setScanProgress] = useState(0);
   const [statusText, setStatusText] = useState('Initializing AI Scanner...');
+  const [isFadingOut, setIsFadingOut] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const animationTimerRef = useRef<NodeJS.Timeout | null>(null);
   const completeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -126,13 +127,20 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
         setStatusText('Processing Complete! Loading results...');
         setShowConfetti(true);
 
+        // Wait for confetti, then fade out smoothly
         completeTimeoutRef.current = setTimeout(() => {
           if (isMountedRef.current) {
             setShowConfetti(false);
-            if (onComplete) {
-              console.log('🔄 Executing onComplete callback');
-              onComplete();
-            }
+            // Start fade out animation
+            setIsFadingOut(true);
+
+            // Call onComplete after fade animation
+            setTimeout(() => {
+              if (isMountedRef.current && onComplete) {
+                console.log('🔄 Executing onComplete callback');
+                onComplete();
+              }
+            }, 600); // Match fade-out duration
           }
         }, 1500);
         return;
@@ -178,7 +186,14 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
   }, [batchId, onComplete]); // Dependency: batchId and onComplete - animation restarts when batch changes
 
   return (
-    <div className={`bg-gradient-to-br from-gray-50 to-blue-50 rounded-lg p-8 shadow-xl border border-gray-200 relative overflow-hidden ${className}`}>
+    <div
+      className={`bg-gradient-to-br from-gray-50 to-blue-50 rounded-lg p-8 shadow-xl border border-gray-200 relative overflow-hidden transition-all duration-600 ${className}`}
+      style={{
+        opacity: isFadingOut ? 0 : 1,
+        transform: isFadingOut ? 'scale(0.95)' : 'scale(1)',
+        transition: 'opacity 0.6s ease-out, transform 0.6s ease-out'
+      }}
+    >
       {/* Animated Background Particles - Enhanced with better movement */}
       <div ref={canvasRef} className="absolute inset-0 pointer-events-none overflow-hidden">
         {particles.map(particle => (
