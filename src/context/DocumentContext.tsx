@@ -41,7 +41,10 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     // Wait for auth to finish loading
     if (!authLoading && isAuthenticated) {
       console.log('🔄 Auth ready, loading data...');
-      refreshAllData();
+      // Defer to next tick to avoid state update during render
+      setTimeout(() => {
+        refreshAllData();
+      }, 0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, isAuthenticated]);
@@ -270,12 +273,18 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       }
 
       // Only show error toast if both failed
+      // Defer toast to avoid state update during render warning
       if (batchesPromise.status === 'rejected' && resultsPromise.status === 'rejected') {
-        toast.error('Failed to load data from server');
+        setTimeout(() => {
+          toast.error('Failed to load data from server');
+        }, 0);
       }
     } catch (error) {
       console.error('Refresh all data error:', error);
-      toast.error('Failed to load data from server');
+      // Defer toast to avoid state update during render warning
+      setTimeout(() => {
+        toast.error('Failed to load data from server');
+      }, 0);
     } finally {
       setLoading(false);
     }
