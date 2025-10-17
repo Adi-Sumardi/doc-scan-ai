@@ -195,12 +195,28 @@ class CloudAIProcessor:
             if not mime_type:
                 mime_type = 'application/pdf' if file_path.lower().endswith('.pdf') else 'image/jpeg'
 
-            # Configure the process request
+            # ✅ ENHANCEMENT: Configure advanced OCR options for maximum quality
+            process_options = documentai.ProcessOptions(
+                ocr_config=documentai.OcrConfig(
+                    enable_native_pdf_parsing=True,  # Better PDF text extraction
+                    enable_image_quality_scores=True,  # Get quality metrics
+                    enable_symbol=True,  # Detect individual symbols
+                    premium_features=documentai.OcrConfig.PremiumFeatures(
+                        compute_style_info=True,  # Extract text styles (bold, italic, etc.)
+                        enable_math_ocr=False,  # Not needed for bank statements
+                        enable_selection_mark_detection=True  # Detect checkboxes if any
+                    )
+                )
+            )
+
+            # Configure the process request with advanced OCR options
             request = {
                 "name": name,
                 "raw_document": {
-                    "content": document_content, "mime_type": mime_type
-                }
+                    "content": document_content,
+                    "mime_type": mime_type
+                },
+                "process_options": process_options  # Add OCR enhancements
             }
             
             # Process document using a client bound to the current event loop
@@ -221,6 +237,16 @@ class CloudAIProcessor:
             # Extract text and confidence
             raw_text = document.text
             logger.info(f"📊 Google Document AI extracted {len(raw_text)} characters")
+
+            # ✅ Log image quality scores if available
+            for i, page in enumerate(document.pages, 1):
+                if hasattr(page, 'image_quality_scores') and page.image_quality_scores:
+                    quality = page.image_quality_scores.quality_score
+                    logger.info(f"   📷 Page {i} quality score: {quality:.3f}")
+                    if hasattr(page.image_quality_scores, 'detected_defects'):
+                        for defect in page.image_quality_scores.detected_defects:
+                            if defect.confidence > 0.5:
+                                logger.warning(f"   ⚠️ Page {i} defect: {defect.type_} (confidence: {defect.confidence:.2f})")
             
             # Calculate average confidence from pages
             # The 'Page' object does not have a confidence attribute.
