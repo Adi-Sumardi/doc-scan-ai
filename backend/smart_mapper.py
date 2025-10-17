@@ -849,94 +849,150 @@ class SmartMapper:
         return None
 
     def _invoke_openai(self, payload_text: str, instructions: str) -> Optional[str]:
+        """Invoke OpenAI API with automatic retry on rate limits"""
         if not self._client:
             return None
-        try:
-            logger.info(f"🤖 Calling OpenAI API with model: {self.model}")
-            response = self._client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "You are a precise data-mapping assistant that outputs strict JSON."},
-                    {
-                        "role": "user",
-                        "content": f"{instructions}\n\nDocument payload:\n{payload_text}\n\nKeluarkan hanya JSON valid sesuai schema output."
-                    },
-                ],
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                timeout=self.timeout,
-            )
 
-            if response.choices and len(response.choices) > 0:
-                choice = response.choices[0]
-                content = choice.message.content
-                finish_reason = choice.finish_reason
+        import time
+        max_retries = 5
+        base_delay = 2  # Start with 2 seconds
 
-                logger.info(f"✅ OpenAI response received: {len(content) if content else 0} characters")
-                logger.info(f"🏁 Finish reason: {finish_reason}")
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    logger.info(f"🔄 Retry attempt {attempt + 1}/{max_retries}")
 
-                # ⚠️ CRITICAL: Check if response was truncated
-                if finish_reason == "length":
-                    logger.error("🚨 RESPONSE TRUNCATED! GPT-4o hit max_tokens limit!")
-                    logger.error(f"🚨 Current max_tokens: {self.max_tokens}")
-                    logger.error("🚨 This means TRANSACTIONS ARE MISSING from the output!")
-                    logger.error("🚨 Solution: Increase SMART_MAPPER_MAX_TOKENS in .env or split document into chunks")
-                    # Still return the partial content, but log warning
-                elif finish_reason != "stop":
-                    logger.warning(f"⚠️ Unusual finish reason: {finish_reason}")
+                logger.info(f"🤖 Calling OpenAI API with model: {self.model}")
+                response = self._client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": "You are a precise data-mapping assistant that outputs strict JSON."},
+                        {
+                            "role": "user",
+                            "content": f"{instructions}\n\nDocument payload:\n{payload_text}\n\nKeluarkan hanya JSON valid sesuai schema output."
+                        },
+                    ],
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    timeout=self.timeout,
+                )
 
-                logger.debug(f"📝 Raw response: {content[:500] if content else 'None'}")
-                return content
-            return None
-        except Exception as exc:
-            logger.error(f"❌ OpenAI Smart Mapper error: {exc}")
-            return None
+                if response.choices and len(response.choices) > 0:
+                    choice = response.choices[0]
+                    content = choice.message.content
+                    finish_reason = choice.finish_reason
+
+                    logger.info(f"✅ OpenAI response received: {len(content) if content else 0} characters")
+                    logger.info(f"🏁 Finish reason: {finish_reason}")
+
+                    # ⚠️ CRITICAL: Check if response was truncated
+                    if finish_reason == "length":
+                        logger.error("🚨 RESPONSE TRUNCATED! GPT-4o hit max_tokens limit!")
+                        logger.error(f"🚨 Current max_tokens: {self.max_tokens}")
+                        logger.error("🚨 This means TRANSACTIONS ARE MISSING from the output!")
+                        logger.error("🚨 Solution: Increase SMART_MAPPER_MAX_TOKENS in .env or split document into chunks")
+                        # Still return the partial content, but log warning
+                    elif finish_reason != "stop":
+                        logger.warning(f"⚠️ Unusual finish reason: {finish_reason}")
+
+                    logger.debug(f"📝 Raw response: {content[:500] if content else 'None'}")
+                    return content
+                return None
+
+            except Exception as exc:
+                error_str = str(exc)
+
+                # Check if it's a rate limit error (429)
+                if "rate_limit" in error_str.lower() or "429" in error_str:
+                    if attempt < max_retries - 1:
+                        # Exponential backoff: 2s, 4s, 8s, 16s, 32s
+                        delay = base_delay * (2 ** attempt)
+                        logger.warning(f"⚠️ Rate limit hit! Retrying in {delay} seconds... (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        logger.error(f"❌ Rate limit exceeded after {max_retries} retries")
+                        return None
+                else:
+                    # Other errors - don't retry
+                    logger.error(f"❌ OpenAI Smart Mapper error: {exc}")
+                    return None
+
+        return None
 
     def _invoke_anthropic(self, payload_text: str, instructions: str) -> Optional[str]:
+        """Invoke Anthropic (Claude) API with automatic retry on rate limits"""
         if not self._client:
             return None
-        try:
-            response = self._client.messages.create(  # type: ignore[attr-defined]
-                model=self.model,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-                system="You are a precise data-mapping assistant that outputs strict JSON.",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": instructions},
-                            {"type": "text", "text": f"Document payload:\n{payload_text}"},
-                            {"type": "text", "text": "Keluarkan hanya JSON valid sesuai schema output."},
-                        ],
-                    }
-                ],
-            )
-            if response and getattr(response, "content", None):
-                # Check stop_reason for truncation
-                stop_reason = getattr(response, "stop_reason", None)
-                logger.info(f"🏁 Stop reason: {stop_reason}")
 
-                if stop_reason == "max_tokens":
-                    logger.error("🚨 RESPONSE TRUNCATED! Claude hit max_tokens limit!")
-                    logger.error(f"🚨 Current max_tokens: {self.max_tokens}")
-                    logger.error("🚨 This means TRANSACTIONS ARE MISSING from the output!")
-                    logger.error("🚨 Solution: Increase SMART_MAPPER_MAX_TOKENS in .env or split document into chunks")
-                elif stop_reason != "end_turn":
-                    logger.warning(f"⚠️ Unusual stop reason: {stop_reason}")
+        import time
+        max_retries = 5
+        base_delay = 2  # Start with 2 seconds
 
-                parts = []
-                for item in response.content:
-                    if getattr(item, "type", "") == "text":
-                        parts.append(getattr(item, "text", ""))
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    logger.info(f"🔄 Retry attempt {attempt + 1}/{max_retries}")
 
-                content = "".join(parts) if parts else None
-                logger.info(f"✅ Anthropic response received: {len(content) if content else 0} characters")
-                return content
-            return None
-        except Exception as exc:
-            logger.error(f"❌ Anthropic Smart Mapper error: {exc}")
-            return None
+                response = self._client.messages.create(  # type: ignore[attr-defined]
+                    model=self.model,
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                    system="You are a precise data-mapping assistant that outputs strict JSON.",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": instructions},
+                                {"type": "text", "text": f"Document payload:\n{payload_text}"},
+                                {"type": "text", "text": "Keluarkan hanya JSON valid sesuai schema output."},
+                            ],
+                        }
+                    ],
+                )
+                if response and getattr(response, "content", None):
+                    # Check stop_reason for truncation
+                    stop_reason = getattr(response, "stop_reason", None)
+                    logger.info(f"🏁 Stop reason: {stop_reason}")
+
+                    if stop_reason == "max_tokens":
+                        logger.error("🚨 RESPONSE TRUNCATED! Claude hit max_tokens limit!")
+                        logger.error(f"🚨 Current max_tokens: {self.max_tokens}")
+                        logger.error("🚨 This means TRANSACTIONS ARE MISSING from the output!")
+                        logger.error("🚨 Solution: Increase SMART_MAPPER_MAX_TOKENS in .env or split document into chunks")
+                    elif stop_reason != "end_turn":
+                        logger.warning(f"⚠️ Unusual stop reason: {stop_reason}")
+
+                    parts = []
+                    for item in response.content:
+                        if getattr(item, "type", "") == "text":
+                            parts.append(getattr(item, "text", ""))
+
+                    content = "".join(parts) if parts else None
+                    logger.info(f"✅ Anthropic response received: {len(content) if content else 0} characters")
+                    return content
+                return None
+
+            except Exception as exc:
+                error_str = str(exc)
+
+                # Check if it's a rate limit error
+                if "rate_limit" in error_str.lower() or "429" in error_str or "overloaded" in error_str.lower():
+                    if attempt < max_retries - 1:
+                        # Exponential backoff: 2s, 4s, 8s, 16s, 32s
+                        delay = base_delay * (2 ** attempt)
+                        logger.warning(f"⚠️ Rate limit hit! Retrying in {delay} seconds... (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        logger.error(f"❌ Rate limit exceeded after {max_retries} retries")
+                        return None
+                else:
+                    # Other errors - don't retry
+                    logger.error(f"❌ Anthropic Smart Mapper error: {exc}")
+                    return None
+
+        return None
 
     @staticmethod
     def _safe_json_loads(value: str) -> Optional[Dict[str, Any]]:
