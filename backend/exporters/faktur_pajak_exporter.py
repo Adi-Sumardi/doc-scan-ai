@@ -222,18 +222,18 @@ class FakturPajakExporter(BaseExporter):
     def _calculate_nilai_barang_satuan(self, items: list) -> str:
         """
         Get unit prices (nilai barang satuan) from ALL items, one per line (NO NUMBERING)
-        Returns formatted string with each item's unit price in plain number format (not Rupiah)
+        Returns formatted string with each item's unit price in Rupiah format
 
-        Format for multiple items (plain numbers, no Rp prefix, no numbering):
-        119500000
-        24500000
-        119500000
-        24500000
+        Format for multiple items (with Rupiah format, no numbering):
+        Rp 119.500.000
+        Rp 24.500.000
+        Rp 119.500.000
+        Rp 24.500.000
         """
         if not items or len(items) == 0:
             return "-"
 
-        # Create list with unit prices only (no numbers, plain integer format)
+        # Create list with unit prices in Rupiah format (no numbers)
         price_lines = []
         for item in items:
             price_str = item.get('unit_price', '-')
@@ -244,8 +244,8 @@ class FakturPajakExporter(BaseExporter):
                 if price == 0:
                     price_lines.append("-")
                 else:
-                    # Plain number format (no Rp, no dots)
-                    price_lines.append(str(price))
+                    # Rupiah format
+                    price_lines.append(self._format_rupiah(price))
 
         return "\n".join(price_lines)
 
@@ -311,14 +311,16 @@ class FakturPajakExporter(BaseExporter):
     def _calculate_total_nilai_barang(self, items: list) -> str:
         """
         Calculate total nilai barang (quantity × unit_price) for EACH item + grand total
-        Returns list of subtotals (plain numbers) with grand total at the end
+        Returns list of subtotals in Rupiah format with grand total at the end
+        Grand total will be marked with separator line in Excel
 
-        Format for multiple items:
-        119500000
-        24500000
-        119500000
-        24500000
-        288000000 (grand total)
+        Format for multiple items (with Rupiah format):
+        Rp 119.500.000
+        Rp 24.500.000
+        Rp 119.500.000
+        Rp 24.500.000
+        ─────────────── (separator will be added in Excel)
+        Rp 288.000.000 (grand total)
         """
         if not items or len(items) == 0:
             return "-"
@@ -346,11 +348,14 @@ class FakturPajakExporter(BaseExporter):
 
             # Calculate subtotal (convert to int to avoid float issues)
             subtotal = int(qty * price) if qty > 0 and price > 0 else 0
-            subtotal_lines.append(str(subtotal))
+            subtotal_lines.append(self._format_rupiah(subtotal))
             grand_total += subtotal
 
-        # Add grand total at the end
-        subtotal_lines.append(str(grand_total))
+        # Add visual separator line and grand total at the end
+        if len(items) > 1:
+            # Add separator line for multiple items
+            subtotal_lines.append("─" * 25)  # Horizontal line separator
+        subtotal_lines.append(self._format_rupiah(grand_total))
 
         return "\n".join(subtotal_lines)
 
