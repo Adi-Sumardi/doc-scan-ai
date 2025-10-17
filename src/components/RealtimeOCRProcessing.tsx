@@ -146,26 +146,58 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
         return;
       }
 
-      // Show smooth animation progress (not real progress, just visual)
-      const elapsed = Date.now() - startTime;
-      const rawProgress = Math.min(95, (elapsed / 10000) * 100); // Cap at 95% until backend confirms
+      // Natural milestone-based progress
+      const elapsed = (Date.now() - startTime) / 1000; // Convert to seconds
 
-      // Smooth easing function (ease-out)
-      const progress = Math.min(95, rawProgress + (95 - rawProgress) * 0.1);
+      // Define milestones: [seconds, progress%]
+      const milestones = [
+        [0, 0],     // Start
+        [1, 19],    // 1 second → 19%
+        [5, 25],    // 5 seconds → 25%
+        [8, 55],    // 8 seconds → 55%
+        [10, 85],   // 10 seconds → 85%
+        [15, 95],   // 15+ seconds → cap at 95% until backend confirms
+      ];
+
+      // Calculate progress based on milestones with smooth interpolation
+      let targetProgress = 0;
+      for (let i = 0; i < milestones.length - 1; i++) {
+        const [time1, progress1] = milestones[i];
+        const [time2, progress2] = milestones[i + 1];
+
+        if (elapsed >= time1 && elapsed < time2) {
+          // Interpolate between milestones
+          const ratio = (elapsed - time1) / (time2 - time1);
+          // Use ease-out curve for smooth deceleration
+          const easedRatio = 1 - Math.pow(1 - ratio, 3);
+          targetProgress = progress1 + (progress2 - progress1) * easedRatio;
+          break;
+        }
+      }
+
+      // Cap at last milestone if exceeded
+      if (elapsed >= milestones[milestones.length - 1][0]) {
+        targetProgress = milestones[milestones.length - 1][1];
+      }
+
+      // Smooth transition to target progress
+      const currentProgress = lastProgress;
+      const diff = targetProgress - currentProgress;
+      const smoothProgress = currentProgress + diff * 0.3; // Smooth lerp
 
       // Only update if progress changed significantly
-      if (Math.abs(progress - lastProgress) > 0.5) {
-        setScanProgress(progress);
-        lastProgress = progress;
+      if (Math.abs(smoothProgress - lastProgress) > 0.5) {
+        setScanProgress(smoothProgress);
+        lastProgress = smoothProgress;
 
         // Update status text based on progress
         const statusIndex = Math.min(
-          Math.floor((progress / 95) * (statuses.length - 1)),
+          Math.floor((smoothProgress / 95) * (statuses.length - 1)),
           statuses.length - 1
         );
         setStatusText(statuses[statusIndex]);
       }
-    }, 1000); // Poll every 1 second
+    }, 500); // Poll every 0.5 seconds for smoother progress
 
     animationTimerRef.current = progressInterval;
 
