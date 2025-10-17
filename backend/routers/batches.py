@@ -262,7 +262,8 @@ async def delete_batch(
 ):
     """
     Delete a batch and all associated data (files, results, etc.)
-    Only allowed for error/failed batches by the owner or admin
+    Allowed for ANY batch status (completed, error, failed, processing)
+    Only owner or admin can delete
     """
     try:
         # Verify batch exists
@@ -280,14 +281,8 @@ async def delete_batch(
                 detail="Anda tidak memiliki izin untuk menghapus batch ini"
             )
 
-        # Security: Only allow deletion of error/failed batches
-        # Prevent accidental deletion of successful batches
-        if batch.status not in ["error", "failed"]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Hanya batch dengan status 'error' atau 'failed' yang dapat dihapus. Status saat ini: {batch.status}"
-            )
-
+        # Allow deletion of ANY batch status (completed, error, failed, processing)
+        # User requested ability to delete old completed batches to clean up database
         logger.info(f"🗑️ Deleting batch {batch_id} (status: {batch.status}) by user {current_user.username}")
 
         # Get all document files associated with this batch for cleanup
