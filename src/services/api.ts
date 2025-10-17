@@ -30,9 +30,13 @@ const getApiBaseUrl = (): string => {
 const API_BASE_URL = getApiBaseUrl();
 
 // Axios instance
+// NOTE: Default timeout is for general API calls. Individual endpoints can override this.
+// - Status polling: 10 minutes (processing can take long, but API call returns instantly)
+// - Uploads: Default 5 minutes is fine (upload itself is quick)
+// - Exports: Default 5 minutes should be sufficient
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 300000, // 5 menit timeout untuk rekening koran multi-page processing (increased from 120s)
+  timeout: 300000, // 5 minutes default timeout
 });
 
 // Request logging and JWT token interceptor
@@ -140,7 +144,9 @@ export const apiService = {
   },
 
   getBatchStatus: async (batchId: string): Promise<Batch> => {
-    const response = await api.get(`/api/batches/${batchId}`);
+    // Status polling should have very long timeout since backend processing can take 10+ minutes
+    // The actual API call returns instantly, but we need to wait for processing to complete
+    const response = await api.get(`/api/batches/${batchId}`, { timeout: 600000 }); // 10 minutes
     return response.data;
   },
 

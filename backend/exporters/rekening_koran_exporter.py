@@ -185,13 +185,16 @@ class RekeningKoranExporter(BaseExporter):
 
     def _complete_date_with_year(self, date_str: str, year: str) -> str:
         """
-        Complete date that only has DD/MM with year from periode.
-        Examples:
+        Complete date and standardize to DD/MM/YYYY format.
+        Handles ALL common date formats from Indonesian banks:
         - "01/01" + "2025" → "01/01/2025"
         - "15/03" + "2025" → "15/03/2025"
         - "01 JAN" + "2025" → "01/01/2025"
-        - "01/01/2025" + "2025" → "01/01/2025" (no change, already complete)
+        - "15 agustus 2025" → "15/08/2025"
+        - "15/08/25" → "15/08/2025"
+        - "01/01/2025" → "01/01/2025" (no change)
         - "1/3" + "2025" → "01/03/2025" (with zero padding)
+        - "2025-08-15" → "15/08/2025" (ISO format)
         """
         if not date_str or not isinstance(date_str, str):
             return date_str
@@ -199,37 +202,15 @@ class RekeningKoranExporter(BaseExporter):
         original_date = date_str
         date_str = date_str.strip()
 
-        # If already has 4-digit year, return as-is
         import re
-        if re.search(r'\b20\d{2}\b', date_str):
-            return date_str
+        from datetime import datetime
 
         # Provide default year if not provided
         if not year:
-            from datetime import datetime
             year = str(datetime.now().year)
             logger.warning(f"⚠️ No year provided for date completion, using current year: {year}")
 
-        # If format is DD/MM (like "01/01" or "1/3"), add year and pad zeros
-        match = re.match(r'^(\d{1,2})/(\d{1,2})$', date_str)
-        if match:
-            day = match.group(1).zfill(2)
-            month = match.group(2).zfill(2)
-            completed = f"{day}/{month}/{year}"
-            if original_date != completed:
-                logger.debug(f"📅 Date completed: '{original_date}' → '{completed}'")
-            return completed
-
-        # If format is DD-MM (like "01-01"), convert to DD/MM/YYYY
-        match = re.match(r'^(\d{1,2})-(\d{1,2})$', date_str)
-        if match:
-            day = match.group(1).zfill(2)
-            month = match.group(2).zfill(2)
-            completed = f"{day}/{month}/{year}"
-            logger.debug(f"📅 Date completed: '{original_date}' → '{completed}'")
-            return completed
-
-        # If format is DD MMM (like "01 JAN", "1 JANUARI", or "31 Jan"), convert to DD/MM/YYYY
+        # Month name mapping (Indonesian + English, case-insensitive)
         month_map = {
             'JAN': '01', 'JANUARI': '01', 'JANUARY': '01',
             'FEB': '02', 'FEBRUARI': '02', 'FEBRUARY': '02',
@@ -238,25 +219,105 @@ class RekeningKoranExporter(BaseExporter):
             'MAY': '05', 'MEI': '05',
             'JUN': '06', 'JUNI': '06', 'JUNE': '06',
             'JUL': '07', 'JULI': '07', 'JULY': '07',
-            'AUG': '08', 'AGUSTUS': '08', 'AUGUST': '08',
-            'SEP': '09', 'SEPTEMBER': '09',
-            'OCT': '10', 'OKTOBER': '10', 'OCTOBER': '10',
+            'AUG': '08', 'AGUSTUS': '08', 'AUGUST': '08', 'AGT': '08',
+            'SEP': '09', 'SEPTEMBER': '09', 'SEPT': '09',
+            'OCT': '10', 'OKTOBER': '10', 'OCTOBER': '10', 'OKT': '10',
             'NOV': '11', 'NOVEMBER': '11',
-            'DEC': '12', 'DESEMBER': '12', 'DECEMBER': '12'
+            'DEC': '12', 'DESEMBER': '12', 'DECEMBER': '12', 'DES': '12'
         }
 
-        month_match = re.match(r'^(\d{1,2})\s+([A-Z]+)(?:\s+(\d{4}))?$', date_str.upper())
-        if month_match:
-            day = month_match.group(1).zfill(2)
-            month_name = month_match.group(2)
-            year_from_date = month_match.group(3)
-
-            month = month_map.get(month_name, '01')
-            final_year = year_from_date if year_from_date else year
-
-            completed = f"{day}/{month}/{final_year}"
+        # Pattern 1: Already complete DD/MM/YYYY
+        match = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', date_str)
+        if match:
+            day = match.group(1).zfill(2)
+            month = match.group(2).zfill(2)
+            year_full = match.group(3)
+            completed = f"{day}/{month}/{year_full}"
             if original_date != completed:
-                logger.debug(f"📅 Date completed: '{original_date}' → '{completed}'")
+                logger.debug(f"📅 Date standardized: '{original_date}' → '{completed}'")
+            return completed
+
+        # Pattern 2: DD/MM/YY (2-digit year) → convert to DD/MM/YYYY
+        match = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{2})$', date_str)
+        if match:
+            day = match.group(1).zfill(2)
+            month = match.group(2).zfill(2)
+            year_short = match.group(3)
+            # Assume 20XX for years 00-99
+            year_full = f"20{year_short}"
+            completed = f"{day}/{month}/{year_full}"
+            logger.debug(f"📅 Date converted from 2-digit year: '{original_date}' → '{completed}'")
+            return completed
+
+        # Pattern 3: DD/MM (no year) → add year
+        match = re.match(r'^(\d{1,2})/(\d{1,2})$', date_str)
+        if match:
+            day = match.group(1).zfill(2)
+            month = match.group(2).zfill(2)
+            completed = f"{day}/{month}/{year}"
+            logger.debug(f"📅 Date completed: '{original_date}' → '{completed}'")
+            return completed
+
+        # Pattern 4: DD-MM-YYYY or DD-MM-YY → convert to DD/MM/YYYY
+        match = re.match(r'^(\d{1,2})-(\d{1,2})-(\d{2,4})$', date_str)
+        if match:
+            day = match.group(1).zfill(2)
+            month = match.group(2).zfill(2)
+            year_part = match.group(3)
+            year_full = f"20{year_part}" if len(year_part) == 2 else year_part
+            completed = f"{day}/{month}/{year_full}"
+            logger.debug(f"📅 Date converted from dash format: '{original_date}' → '{completed}'")
+            return completed
+
+        # Pattern 5: DD-MM (no year, dash separator) → add year and convert to slash
+        match = re.match(r'^(\d{1,2})-(\d{1,2})$', date_str)
+        if match:
+            day = match.group(1).zfill(2)
+            month = match.group(2).zfill(2)
+            completed = f"{day}/{month}/{year}"
+            logger.debug(f"📅 Date completed from dash: '{original_date}' → '{completed}'")
+            return completed
+
+        # Pattern 6: ISO format YYYY-MM-DD → DD/MM/YYYY
+        match = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})$', date_str)
+        if match:
+            year_iso = match.group(1)
+            month = match.group(2).zfill(2)
+            day = match.group(3).zfill(2)
+            completed = f"{day}/{month}/{year_iso}"
+            logger.debug(f"📅 Date converted from ISO: '{original_date}' → '{completed}'")
+            return completed
+
+        # Pattern 7: "DD MONTH_NAME YYYY" (e.g., "15 agustus 2025", "1 JANUARI 2025")
+        match = re.match(r'^(\d{1,2})\s+([A-Z]+)\s+(\d{4})$', date_str.upper())
+        if match:
+            day = match.group(1).zfill(2)
+            month_name = match.group(2)
+            year_full = match.group(3)
+            month = month_map.get(month_name, '01')
+            completed = f"{day}/{month}/{year_full}"
+            logger.debug(f"📅 Date converted from full name: '{original_date}' → '{completed}'")
+            return completed
+
+        # Pattern 8: "DD MONTH_NAME" (no year, e.g., "15 agustus", "1 JAN")
+        match = re.match(r'^(\d{1,2})\s+([A-Z]+)$', date_str.upper())
+        if match:
+            day = match.group(1).zfill(2)
+            month_name = match.group(2)
+            month = month_map.get(month_name, '01')
+            completed = f"{day}/{month}/{year}"
+            logger.debug(f"📅 Date completed from month name: '{original_date}' → '{completed}'")
+            return completed
+
+        # Pattern 9: "MONTH_NAME DD, YYYY" (English format, e.g., "August 15, 2025")
+        match = re.match(r'^([A-Z]+)\s+(\d{1,2}),?\s+(\d{4})$', date_str.upper())
+        if match:
+            month_name = match.group(1)
+            day = match.group(2).zfill(2)
+            year_full = match.group(3)
+            month = month_map.get(month_name, '01')
+            completed = f"{day}/{month}/{year_full}"
+            logger.debug(f"📅 Date converted from English format: '{original_date}' → '{completed}'")
             return completed
 
         # If no pattern matched, return as-is

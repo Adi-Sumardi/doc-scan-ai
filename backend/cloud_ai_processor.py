@@ -196,6 +196,8 @@ class CloudAIProcessor:
                 mime_type = 'application/pdf' if file_path.lower().endswith('.pdf') else 'image/jpeg'
 
             # ✅ ENHANCEMENT: Configure advanced OCR options for maximum quality
+            # NOTE: Imageless mode is NOT supported in OcrConfig
+            # We'll just remove the invalid field and rely on default behavior
             process_options = documentai.ProcessOptions(
                 ocr_config=documentai.OcrConfig(
                     enable_native_pdf_parsing=True,  # Better PDF text extraction

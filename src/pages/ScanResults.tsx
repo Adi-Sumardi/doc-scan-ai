@@ -47,6 +47,27 @@ const ScanResults = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batchId]); // Only re-run if batchId changes
 
+  // Poll for results when batch is completed but no results yet (handles delay between completion and results)
+  useEffect(() => {
+    if (batch?.status === 'completed' && scanResults.length === 0) {
+      console.log('⏳ Batch completed but results not yet available. Polling for results...');
+      const pollInterval = setInterval(() => {
+        refreshBatch(batchId!);
+      }, 2000); // Poll every 2 seconds
+
+      // Stop polling after 30 seconds (results should be available by then)
+      const stopPollingTimeout = setTimeout(() => {
+        clearInterval(pollInterval);
+        console.log('⚠️ Stopped polling for results after 30 seconds');
+      }, 30000);
+
+      return () => {
+        clearInterval(pollInterval);
+        clearTimeout(stopPollingTimeout);
+      };
+    }
+  }, [batch?.status, scanResults.length, batchId, refreshBatch]);
+
   // Reset activeTab if results change to prevent out-of-bounds access
   useEffect(() => {
     if (resultsForBatch.length > 0 && activeTab >= resultsForBatch.length) {
@@ -379,12 +400,50 @@ const ScanResults = () => {
         </div>
       )}
 
-      {/* No Results */}
+      {/* Loading Results Animation (when batch completed but results not yet loaded) */}
       {batch.status === 'completed' && scanResults.length === 0 && (
-        <div className="bg-white rounded-lg p-12 shadow-sm border text-center">
-          <AlertCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No scan results available</h3>
-          <p className="text-gray-600">The processing completed but no results were generated.</p>
+        <div className="bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 rounded-lg p-12 shadow-lg border border-blue-200">
+          <div className="text-center">
+            {/* Animated Brain Icon */}
+            <div className="mb-6 relative inline-block">
+              <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full blur-xl opacity-50 animate-pulse" />
+              <Brain className="w-20 h-20 text-blue-600 mx-auto relative animate-bounce" />
+            </div>
+
+            {/* Processing Title */}
+            <h3 className="text-2xl font-bold text-gray-900 mb-3 animate-fade-in">
+              Processing Smart Mapper AI
+            </h3>
+
+            {/* Subtitle */}
+            <p className="text-gray-700 mb-6 text-lg animate-fade-in-delayed">
+              Finalizing extracted data and preparing results...
+            </p>
+
+            {/* Loading Bar */}
+            <div className="max-w-md mx-auto mb-6">
+              <div className="w-full bg-blue-100 rounded-full h-3 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 rounded-full animate-loading-bar"
+                  style={{
+                    animation: 'loading-bar 2s ease-in-out infinite'
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Status Steps */}
+            <div className="flex justify-center space-x-8 text-sm">
+              <div className="flex items-center space-x-2 text-green-600">
+                <CheckCircle className="w-5 h-5" />
+                <span>OCR Complete</span>
+              </div>
+              <div className="flex items-center space-x-2 text-blue-600">
+                <Clock className="w-5 h-5 animate-spin" />
+                <span>Loading Results</span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

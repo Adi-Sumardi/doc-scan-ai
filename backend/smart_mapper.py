@@ -32,6 +32,7 @@ class SmartMapper:
     """LLM-powered smart mapping for Document AI outputs."""
 
     def __init__(self) -> None:
+        # GPT-4o Configuration (for Faktur Pajak, PPh21, PPh23)
         self.provider = (os.getenv("SMART_MAPPER_PROVIDER") or settings.smart_mapper_provider or "openai").lower()
         self.model = os.getenv("SMART_MAPPER_MODEL") or settings.smart_mapper_model or "gpt-4o"
         self.api_key = os.getenv("SMART_MAPPER_API_KEY") or settings.smart_mapper_api_key
@@ -39,6 +40,11 @@ class SmartMapper:
         self.temperature = float(os.getenv("SMART_MAPPER_TEMPERATURE", "0.1"))  # Lower for GPT-4o precision
         self.max_tokens = int(os.getenv("SMART_MAPPER_MAX_TOKENS", "16000"))  # Increased to 16K for large rekening koran (100+ transactions)
         self.enabled = (settings.smart_mapper_enabled or os.getenv("SMART_MAPPER_ENABLED", "true").lower() in {"1", "true", "yes"})
+
+        # Claude AI Configuration (specifically for Rekening Koran)
+        self.claude_api_key = os.getenv("CLAUDE_API_KEY")
+        self.claude_model = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20241022")
+        self.claude_max_tokens = int(os.getenv("CLAUDE_MAX_TOKENS", "8000"))
 
         if self.provider not in SUPPORTED_PROVIDERS:
             logger.error(f"❌ Unsupported Smart Mapper provider: {self.provider}")
@@ -49,8 +55,11 @@ class SmartMapper:
             self.enabled = False
 
         self._client = None
+        self._claude_client = None
+
         if self.enabled:
             try:
+                # Initialize primary client (GPT-4o)
                 if self.provider == "openai":
                     from openai import OpenAI  # type: ignore
 
@@ -60,6 +69,19 @@ class SmartMapper:
 
                     self._client = anthropic.Anthropic(api_key=self.api_key)
                 logger.info(f"🤖 Smart Mapper initialized with provider {self.provider} and model {self.model}")
+                logger.info(f"🎯 Max tokens configured: {self.max_tokens}")
+
+                # Initialize Claude client for Rekening Koran (if API key provided)
+                if self.claude_api_key:
+                    try:
+                        import anthropic  # type: ignore
+                        self._claude_client = anthropic.Anthropic(api_key=self.claude_api_key)
+                        logger.info(f"🧠 Claude AI initialized for Rekening Koran: {self.claude_model}")
+                        logger.info(f"🎯 Claude max tokens: {self.claude_max_tokens}")
+                    except Exception as exc:
+                        logger.warning(f"⚠️ Failed to initialize Claude client: {exc}")
+                        logger.warning("⚠️ Rekening Koran will fallback to GPT-4o")
+
             except Exception as exc:  # pragma: no cover - initialization failure
                 logger.error(f"❌ Failed to initialize Smart Mapper client: {exc}")
                 self.enabled = False
@@ -112,7 +134,7 @@ class SmartMapper:
             prompt_payload = self._build_payload(document_json, extracted_fields, fallback_fields)
             instructions = self._build_instructions(doc_type, template)
 
-            raw_response = self._invoke_llm(prompt_payload, instructions)
+            raw_response = self._invoke_llm(prompt_payload, instructions, doc_type)
             if not raw_response:
                 return None
 
@@ -493,8 +515,8 @@ class SmartMapper:
                         "Extract: {\"tanggal\": \"15 JAN\", \"keterangan\": \"TRANSFER\", \"kredit\": \"1000000\", \"saldo\": \"5000000\"}\n\n"
                     )
 
-            # Invoke LLM
-            raw_response = self._invoke_llm(prompt_payload, instructions)
+            # Invoke LLM (pass doc_type for routing)
+            raw_response = self._invoke_llm(prompt_payload, instructions, doc_type)
             if not raw_response:
                 return None
 
@@ -547,8 +569,8 @@ class SmartMapper:
                     "Output format: {\"transactions\": [...]}\n"
                 )
 
-            # Invoke LLM
-            raw_response = self._invoke_llm(prompt_payload, instructions)
+            # Invoke LLM (pass doc_type for routing)
+            raw_response = self._invoke_llm(prompt_payload, instructions, doc_type)
             if not raw_response:
                 return None
 
@@ -904,9 +926,15 @@ class SmartMapper:
 
         return instructions
 
-    def _invoke_llm(self, payload: Dict[str, Any], instructions: str) -> Optional[str]:
+    def _invoke_llm(self, payload: Dict[str, Any], instructions: str, doc_type: str = "") -> Optional[str]:
         payload_text = json.dumps(payload, ensure_ascii=False, indent=2)
 
+        # 🧠 ROUTING LOGIC: Use Claude for Rekening Koran, GPT-4o for others
+        if doc_type == "rekening_koran" and self._claude_client:
+            logger.info("🧠 Using Claude AI for Rekening Koran processing")
+            return self._invoke_claude_direct(payload_text, instructions)
+
+        # Default: Use configured provider (GPT-4o for other documents)
         if self.provider == "openai":
             return self._invoke_openai(payload_text, instructions)
         if self.provider == "anthropic":
@@ -1059,6 +1087,83 @@ class SmartMapper:
 
         return None
 
+    def _invoke_claude_direct(self, payload_text: str, instructions: str) -> Optional[str]:
+        """Invoke Claude API directly (dedicated for Rekening Koran)"""
+        if not self._claude_client:
+            logger.warning("⚠️ Claude client not initialized, falling back to primary provider")
+            return None
+
+        import time
+        max_retries = 5
+        base_delay = 2  # Start with 2 seconds
+
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    logger.info(f"🔄 Retry attempt {attempt + 1}/{max_retries}")
+
+                logger.info(f"🧠 Calling Claude API with model: {self.claude_model}")
+                response = self._claude_client.messages.create(
+                    model=self.claude_model,
+                    max_tokens=self.claude_max_tokens,
+                    temperature=self.temperature,
+                    system="You are a precise data-mapping assistant that outputs strict JSON.",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": instructions},
+                                {"type": "text", "text": f"Document payload:\n{payload_text}"},
+                                {"type": "text", "text": "Keluarkan hanya JSON valid sesuai schema output."},
+                            ],
+                        }
+                    ],
+                )
+
+                if response and getattr(response, "content", None):
+                    # Check stop_reason for truncation
+                    stop_reason = getattr(response, "stop_reason", None)
+                    logger.info(f"🏁 Stop reason: {stop_reason}")
+
+                    if stop_reason == "max_tokens":
+                        logger.error("🚨 RESPONSE TRUNCATED! Claude hit max_tokens limit!")
+                        logger.error(f"🚨 Current max_tokens: {self.claude_max_tokens}")
+                        logger.error("🚨 This means TRANSACTIONS ARE MISSING from the output!")
+                        logger.error("🚨 Solution: Increase CLAUDE_MAX_TOKENS in .env or split document into chunks")
+                    elif stop_reason != "end_turn":
+                        logger.warning(f"⚠️ Unusual stop reason: {stop_reason}")
+
+                    parts = []
+                    for item in response.content:
+                        if getattr(item, "type", "") == "text":
+                            parts.append(getattr(item, "text", ""))
+
+                    content = "".join(parts) if parts else None
+                    logger.info(f"✅ Claude response received: {len(content) if content else 0} characters")
+                    return content
+                return None
+
+            except Exception as exc:
+                error_str = str(exc)
+
+                # Check if it's a rate limit error
+                if "rate_limit" in error_str.lower() or "429" in error_str or "overloaded" in error_str.lower():
+                    if attempt < max_retries - 1:
+                        # Exponential backoff: 2s, 4s, 8s, 16s, 32s
+                        delay = base_delay * (2 ** attempt)
+                        logger.warning(f"⚠️ Rate limit hit! Retrying in {delay} seconds... (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        logger.error(f"❌ Rate limit exceeded after {max_retries} retries")
+                        return None
+                else:
+                    # Other errors - don't retry
+                    logger.error(f"❌ Claude Smart Mapper error: {exc}")
+                    return None
+
+        return None
+
     @staticmethod
     def _safe_json_loads(value: str) -> Optional[Dict[str, Any]]:
         try:
@@ -1191,8 +1296,8 @@ class SmartMapper:
                 f"- Focus on gaps and errors, not re-stating correct data\n"
             )
 
-            # Call GPT with lightweight prompt
-            raw_response = self._invoke_llm(refinement_prompt, "Refine and validate the extraction")
+            # Call GPT with lightweight prompt (pass doc_type for routing)
+            raw_response = self._invoke_llm(refinement_prompt, "Refine and validate the extraction", doc_type)
 
             if not raw_response:
                 logger.warning("⚠️ GPT refinement returned no response - using adapter result as-is")

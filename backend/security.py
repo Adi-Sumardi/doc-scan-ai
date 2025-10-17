@@ -121,12 +121,21 @@ class FileSecurityValidator:
                     "status": "skipped"
                 }
             
-            # 6. Advanced security checks
+            # 6. PDF Page Count Validation (for rekening koran)
+            if file.filename.lower().endswith('.pdf'):
+                page_count_check = self._validate_pdf_page_count(content, file.filename)
+                validation_result["security_checks"]["page_count_check"] = page_count_check
+                validation_result["file_info"]["page_count"] = page_count_check.get("page_count", 0)
+                if not page_count_check["passed"]:
+                    validation_result["is_valid"] = False
+                    validation_result["errors"].append(page_count_check["message"])
+
+            # 7. Advanced security checks
             advanced_checks = self._advanced_security_checks(content, file.filename)
             validation_result["security_checks"]["advanced_checks"] = advanced_checks
             if advanced_checks["warnings"]:
                 validation_result["warnings"].extend(advanced_checks["warnings"])
-            
+
             logger.info(f"File validation completed for {file.filename}: {'PASSED' if validation_result['is_valid'] else 'FAILED'}")
             return validation_result
             
@@ -158,7 +167,45 @@ class FileSecurityValidator:
             "size_bytes": size_bytes,
             "max_size_bytes": self.max_file_size
         }
-    
+
+    def _validate_pdf_page_count(self, content: bytes, filename: str) -> Dict[str, any]:
+        """Validate PDF page count against Google Document AI limits"""
+        try:
+            import io
+            import PyPDF2
+
+            pdf_file = io.BytesIO(content)
+            pdf_reader = PyPDF2.PdfReader(pdf_file)
+            page_count = len(pdf_reader.pages)
+
+            max_pages = settings.max_pdf_pages_per_file  # 30 pages (Google Document AI imageless mode limit)
+
+            if page_count > max_pages:
+                return {
+                    "passed": False,
+                    "message": f"❌ PDF has {page_count} pages. Maximum allowed: {max_pages} pages (Google Document AI limit). Please split your file into multiple parts: Part 1 (pages 1-{max_pages}), Part 2 (pages {max_pages+1}-{max_pages*2}), etc.",
+                    "page_count": page_count,
+                    "max_pages": max_pages,
+                    "suggestion": f"Split into {(page_count + max_pages - 1) // max_pages} files"
+                }
+
+            return {
+                "passed": True,
+                "message": f"PDF page count validation passed ({page_count} pages)",
+                "page_count": page_count,
+                "max_pages": max_pages
+            }
+
+        except Exception as e:
+            logger.error(f"Error validating PDF page count: {e}")
+            # Don't fail validation if we can't count pages
+            return {
+                "passed": True,
+                "message": f"Unable to validate page count: {str(e)}",
+                "page_count": 0,
+                "max_pages": settings.max_pdf_pages_per_file
+            }
+
     def _validate_file_extension(self, filename: str) -> Dict[str, any]:
         """Validate file extension against allowed extensions"""
         if not filename:

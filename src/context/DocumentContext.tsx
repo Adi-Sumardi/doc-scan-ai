@@ -36,14 +36,16 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   const pollingTimeoutsRef = useRef<NodeJS.Timeout[]>([]); // Track timeouts too
   const isMountedRef = useRef(true); // Track mount status
 
-  // Load initial data ONLY after auth is ready
+  // Load initial data ONLY after auth is ready (LAZY LOAD - only recent batches)
   React.useEffect(() => {
     // Wait for auth to finish loading
     if (!authLoading && isAuthenticated) {
-      console.log('🔄 Auth ready, loading data...');
+      console.log('🔄 Auth ready, lazy loading recent batches...');
       // Defer to next tick to avoid state update during render
       setTimeout(() => {
-        refreshAllData();
+        // OPTIMIZATION: Only load recent 10 batches initially (fast!)
+        // Full data loads in background (non-blocking)
+        loadRecentBatchesOnly();
       }, 0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -241,6 +243,45 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       console.error('Refresh batch error:', error);
       setTimeout(() => {
         toast.error('Failed to refresh batch status');
+      }, 0);
+    }
+  };
+
+  const loadRecentBatchesOnly = async () => {
+    try {
+      setLoading(true);
+      console.log('⚡ Fast loading: recent 10 batches only...');
+
+      // Load only recent 10 batches (FAST!)
+      const allBatches = await apiService.getAllBatches();
+      const recentBatches = allBatches.slice(0, 10); // Only first 10
+
+      console.log(`✅ Loaded ${recentBatches.length} recent batches (fast load)`);
+      setBatches(recentBatches);
+
+      // Load results for recent batches only
+      const recentResults = await apiService.getAllResults();
+      const recentBatchIds = new Set(recentBatches.map(b => b.id));
+      const filteredResults = recentResults.filter(r => recentBatchIds.has(r.batch_id));
+
+      setScanResults(filteredResults);
+
+      setLoading(false);
+
+      // Load remaining batches in background (non-blocking)
+      if (allBatches.length > 10) {
+        console.log(`🔄 Loading remaining ${allBatches.length - 10} batches in background...`);
+        setTimeout(() => {
+          setBatches(allBatches);
+          setScanResults(recentResults);
+          console.log(`✅ Background load complete: ${allBatches.length} total batches`);
+        }, 1000); // Load after 1 second (non-blocking)
+      }
+    } catch (error) {
+      console.error('Load recent batches error:', error);
+      setLoading(false);
+      setTimeout(() => {
+        toast.error('Failed to load recent batches');
       }, 0);
     }
   };
