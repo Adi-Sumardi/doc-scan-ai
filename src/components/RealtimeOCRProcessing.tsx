@@ -204,9 +204,6 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
         smoothProgress = targetProgress;
       }
 
-      // Debug logging
-      console.log(`⏱️ ${elapsed.toFixed(1)}s | Current: ${currentProgress.toFixed(1)}% | Target: ${targetProgress.toFixed(1)}% | Smooth: ${smoothProgress.toFixed(1)}%`);
-
       // Only update if progress changed significantly
       if (Math.abs(smoothProgress - lastProgressRef.current) > 0.1) {
         setScanProgress(smoothProgress);
