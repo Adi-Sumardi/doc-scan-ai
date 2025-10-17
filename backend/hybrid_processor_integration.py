@@ -63,7 +63,8 @@ def initialize_hybrid_processor():
 
 async def process_bank_statement_hybrid(
     ocr_result: Dict[str, Any],
-    ocr_metadata: Optional[Dict[str, Any]] = None
+    ocr_metadata: Optional[Dict[str, Any]] = None,
+    page_offset: int = 0
 ) -> Dict[str, Any]:
     """
     Process bank statement using hybrid pipeline (Strategy 2 + 5)
@@ -80,6 +81,7 @@ async def process_bank_statement_hybrid(
     Args:
         ocr_result: OCR result with text and tables
         ocr_metadata: Optional OCR metadata
+        page_offset: Starting page number offset for multi-page documents (default: 0)
 
     Returns:
         Structured data with transactions, metadata, and processing metrics
@@ -113,11 +115,14 @@ async def process_bank_statement_hybrid(
 
         # Process with hybrid pipeline
         logger.info("🚀 Starting Hybrid Processing (Strategy 2 + 5)")
+        if page_offset > 0:
+            logger.info(f"   📄 Page offset: {page_offset} (chunk processing)")
 
         result = await processor.process_bank_statement(
             ocr_result=formatted_ocr,
             raw_text=raw_text,
-            metadata=metadata
+            metadata=metadata,
+            page_offset=page_offset
         )
 
         # Add raw text for compatibility

@@ -460,15 +460,29 @@ async def _process_document_chunked(file_path: str, document_type: str, start_ti
             logger.info(f"🔄 Processing chunk {i}/{len(chunks)}: pages {chunk_info['start_page']}-{chunk_info['end_page']}")
 
             try:
-                # Extract text from chunk
+                # Extract text from chunk WITH full OCR result
                 chunk_text = await ocr_processor.extract_text(chunk_info['path'])
 
                 if not chunk_text:
                     logger.warning(f"⚠️ Chunk {i} extraction failed - skipping")
                     continue
 
-                # Parse chunk (rekening_koran specific)
-                chunk_extracted_data = parser.parse_rekening_koran(chunk_text)
+                # Get OCR metadata and result for hybrid processor
+                chunk_ocr_metadata = ocr_processor.get_last_ocr_metadata()
+                chunk_ocr_result = chunk_ocr_metadata.get('raw_response') if chunk_ocr_metadata else None
+
+                # Calculate page offset for this chunk (page 1 = offset 0, page 4 = offset 3)
+                page_offset = chunk_info['start_page'] - 1
+                if page_offset > 0:
+                    logger.info(f"   📄 Applying page offset: {page_offset} (chunk starts at page {chunk_info['start_page']})")
+
+                # Parse chunk (rekening_koran specific) WITH OCR result for Hybrid Processor
+                chunk_extracted_data = parser.parse_rekening_koran(
+                    chunk_text,
+                    ocr_result=chunk_ocr_result,
+                    ocr_metadata=chunk_ocr_metadata,
+                    page_offset=page_offset
+                )
 
                 # Apply Smart Mapper if available
                 if HAS_SMART_MAPPER and smart_mapper_service:

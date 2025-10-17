@@ -63,7 +63,8 @@ class HybridBankProcessor:
         self,
         ocr_result: Dict,
         raw_text: str,
-        metadata: Optional[Dict] = None
+        metadata: Optional[Dict] = None,
+        page_offset: int = 0
     ) -> Dict:
         """
         Process bank statement using hybrid pipeline
@@ -72,6 +73,7 @@ class HybridBankProcessor:
             ocr_result: Document AI OCR result with structured tables
             raw_text: Raw OCR text (fallback)
             metadata: Optional metadata (bank name, account, etc.)
+            page_offset: Starting page number offset for chunks (default: 0)
 
         Returns:
             Processed result with transactions and metrics
@@ -109,11 +111,11 @@ class HybridBankProcessor:
         # Step 2: Rule-based parsing (NO GPT!)
         logger.info("🔧 Step 2: Rule-based parsing...")
 
-        tables = self._extract_tables(ocr_result)
+        tables = self._extract_tables(ocr_result, page_offset)
         logger.info(f"   Found {len(tables)} tables")
 
         # Track page information
-        pages_info = self._extract_pages_info(ocr_result)
+        pages_info = self._extract_pages_info(ocr_result, page_offset)
         logger.info(f"   Processing {len(pages_info)} pages")
 
         parsed_transactions = self.rule_parser.parse_transactions(tables, bank_name)
@@ -351,34 +353,38 @@ class HybridBankProcessor:
 
         return 0
 
-    def _extract_tables(self, ocr_result: Dict) -> List[Dict]:
-        """Extract tables from OCR result"""
+    def _extract_tables(self, ocr_result: Dict, page_offset: int = 0) -> List[Dict]:
+        """Extract tables from OCR result with page offset support"""
         tables = []
 
         if 'pages' in ocr_result:
             for page_idx, page in enumerate(ocr_result['pages']):
                 page_number = page.get('page_number', page_idx + 1)
+                # Apply page offset for chunked processing
+                actual_page_number = page_number + page_offset
                 page_tables = page.get('tables', [])
 
-                # Tag each table with page number
+                # Tag each table with actual page number
                 for table in page_tables:
-                    table['page_number'] = page_number
+                    table['page_number'] = actual_page_number
 
                 tables.extend(page_tables)
 
         return tables
 
-    def _extract_pages_info(self, ocr_result: Dict) -> List[Dict]:
-        """Extract page information for tracking"""
+    def _extract_pages_info(self, ocr_result: Dict, page_offset: int = 0) -> List[Dict]:
+        """Extract page information for tracking with page offset support"""
         pages_info = []
 
         if 'pages' in ocr_result:
             for page_idx, page in enumerate(ocr_result['pages']):
                 page_number = page.get('page_number', page_idx + 1)
+                # Apply page offset for chunked processing
+                actual_page_number = page_number + page_offset
                 page_tables = page.get('tables', [])
 
                 pages_info.append({
-                    'page_number': page_number,
+                    'page_number': actual_page_number,
                     'has_tables': len(page_tables) > 0,
                     'table_count': len(page_tables),
                 })
