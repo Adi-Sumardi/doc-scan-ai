@@ -78,6 +78,7 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
             document_type = detected_type
 
         # STEP 1: Extract text using OCR (all documents, including multi-page PDFs)
+        logger.info("📄 Processing as SINGLE DOCUMENT (no chunking)")
         extracted_text = await ocr_processor.extract_text(file_path)
         
         if not extracted_text:
