@@ -246,14 +246,19 @@ class CloudAIProcessor:
                 }
             
             processing_time = asyncio.get_event_loop().time() - start_time
-            
+
+            # ✅ FIX: Convert protobuf to dict AND add the full text field
+            # Document.to_dict() doesn't include the top-level 'text' field, so we add it manually
+            raw_response_dict = documentai.Document.to_dict(document) # type: ignore
+            raw_response_dict['text'] = raw_text  # Add full document text to the dict
+
             return CloudOCRResult(
                 raw_text=raw_text,
                 confidence=avg_confidence * 100,
                 service_used="Google Document AI",
                 processing_time=processing_time,
                 extracted_fields=extracted_fields,
-                raw_response=documentai.Document.to_dict(document), # type: ignore
+                raw_response=raw_response_dict,  # Now includes 'text' field
                 document_type=result.document.entities[0].type_ if result.document.entities else "unknown",
                 language_detected=document.pages[0].detected_languages[0].language_code if document.pages and document.pages[0].detected_languages else "id"
             )
