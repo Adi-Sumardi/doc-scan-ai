@@ -100,7 +100,7 @@ google-auth==2.23.0
 
 # Smart Mapper LLM clients
 openai==1.50.2                        # For GPT-based field extraction
-anthropic==0.34.1                     # For Claude-based field extraction
+anthropic==0.71.0                     # For Claude-based field extraction (upgraded to fix proxy issue)
 
 # REMOVED: Azure Cognitive Services, AWS Textract
 # Using only Google Document AI + Smart Mapper GPT/Claude now
