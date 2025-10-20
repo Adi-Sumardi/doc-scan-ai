@@ -4,12 +4,9 @@ import {
   Scale,
   Plus,
   Calendar,
-  TrendingUp,
-  CheckCircle,
   AlertCircle,
   Trash2,
-  Eye,
-  Download
+  Eye
 } from 'lucide-react';
 import reconciliationService, { ReconciliationProject } from '../services/reconciliationService';
 import toast from 'react-hot-toast';

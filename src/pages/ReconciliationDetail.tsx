@@ -7,13 +7,9 @@ import {
   RefreshCw,
   FileText,
   Building2,
-  Link as LinkIcon,
   Brain,
   Upload as UploadIcon,
-  PlayCircle,
-  CheckCircle2,
-  XCircle,
-  AlertCircle
+  PlayCircle
 } from 'lucide-react';
 import reconciliationService, {
   ReconciliationProject,
@@ -34,7 +30,6 @@ const ReconciliationDetail = () => {
   const [invoices, setInvoices] = useState<TaxInvoice[]>([]);
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
   const [matches, setMatches] = useState<ReconciliationMatch[]>([]);
-  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'invoices' | 'transactions' | 'matches'>('overview');
   const [showImportModal, setShowImportModal] = useState(false);
   const [batches, setBatches] = useState<any[]>([]);
@@ -52,12 +47,9 @@ const ReconciliationDetail = () => {
 
   const loadData = async () => {
     try {
-      setLoading(true);
-
       // Load project data first (fastest, needed for header)
       const projectData = await reconciliationService.getProject(id!);
       setProject(projectData);
-      setLoading(false); // ✅ Unlock UI immediately after project loads
 
       // Load rest of data in background (non-blocking)
       const [invoicesData, transactionsData, matchesData] = await Promise.all([
@@ -72,7 +64,6 @@ const ReconciliationDetail = () => {
     } catch (error: any) {
       toast.error('Failed to load project data');
       console.error(error);
-      setLoading(false);
     }
   };
 
@@ -134,10 +125,10 @@ const ReconciliationDetail = () => {
           await new Promise(resolve => setTimeout(resolve, 1000));
           const batchStatus = await apiService.getBatchStatus(newBatchId);
 
-          // Update progress in toast
-          if (batchStatus.progress_percentage) {
-            toast.loading(`Processing files... ${Math.round(batchStatus.progress_percentage)}%`, { id: uploadToast });
-          }
+          // Update progress in toast (progress_percentage not available from backend yet)
+          // if (batchStatus.progress_percentage) {
+          //   toast.loading(`Processing files... ${Math.round(batchStatus.progress_percentage)}%`, { id: uploadToast });
+          // }
 
           if (batchStatus.status === 'completed') {
             toast.success('Files processed successfully!', { id: uploadToast });
