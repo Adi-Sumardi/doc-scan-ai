@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Brain, Sparkles, Loader2, FileText, FolderOpen, CheckCircle } from 'lucide-react';
+import { apiService } from '../services/api';
 
 interface RealtimeOCRProcessingProps {
   batchId: string;
@@ -97,27 +98,17 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
     lastProgressRef.current = 0; // Reset for new batch
     let hasCalledComplete = false; // Prevent multiple calls
 
-    // ✅ FIX: Poll backend for REAL batch status
+    // ✅ FIX: Poll backend for REAL batch status using apiService
     const checkBatchStatus = async () => {
       try {
-        // Get JWT token from localStorage
-        const token = localStorage.getItem('token') || localStorage.getItem('access_token');
-
-        const response = await fetch(`http://localhost:8000/api/batches/${batchId}`, {
-          headers: {
-            'Authorization': token ? `Bearer ${token}` : '',
-            'Content-Type': 'application/json'
-          }
-        });
-
-        if (!response.ok) {
-          console.error(`❌ Batch status check failed: ${response.status} ${response.statusText}`);
-          return null;
-        }
-
-        const batch = await response.json();
+        const batch = await apiService.getBatchStatus(batchId);
         return batch;
-      } catch (error) {
+      } catch (error: any) {
+        // Handle 404 errors gracefully - batch might be deleted or not found
+        if (error.response?.status === 404) {
+          console.warn(`⚠️ Batch ${batchId} not found (404). Stopping polling.`);
+          return { status: 'not_found', error: 'Batch not found' };
+        }
         console.error('Failed to check batch status:', error);
         return null;
       }
@@ -126,6 +117,20 @@ const RealtimeOCRProcessing: React.FC<RealtimeOCRProcessingProps> = ({
     const progressInterval = setInterval(async () => {
       // Check real backend status
       const batch = await checkBatchStatus();
+
+      // Handle batch not found (404 error) - stop polling
+      if (batch && batch.status === 'not_found') {
+        console.warn('⚠️ Batch not found, stopping polling');
+        clearInterval(progressInterval);
+        setStatusText('Batch not found');
+        return;
+      }
+
+      // Handle null response (other errors) - stop polling after a few retries
+      if (!batch) {
+        console.warn('⚠️ Failed to check batch status, will retry...');
+        return; // Continue polling, will retry
+      }
 
       if (batch && batch.status === 'completed' && !hasCalledComplete) {
         // ✅ Backend says processing is DONE!

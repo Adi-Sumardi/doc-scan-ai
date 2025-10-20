@@ -1,17 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  Upload, 
-  FileText, 
-  History, 
+import {
+  LayoutDashboard,
+  Upload,
+  FileText,
+  History,
   Bot,
   Menu,
   X,
   LogIn,
   LogOut,
   User,
-  Shield
+  Shield,
+  Scale,
+  ChevronDown
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -20,7 +22,21 @@ const Navbar = () => {
   const navigate = useNavigate();
   const { user, isAuthenticated, logout } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  
+  const [historyDropdownOpen, setHistoryDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setHistoryDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   // Hide navbar on login/register pages
   if (location.pathname === '/login' || location.pathname === '/register') {
     return null;
@@ -29,8 +45,17 @@ const Navbar = () => {
   const menuItems = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/upload', icon: Upload, label: 'Upload' },
-    { path: '/documents', icon: FileText, label: 'Documents' },
-    { path: '/history', icon: History, label: 'History' },
+    {
+      path: '/history',
+      icon: History,
+      label: 'History',
+      hasDropdown: true,
+      submenu: [
+        { path: '/history', icon: History, label: 'Scan History' },
+        { path: '/documents', icon: FileText, label: 'Documents' },
+      ]
+    },
+    { path: '/reconciliation', icon: Scale, label: 'Reconciliation' },
   ];
   
   // Add Admin menu item if user is admin
@@ -73,7 +98,51 @@ const Navbar = () => {
               {allMenuItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
-                
+                const isDropdownItemActive = item.submenu?.some(sub => sub.path === location.pathname);
+
+                if (item.hasDropdown) {
+                  return (
+                    <div key={item.path} className="relative" ref={dropdownRef}>
+                      <button
+                        onClick={() => setHistoryDropdownOpen(!historyDropdownOpen)}
+                        className={`flex items-center space-x-2 px-3 xl:px-4 py-2 rounded-lg transition-all duration-200 ${
+                          isActive || isDropdownItemActive
+                            ? 'bg-blue-50 text-blue-600 shadow-sm'
+                            : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+                        }`}
+                      >
+                        <Icon className={`w-4 h-4 xl:w-5 xl:h-5 ${isActive || isDropdownItemActive ? 'text-blue-600' : 'text-gray-500'}`} />
+                        <span className="font-medium text-sm xl:text-base">{item.label}</span>
+                        <ChevronDown className={`w-4 h-4 transition-transform ${historyDropdownOpen ? 'rotate-180' : ''}`} />
+                      </button>
+
+                      {historyDropdownOpen && (
+                        <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                          {item.submenu?.map((subItem) => {
+                            const SubIcon = subItem.icon;
+                            const isSubActive = location.pathname === subItem.path;
+                            return (
+                              <Link
+                                key={subItem.path}
+                                to={subItem.path}
+                                onClick={() => setHistoryDropdownOpen(false)}
+                                className={`flex items-center space-x-2 px-4 py-2 transition-colors ${
+                                  isSubActive
+                                    ? 'bg-blue-50 text-blue-600'
+                                    : 'text-gray-700 hover:bg-gray-100'
+                                }`}
+                              >
+                                <SubIcon className={`w-4 h-4 ${isSubActive ? 'text-blue-600' : 'text-gray-500'}`} />
+                                <span className="text-sm font-medium">{subItem.label}</span>
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
                 return (
                   <Link
                     key={item.path}
@@ -93,10 +162,10 @@ const Navbar = () => {
 
             {/* Mobile & Tablet Navigation Icons */}
             <div className="flex lg:hidden items-center space-x-1">
-              {allMenuItems.map((item) => {
+              {allMenuItems.filter(item => !item.hasDropdown).map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
-                
+
                 return (
                   <Link
                     key={item.path}
@@ -173,7 +242,53 @@ const Navbar = () => {
               {menuItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
-                
+                const isDropdownItemActive = item.submenu?.some(sub => sub.path === location.pathname);
+
+                if (item.hasDropdown) {
+                  return (
+                    <div key={item.path}>
+                      <button
+                        onClick={() => setHistoryDropdownOpen(!historyDropdownOpen)}
+                        className={`w-full flex items-center justify-between space-x-3 px-3 py-3 rounded-lg transition-all duration-200 ${
+                          isActive || isDropdownItemActive
+                            ? 'bg-blue-50 text-blue-600 shadow-sm'
+                            : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <Icon className={`w-5 h-5 ${isActive || isDropdownItemActive ? 'text-blue-600' : 'text-gray-500'}`} />
+                          <span className="font-medium">{item.label}</span>
+                        </div>
+                        <ChevronDown className={`w-4 h-4 transition-transform ${historyDropdownOpen ? 'rotate-180' : ''}`} />
+                      </button>
+
+                      {historyDropdownOpen && (
+                        <div className="ml-8 mt-1 space-y-1">
+                          {item.submenu?.map((subItem) => {
+                            const SubIcon = subItem.icon;
+                            const isSubActive = location.pathname === subItem.path;
+                            return (
+                              <Link
+                                key={subItem.path}
+                                to={subItem.path}
+                                onClick={closeMobileMenu}
+                                className={`flex items-center space-x-3 px-3 py-2 rounded-lg transition-all duration-200 ${
+                                  isSubActive
+                                    ? 'bg-blue-50 text-blue-600'
+                                    : 'text-gray-700 hover:bg-gray-100'
+                                }`}
+                              >
+                                <SubIcon className={`w-4 h-4 ${isSubActive ? 'text-blue-600' : 'text-gray-500'}`} />
+                                <span className="text-sm font-medium">{subItem.label}</span>
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
                 return (
                   <Link
                     key={item.path}

@@ -3,15 +3,16 @@ Batches Router
 Handles batch and result management endpoints
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Form
+from fastapi import APIRouter, Depends, HTTPException, Form, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 from pathlib import Path
 import logging
 import os
+import json
 
 from database import get_db, Batch, DocumentFile, User
 from database import ScanResult as DBScanResult
@@ -19,8 +20,12 @@ from auth import get_current_active_user
 from batch_processor import batch_processor
 from websocket_manager import manager
 from config import get_upload_dir, get_results_dir
+from redis_cache import RedisCache
 
 logger = logging.getLogger(__name__)
+
+# Initialize Redis cache
+redis_cache = RedisCache()
 
 # Create router
 router = APIRouter(prefix="/api", tags=["batches"])
@@ -169,14 +174,49 @@ async def get_batch_results(
 
 @router.get("/batches")
 async def get_all_batches(
+    limit: Optional[int] = Query(None, description="Number of batches to return (pagination)"),
+    offset: Optional[int] = Query(0, description="Number of batches to skip (pagination)"),
+    include_files: bool = Query(True, description="Include file details in response"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get all batches for current user"""
+    """
+    Get batches for current user with pagination and caching
+
+    - **limit**: Number of batches to return (default: all)
+    - **offset**: Number of batches to skip (default: 0)
+    - **include_files**: Include detailed file information (default: true)
+
+    Uses Redis cache for performance (5 minute TTL)
+    """
     try:
-        # Filter batches by user_id
-        batches = db.query(Batch).filter(Batch.user_id == current_user.id).order_by(desc(Batch.created_at)).all()
-        
+        # Generate cache key based on user and params
+        cache_key = f"batches:user:{current_user.id}:limit:{limit}:offset:{offset}:files:{include_files}"
+
+        # Try to get from cache first
+        if redis_cache.is_connected():
+            cached_data = redis_cache.get(cache_key)
+            if cached_data:
+                logger.info(f"⚡ Cache HIT for batches (user: {current_user.id})")
+                try:
+                    return json.loads(cached_data)
+                except:
+                    logger.warning("Failed to parse cached data, fetching from DB")
+
+        # Cache MISS - fetch from database
+        logger.info(f"📊 Cache MISS - Fetching batches from database (user: {current_user.id})")
+
+        # Build query with pagination
+        query = db.query(Batch).filter(Batch.user_id == current_user.id).order_by(desc(Batch.created_at))
+
+        # Apply pagination if limit is specified
+        if offset:
+            query = query.offset(offset)
+        if limit:
+            query = query.limit(limit)
+
+        batches = query.all()
+
         batch_list = []
         for batch in batches:
             batch_data = {
@@ -188,10 +228,34 @@ async def get_all_batches(
                 "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
                 "error_message": batch.error_message
             }
+
+            # Include files if requested
+            if include_files:
+                files = db.query(DocumentFile).filter(DocumentFile.batch_id == batch.id).all()
+                batch_data["files"] = [
+                    {
+                        "id": f.id,
+                        "name": f.name,
+                        "type": f.type,
+                        "size": f.file_size,
+                        "status": f.status
+                    }
+                    for f in files
+                ]
+
             batch_list.append(batch_data)
-        
+
+        # Cache the result for 5 minutes (300 seconds)
+        if redis_cache.is_connected():
+            try:
+                redis_cache.set(cache_key, json.dumps(batch_list), ttl=300)
+                logger.info(f"💾 Cached batches for user {current_user.id} (TTL: 5min)")
+            except Exception as cache_error:
+                logger.warning(f"Failed to cache batches: {cache_error}")
+
+        logger.info(f"✅ Returned {len(batch_list)} batches (limit: {limit}, offset: {offset})")
         return batch_list if batch_list is not None else []
-        
+
     except Exception as e:
         logger.error(f"Error getting all batches: {e}")
         raise HTTPException(status_code=500, detail=f"Error retrieving batches: {str(e)}")

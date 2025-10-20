@@ -11,6 +11,9 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import AdminDashboard from './pages/AdminDashboard';
 import UserActivities from './pages/UserActivities';
+import Reconciliation from './pages/Reconciliation';
+import ReconciliationProjects from './pages/ReconciliationProjects';
+import ReconciliationDetail from './pages/ReconciliationDetail';
 import { DocumentProvider } from './context/DocumentContext';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -64,6 +67,16 @@ function App() {
                 <Route path="/admin/user-activities/:userId" element={
                   <ProtectedRoute>
                     <UserActivities />
+                  </ProtectedRoute>
+                } />
+                <Route path="/reconciliation" element={
+                  <ProtectedRoute>
+                    <ReconciliationProjects />
+                  </ProtectedRoute>
+                } />
+                <Route path="/reconciliation/:id" element={
+                  <ProtectedRoute>
+                    <ReconciliationDetail />
                   </ProtectedRoute>
                 } />
               </Routes>

@@ -155,8 +155,13 @@ export const apiService = {
     return Array.isArray(response.data) ? response.data : [];
   },
 
-  getAllBatches: async (): Promise<Batch[]> => {
-    const response = await api.get('/api/batches');
+  getAllBatches: async (limit?: number, offset?: number): Promise<Batch[]> => {
+    const params = new URLSearchParams();
+    if (limit !== undefined) params.append('limit', limit.toString());
+    if (offset !== undefined) params.append('offset', offset.toString());
+    params.append('include_files', 'true');
+
+    const response = await api.get(`/api/batches?${params.toString()}`);
     return response.data;
   },
 

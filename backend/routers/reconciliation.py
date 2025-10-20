@@ -59,7 +59,7 @@ async def create_project(
         period_start=project.period_start,
         period_end=project.period_end,
         status="active",
-        user_id=current_user.get("sub")
+        user_id=current_user.id
     )
 
     db.add(db_project)
@@ -83,8 +83,8 @@ async def list_projects(
     query = db.query(ReconciliationProject)
 
     # Filter by user (unless admin)
-    if not current_user.get("is_admin", False):
-        query = query.filter(ReconciliationProject.user_id == current_user.get("sub"))
+    if not current_user.is_admin:
+        query = query.filter(ReconciliationProject.user_id == current_user.id)
 
     # Filter by status
     if status:
@@ -115,7 +115,7 @@ async def get_project(
         raise HTTPException(status_code=404, detail="Project not found")
 
     # Check permission
-    if not current_user.get("is_admin", False) and project.user_id != current_user.get("sub"):
+    if not current_user.is_admin and project.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
     return project
@@ -138,7 +138,7 @@ async def delete_project(
         raise HTTPException(status_code=404, detail="Project not found")
 
     # Check permission
-    if not current_user.get("is_admin", False) and project.user_id != current_user.get("sub"):
+    if not current_user.is_admin and project.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Soft delete
@@ -473,7 +473,7 @@ async def create_match(
             project_id=match.project_id,
             invoice_id=match.invoice_id,
             transaction_id=match.transaction_id,
-            user_id=current_user.get("sub"),
+            user_id=current_user.id,
             notes=match.notes
         )
         return result
@@ -560,7 +560,7 @@ async def confirm_match(
 
     # Update match
     match.confirmed = True
-    match.confirmed_by = current_user.get("sub")
+    match.confirmed_by = current_user.id
     match.confirmed_at = datetime.now()
 
     db.commit()
@@ -569,7 +569,49 @@ async def confirm_match(
     return ReconciliationMatchResponse.from_orm(match)
 
 
-# ==================== Bulk Import ====================
+# ==================== Bulk Import (V2.0 - Enhanced) ====================
+
+@router.post("/projects/{project_id}/import/batch/invoices")
+async def import_invoices_from_batch(
+    project_id: str,
+    batch_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Import tax invoices from entire batch (V2.0 - reuses OCR results)
+    """
+    service = ReconciliationService(db)
+
+    try:
+        result = service.import_invoices_from_batch(project_id, batch_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+
+@router.post("/projects/{project_id}/import/batch/transactions")
+async def import_transactions_from_batch(
+    project_id: str,
+    batch_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Import bank transactions from entire batch (V2.0 - reuses OCR results)
+    """
+    service = ReconciliationService(db)
+
+    try:
+        result = service.import_transactions_from_batch(project_id, batch_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
 
 @router.post("/projects/{project_id}/import/invoices")
 async def import_invoices_from_scan(
@@ -717,6 +759,66 @@ async def import_transactions_from_scan(
     }
 
 
+# ==================== AI-Powered Extraction (V2.0) ====================
+
+@router.post("/projects/{project_id}/ai/extract-vendors")
+async def ai_extract_vendors(
+    project_id: str,
+    batch_size: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Use GPT-4o to extract clean vendor names from bank transaction descriptions
+
+    Example: "TRANSFER KE PT MAJU JAYA/REF123" -> "PT MAJU JAYA"
+    """
+    # Verify project
+    project = db.query(ReconciliationProject).filter(
+        ReconciliationProject.id == project_id
+    ).first()
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    service = ReconciliationService(db)
+
+    try:
+        result = service.ai_extract_vendor_from_transactions(project_id, batch_size)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI extraction failed: {str(e)}")
+
+
+@router.post("/projects/{project_id}/ai/extract-invoices")
+async def ai_extract_invoices(
+    project_id: str,
+    batch_size: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Use Claude to extract invoice numbers from bank transaction descriptions/references
+
+    Example: "TRANSFER/INV-2024-001/PT MAJU" -> "INV-2024-001"
+    """
+    # Verify project
+    project = db.query(ReconciliationProject).filter(
+        ReconciliationProject.id == project_id
+    ).first()
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    service = ReconciliationService(db)
+
+    try:
+        result = service.ai_extract_invoice_from_transactions(project_id, batch_size)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI extraction failed: {str(e)}")
+
+
 # ==================== Export ====================
 
 @router.get("/projects/{project_id}/export")
@@ -737,12 +839,20 @@ async def export_project(
         raise HTTPException(status_code=404, detail="Project not found")
 
     # Check permission
-    if not current_user.get("is_admin", False) and project.user_id != current_user.get("sub"):
+    if not current_user.is_admin and project.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
 
     try:
-        # Create exporter
-        exporter = ReconciliationExporter(db)
+        # Get data for export
+        invoices = db.query(TaxInvoice).filter(TaxInvoice.project_id == project_id).all()
+        transactions = db.query(BankTransaction).filter(BankTransaction.project_id == project_id).all()
+        matches = db.query(ReconciliationMatch).filter(
+            ReconciliationMatch.project_id == project_id
+        ).all()
+
+        # Create exporter (V2.0 - new exporter with AI metadata)
+        from exporters.reconciliation_exporter import ReconciliationExporter
+        exporter = ReconciliationExporter()
 
         # Generate export directory if not exists
         from config import get_exports_dir
@@ -753,12 +863,21 @@ async def export_project(
         filename = f"reconciliation_{project.name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         output_path = exports_dir / filename
 
-        # Export
-        export_file = exporter.export_project(project_id, str(output_path))
+        # Export (V2.0 API)
+        success = exporter.export_project_to_excel(
+            project=project,
+            invoices=invoices,
+            transactions=transactions,
+            matches=matches,
+            output_path=str(output_path)
+        )
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Export generation failed")
 
         # Return file
         return FileResponse(
-            path=export_file,
+            path=str(output_path),
             filename=filename,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )

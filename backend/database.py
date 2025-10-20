@@ -243,6 +243,10 @@ class TaxInvoice(Base):
     notes = Column(Text, nullable=True)
     dispute_reason = Column(Text, nullable=True)
 
+    # AI Processing Metadata (V2.0 - Dual AI Integration)
+    ai_model_used = Column(String(50), default="gpt-4o")  # gpt-4o for tax invoices
+    extraction_confidence = Column(Float, nullable=True)  # AI extraction confidence 0.0-100.0
+
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -284,6 +288,12 @@ class BankTransaction(Base):
     # Notes
     notes = Column(Text, nullable=True)
     dispute_reason = Column(Text, nullable=True)
+
+    # AI Extracted Fields (V2.0 - Claude AI Integration)
+    extracted_vendor_name = Column(String(255), nullable=True, index=True)  # AI-extracted from description
+    extracted_invoice_number = Column(String(100), nullable=True)  # AI-extracted from reference/description
+    ai_model_used = Column(String(50), default="claude-sonnet-4")  # claude for bank statements
+    extraction_confidence = Column(Float, nullable=True)  # AI extraction confidence 0.0-100.0
 
     # Metadata
     branch_code = Column(String(20), nullable=True)

@@ -114,10 +114,31 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
         toast.success(`Batch ${batch.id.slice(-8)} created with ${files.length} files`);
       }, 0);
       return batch;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Upload error:', error);
+
+      // Extract error message properly from the response
+      let errorMessage = 'Failed to upload documents';
+
+      if (error.response?.data) {
+        const errorData = error.response.data;
+
+        // Handle complex error object from backend validation
+        if (errorData.message) {
+          errorMessage = errorData.message;
+        } else if (errorData.detail) {
+          errorMessage = errorData.detail;
+        } else if (errorData.validation_summary) {
+          // Handle validation summary with failed files
+          const failedCount = errorData.failed_files?.length || 0;
+          errorMessage = `${failedCount} file(s) failed validation. ${errorData.validation_summary}`;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
       setTimeout(() => {
-        toast.error('Failed to upload documents');
+        toast.error(errorMessage);
       }, 0);
       throw error;
     } finally {
@@ -250,13 +271,13 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   const loadRecentBatchesOnly = async () => {
     try {
       setLoading(true);
-      console.log('⚡ Fast loading: recent 10 batches only...');
+      console.log('⚡ OPTIMIZED: Loading recent 15 batches with pagination...');
 
-      // Load only recent 10 batches (FAST!)
-      const allBatches = await apiService.getAllBatches();
-      const recentBatches = allBatches.slice(0, 10); // Only first 10
+      // ✅ OPTIMIZATION: Use backend pagination - only load recent 15 batches initially
+      // This uses Redis cache if available (5min TTL) - instant on subsequent loads!
+      const recentBatches = await apiService.getAllBatches(15, 0);
 
-      console.log(`✅ Loaded ${recentBatches.length} recent batches (fast load)`);
+      console.log(`✅ Loaded ${recentBatches.length} recent batches (cached & paginated)`);
       setBatches(recentBatches);
 
       // Load results for recent batches only
@@ -268,15 +289,27 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
       setLoading(false);
 
-      // Load remaining batches in background (non-blocking)
-      if (allBatches.length > 10) {
-        console.log(`🔄 Loading remaining ${allBatches.length - 10} batches in background...`);
-        setTimeout(() => {
-          setBatches(allBatches);
-          setScanResults(recentResults);
-          console.log(`✅ Background load complete: ${allBatches.length} total batches`);
-        }, 1000); // Load after 1 second (non-blocking)
-      }
+      // ✅ OPTIMIZATION: Load remaining batches in background (non-blocking)
+      // This happens AFTER UI is ready - user sees fast initial load!
+      console.log('🔄 Loading remaining batches in background (non-blocking)...');
+      setTimeout(async () => {
+        try {
+          // Load ALL batches (will use cache if available)
+          const allBatches = await apiService.getAllBatches();
+          const remainingCount = allBatches.length - recentBatches.length;
+
+          if (remainingCount > 0) {
+            console.log(`🔄 Loading remaining ${remainingCount} batches in background...`);
+            setBatches(allBatches);
+            setScanResults(recentResults);
+            console.log(`✅ Background load complete: ${allBatches.length} total batches`);
+          } else {
+            console.log('✅ No additional batches to load');
+          }
+        } catch (bgError) {
+          console.error('Background batch load failed (non-critical):', bgError);
+        }
+      }, 1500); // Load after 1.5 seconds (non-blocking)
     } catch (error) {
       console.error('Load recent batches error:', error);
       setLoading(false);

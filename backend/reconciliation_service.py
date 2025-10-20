@@ -1,21 +1,36 @@
 """
-Tax Reconciliation Service
+Tax Reconciliation Service V2.0
 Auto-matching algorithm untuk mencocokan Faktur Pajak dengan Transaksi Bank
+Enhanced with dual AI import from existing scan results
 """
 
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime, timedelta
 from decimal import Decimal
 import uuid
 from difflib import SequenceMatcher
 from sqlalchemy.orm import Session
+from sqlalchemy import and_, func
+import logging
 
 from database import (
     ReconciliationProject,
     TaxInvoice,
     BankTransaction,
-    ReconciliationMatch
+    ReconciliationMatch,
+    ScanResult,
+    Batch
 )
+
+logger = logging.getLogger(__name__)
+
+# Import AI services for intelligent matching
+try:
+    from smart_mapper import SmartMapper
+    SMART_MAPPER_AVAILABLE = True
+except ImportError:
+    SMART_MAPPER_AVAILABLE = False
+    logger.warning("⚠️ SmartMapper not available - AI vendor matching disabled")
 
 
 class ReconciliationService:
@@ -51,6 +66,437 @@ class ReconciliationService:
 
     def __init__(self, db: Session):
         self.db = db
+
+        # Initialize AI services
+        self.smart_mapper = None
+        if SMART_MAPPER_AVAILABLE:
+            try:
+                self.smart_mapper = SmartMapper()
+                logger.info("🤖 SmartMapper initialized for AI vendor matching")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to initialize SmartMapper: {e}")
+
+    # ========================================
+    # Project Management (V2.0)
+    # ========================================
+
+    def create_project(
+        self,
+        name: str,
+        period_start: datetime,
+        period_end: datetime,
+        description: Optional[str] = None,
+        user_id: Optional[str] = None
+    ) -> ReconciliationProject:
+        """Create a new reconciliation project"""
+
+        project = ReconciliationProject(
+            id=str(uuid.uuid4()),
+            name=name,
+            description=description,
+            period_start=period_start,
+            period_end=period_end,
+            status="active",
+            user_id=user_id
+        )
+
+        self.db.add(project)
+        self.db.commit()
+        self.db.refresh(project)
+
+        logger.info(f"✅ Created reconciliation project: {project.name} ({project.id})")
+        return project
+
+    def get_project(self, project_id: str) -> Optional[ReconciliationProject]:
+        """Get project by ID"""
+        return self.db.query(ReconciliationProject).filter(
+            ReconciliationProject.id == project_id
+        ).first()
+
+    # ========================================
+    # Import from Existing Scans (V2.0 - 70% Reuse!)
+    # ========================================
+
+    def import_invoices_from_batch(
+        self,
+        project_id: str,
+        batch_id: str
+    ) -> Dict[str, Any]:
+        """
+        Import tax invoices from existing scan batch
+        Reuses OCR results from processing pipeline (GPT-4o)
+        """
+
+        project = self.get_project(project_id)
+        if not project:
+            raise ValueError(f"Project {project_id} not found")
+
+        # Get all scan results from batch that are tax invoices
+        scan_results = self.db.query(ScanResult).filter(
+            and_(
+                ScanResult.batch_id == batch_id,
+                ScanResult.document_type == "faktur_pajak"
+            )
+        ).all()
+
+        imported_count = 0
+        skipped_count = 0
+
+        for scan_result in scan_results:
+            # Check if already imported
+            existing = self.db.query(TaxInvoice).filter(
+                TaxInvoice.scan_result_id == scan_result.id
+            ).first()
+
+            if existing:
+                logger.info(f"⏭️  Skipping already imported invoice: {scan_result.original_filename}")
+                skipped_count += 1
+                continue
+
+            # Extract invoice data from scan result
+            extracted_data = scan_result.extracted_data or {}
+
+            # Determine AI model used
+            ai_model = extracted_data.get("ai_model_used", "gpt-4o")
+
+            # Parse date
+            invoice_date = self._parse_date(extracted_data.get("tanggal_faktur"))
+            if not invoice_date:
+                logger.warning(f"⚠️  Skipping invoice with invalid date: {scan_result.original_filename}")
+                skipped_count += 1
+                continue
+
+            # Create tax invoice from scan result
+            invoice = TaxInvoice(
+                id=str(uuid.uuid4()),
+                project_id=project_id,
+                scan_result_id=scan_result.id,
+                invoice_number=extracted_data.get("nomor_faktur", ""),
+                invoice_date=invoice_date,
+                invoice_type=extracted_data.get("jenis_faktur", "keluaran"),
+                vendor_name=extracted_data.get("nama_penjual", ""),
+                vendor_npwp=extracted_data.get("npwp_penjual", ""),
+                dpp=float(extracted_data.get("dpp", 0)),
+                ppn=float(extracted_data.get("ppn", 0)),
+                total_amount=float(extracted_data.get("total", 0)),
+                ai_model_used=ai_model,
+                extraction_confidence=scan_result.confidence,
+                match_status="unmatched"
+            )
+
+            self.db.add(invoice)
+            imported_count += 1
+
+        self.db.commit()
+
+        # Update project statistics
+        self._update_project_statistics(project_id)
+
+        logger.info(f"✅ Imported {imported_count} invoices, skipped {skipped_count}")
+
+        return {
+            "imported": imported_count,
+            "skipped": skipped_count,
+            "total": imported_count + skipped_count
+        }
+
+    def import_transactions_from_batch(
+        self,
+        project_id: str,
+        batch_id: str
+    ) -> Dict[str, Any]:
+        """
+        Import bank transactions from existing scan batch
+        Reuses OCR results from processing pipeline (Claude Sonnet 4)
+        """
+
+        project = self.get_project(project_id)
+        if not project:
+            raise ValueError(f"Project {project_id} not found")
+
+        # Get all scan results from batch that are bank statements
+        scan_results = self.db.query(ScanResult).filter(
+            and_(
+                ScanResult.batch_id == batch_id,
+                ScanResult.document_type == "rekening_koran"
+            )
+        ).all()
+
+        imported_count = 0
+        skipped_count = 0
+
+        for scan_result in scan_results:
+            # Extract transaction data from scan result
+            extracted_data = scan_result.extracted_data or {}
+            transactions = extracted_data.get("transactions", [])
+
+            # Determine AI model used
+            ai_model = extracted_data.get("ai_model_used", "claude-sonnet-4")
+
+            for transaction_data in transactions:
+                # Parse date
+                transaction_date = self._parse_date(transaction_data.get("tanggal"))
+                if not transaction_date:
+                    skipped_count += 1
+                    continue
+
+                # Check if already imported (by unique combination)
+                ref_number = transaction_data.get("keterangan", "")
+
+                existing = self.db.query(BankTransaction).filter(
+                    and_(
+                        BankTransaction.scan_result_id == scan_result.id,
+                        BankTransaction.transaction_date == transaction_date,
+                        BankTransaction.description == ref_number
+                    )
+                ).first()
+
+                if existing:
+                    skipped_count += 1
+                    continue
+
+                # Create bank transaction
+                transaction = BankTransaction(
+                    id=str(uuid.uuid4()),
+                    project_id=project_id,
+                    scan_result_id=scan_result.id,
+                    bank_name=extracted_data.get("bank_name", ""),
+                    account_number=extracted_data.get("nomor_rekening", ""),
+                    account_holder=extracted_data.get("nama_pemilik", ""),
+                    transaction_date=transaction_date,
+                    description=ref_number,
+                    transaction_type=transaction_data.get("jenis", ""),
+                    reference_number=transaction_data.get("nomor_referensi", ""),
+                    debit=float(transaction_data.get("debit", 0)),
+                    credit=float(transaction_data.get("kredit", 0)),
+                    balance=float(transaction_data.get("saldo", 0)),
+                    ai_model_used=ai_model,
+                    extraction_confidence=scan_result.confidence,
+                    match_status="unmatched"
+                )
+
+                self.db.add(transaction)
+                imported_count += 1
+
+        self.db.commit()
+
+        # Update project statistics
+        self._update_project_statistics(project_id)
+
+        logger.info(f"✅ Imported {imported_count} transactions, skipped {skipped_count}")
+
+        return {
+            "imported": imported_count,
+            "skipped": skipped_count,
+            "total": imported_count + skipped_count
+        }
+
+    def _parse_date(self, date_str: Optional[str]) -> Optional[datetime]:
+        """Parse date string to datetime"""
+        if not date_str:
+            return None
+
+        # Try multiple date formats
+        formats = [
+            "%d/%m/%Y",
+            "%Y-%m-%d",
+            "%d-%m-%Y",
+            "%d %B %Y",
+            "%d %b %Y",
+            "%d.%m.%Y"
+        ]
+
+        for fmt in formats:
+            try:
+                return datetime.strptime(str(date_str), fmt)
+            except ValueError:
+                continue
+
+        logger.warning(f"⚠️  Could not parse date: {date_str}")
+        return None
+
+    # ========================================
+    # AI-Powered Vendor & Invoice Extraction (V2.0)
+    # ========================================
+
+    def ai_extract_vendor_from_transactions(
+        self,
+        project_id: str,
+        batch_size: int = 50
+    ) -> Dict[str, Any]:
+        """
+        Use GPT-4o to extract clean vendor names from messy bank transaction descriptions
+
+        Example:
+        Input: "TRANSFER KE PT MAJU JAYA SEJAHTERA/REF123"
+        Output: extracted_vendor_name = "PT MAJU JAYA SEJAHTERA"
+        """
+
+        if not self.smart_mapper or not self.smart_mapper._client:
+            logger.warning("⚠️ SmartMapper not available - skipping AI vendor extraction")
+            return {"processed": 0, "extracted": 0, "failed": 0}
+
+        # Get unprocessed transactions (no extracted_vendor_name yet)
+        transactions = self.db.query(BankTransaction).filter(
+            and_(
+                BankTransaction.project_id == project_id,
+                BankTransaction.extracted_vendor_name == None
+            )
+        ).limit(batch_size).all()
+
+        if not transactions:
+            logger.info("✅ All transactions already have vendor names extracted")
+            return {"processed": 0, "extracted": 0, "failed": 0}
+
+        processed = 0
+        extracted = 0
+        failed = 0
+
+        for transaction in transactions:
+            try:
+                # Build prompt for GPT-4o
+                prompt = f"""Extract the vendor/company name from this bank transaction description:
+
+Description: "{transaction.description}"
+Reference: "{transaction.reference_number or ''}"
+
+Rules:
+1. Extract ONLY the company/vendor name (e.g., "PT MAJU JAYA", "CV BERKAH", "TOKO SINAR")
+2. Remove prefixes like "TRANSFER KE", "BAYAR", "SETORAN"
+3. Remove suffixes like reference numbers, dates, invoice numbers
+4. Return just the clean company name
+5. If no clear vendor name found, return "UNKNOWN"
+
+Return ONLY the vendor name, nothing else."""
+
+                # Call GPT-4o
+                response = self.smart_mapper._client.chat.completions.create(
+                    model=self.smart_mapper.model,
+                    messages=[
+                        {"role": "system", "content": "You are a financial data extraction expert."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=100
+                )
+
+                vendor_name = response.choices[0].message.content.strip()
+
+                # Update transaction
+                if vendor_name and vendor_name != "UNKNOWN":
+                    transaction.extracted_vendor_name = vendor_name
+                    transaction.ai_model_used = self.smart_mapper.model
+                    transaction.extraction_confidence = 0.85  # GPT-4o confidence
+                    extracted += 1
+                    logger.info(f"✅ Extracted vendor: '{vendor_name}' from '{transaction.description[:50]}'")
+                else:
+                    transaction.extracted_vendor_name = None
+                    failed += 1
+
+                processed += 1
+
+            except Exception as e:
+                logger.error(f"❌ Failed to extract vendor from transaction {transaction.id}: {e}")
+                failed += 1
+
+        self.db.commit()
+        logger.info(f"🎯 AI Vendor Extraction: {extracted} extracted, {failed} failed out of {processed} processed")
+
+        return {
+            "processed": processed,
+            "extracted": extracted,
+            "failed": failed
+        }
+
+    def ai_extract_invoice_from_transactions(
+        self,
+        project_id: str,
+        batch_size: int = 50
+    ) -> Dict[str, Any]:
+        """
+        Use Claude to extract invoice numbers from bank transaction descriptions/references
+
+        Example:
+        Input: "TRANSFER/INV-2024-001/PT MAJU"
+        Output: extracted_invoice_number = "INV-2024-001"
+        """
+
+        if not self.smart_mapper or not self.smart_mapper._claude_client:
+            logger.warning("⚠️ Claude not available - skipping AI invoice extraction")
+            return {"processed": 0, "extracted": 0, "failed": 0}
+
+        # Get unprocessed transactions (no extracted_invoice_number yet)
+        transactions = self.db.query(BankTransaction).filter(
+            and_(
+                BankTransaction.project_id == project_id,
+                BankTransaction.extracted_invoice_number == None
+            )
+        ).limit(batch_size).all()
+
+        if not transactions:
+            logger.info("✅ All transactions already have invoice numbers extracted")
+            return {"processed": 0, "extracted": 0, "failed": 0}
+
+        processed = 0
+        extracted = 0
+        failed = 0
+
+        for transaction in transactions:
+            try:
+                # Build prompt for Claude
+                prompt = f"""Extract the invoice/faktur number from this bank transaction:
+
+Description: "{transaction.description}"
+Reference: "{transaction.reference_number or ''}"
+
+Rules:
+1. Look for invoice numbers (formats: INV-XXX, FP-XXX, FAKTUR-XXX, etc.)
+2. Return ONLY the invoice number
+3. If no invoice number found, return "NONE"
+
+Return ONLY the invoice number or "NONE"."""
+
+                # Call Claude
+                response = self.smart_mapper._claude_client.messages.create(
+                    model=self.smart_mapper.claude_model,
+                    max_tokens=100,
+                    temperature=0.1,
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+
+                invoice_number = response.content[0].text.strip()
+
+                # Update transaction
+                if invoice_number and invoice_number != "NONE":
+                    transaction.extracted_invoice_number = invoice_number
+                    transaction.ai_model_used = self.smart_mapper.claude_model
+                    transaction.extraction_confidence = 0.90  # Claude confidence
+                    extracted += 1
+                    logger.info(f"✅ Extracted invoice: '{invoice_number}' from '{transaction.description[:50]}'")
+                else:
+                    transaction.extracted_invoice_number = None
+                    failed += 1
+
+                processed += 1
+
+            except Exception as e:
+                logger.error(f"❌ Failed to extract invoice from transaction {transaction.id}: {e}")
+                failed += 1
+
+        self.db.commit()
+        logger.info(f"🎯 AI Invoice Extraction: {extracted} extracted, {failed} failed out of {processed} processed")
+
+        return {
+            "processed": processed,
+            "extracted": extracted,
+            "failed": failed
+        }
+
+    # ========================================
+    # Auto-Matching Algorithm
+    # ========================================
 
     def auto_match_project(
         self,

@@ -258,7 +258,9 @@ class FileSecurityValidator:
                 "jpg": ["image/jpeg"],
                 "jpeg": ["image/jpeg"],
                 "tiff": ["image/tiff"],
-                "bmp": ["image/bmp", "image/x-ms-bmp"]
+                "bmp": ["image/bmp", "image/x-ms-bmp"],
+                "xlsx": ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+                "xls": ["application/vnd.ms-excel", "application/msexcel"]
             }
             
             # Get file extension

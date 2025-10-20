@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     
     # File Security
     max_file_size_mb: int = 50  # Support rekening koran bank dengan banyak halaman
-    allowed_extensions: str = "pdf,png,jpg,jpeg,tiff,bmp"  # Changed to string
+    allowed_extensions: str = "pdf,png,jpg,jpeg,tiff,bmp,xlsx,xls"  # Added Excel formats for faktur pajak
     enable_virus_scan: bool = True
     clamav_host: str = "localhost"
     clamav_port: int = 3310

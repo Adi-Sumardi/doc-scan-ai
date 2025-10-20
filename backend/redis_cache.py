@@ -55,7 +55,32 @@ class RedisCache:
     def _deserialize_data(self, data: bytes) -> Any:
         """Deserialize data from Redis"""
         return pickle.loads(data)
-    
+
+    # Generic get/set methods for simple caching
+    def get(self, key: str) -> Optional[str]:
+        """Get value from cache by key"""
+        if not self.is_connected():
+            return None
+
+        try:
+            value = self.redis_client.get(key)
+            return value.decode('utf-8') if value else None
+        except Exception as e:
+            logger.error(f"Error getting cache key {key}: {e}")
+            return None
+
+    def set(self, key: str, value: str, ttl: int = 3600) -> bool:
+        """Set value in cache with TTL (seconds)"""
+        if not self.is_connected():
+            return False
+
+        try:
+            self.redis_client.setex(key, ttl, value.encode('utf-8'))
+            return True
+        except Exception as e:
+            logger.error(f"Error setting cache key {key}: {e}")
+            return False
+
     # OCR Results Caching
     def cache_ocr_result(self, file_hash: str, ocr_result: Dict[str, Any], ttl: int = 3600):
         """Cache OCR processing result"""
