@@ -51,6 +51,147 @@ ocr_processor = RealOCRProcessor()
 parser = IndonesianTaxDocumentParser()
 
 
+async def process_with_chunking(file_path: str, document_type: str) -> tuple:
+    """
+    Process large PDF file with chunking strategy
+
+    Args:
+        file_path: Path to large PDF file
+        document_type: Type of document (rekening_koran, etc.)
+
+    Returns:
+        tuple: (merged_text, merged_metadata)
+    """
+    try:
+        logger.info("=" * 80)
+        logger.info("🔄 CHUNKING MODE ACTIVATED")
+        logger.info("=" * 80)
+
+        # Get page count
+        page_count = pdf_chunker.get_page_count(file_path)
+
+        # Import settings
+        try:
+            from config import settings
+            chunk_size = settings.pdf_chunk_size
+        except:
+            chunk_size = 15
+
+        logger.info(f"📄 File: {Path(file_path).name}")
+        logger.info(f"📊 Total pages: {page_count}")
+        logger.info(f"📦 Chunk size: {chunk_size} pages")
+        logger.info(f"🔢 Expected chunks: {(page_count + chunk_size - 1) // chunk_size}")
+
+        # Split PDF into chunks
+        chunk_dir = str(Path(file_path).parent / "chunks")
+        chunks = pdf_chunker.split_pdf_to_chunks(file_path, output_dir=chunk_dir)
+
+        if not chunks:
+            raise Exception("Failed to split PDF into chunks")
+
+        logger.info(f"✅ Successfully created {len(chunks)} chunks")
+        logger.info("=" * 80)
+
+        # Process each chunk
+        chunk_results = []
+
+        for i, chunk_info in enumerate(chunks, 1):
+            logger.info(f"")
+            logger.info(f"{'=' * 40} CHUNK {i}/{len(chunks)} {'=' * 40}")
+            logger.info(f"📄 Pages: {chunk_info['start_page']}-{chunk_info['end_page']}")
+            logger.info(f"📁 File: {Path(chunk_info['path']).name}")
+
+            try:
+                # Extract text from chunk using OCR
+                chunk_text = await ocr_processor.extract_text(chunk_info['path'])
+
+                if not chunk_text:
+                    logger.warning(f"⚠️ Chunk {i} returned no text")
+                    continue
+
+                logger.info(f"✅ Extracted {len(chunk_text)} characters from chunk {i}")
+
+                # Get OCR metadata for this chunk
+                chunk_ocr_metadata = ocr_processor.get_last_ocr_metadata()
+
+                # Build OCR result for this chunk (needed for enhanced_bank_processor)
+                tables = []
+                if chunk_ocr_metadata:
+                    raw_response = chunk_ocr_metadata.get('raw_response')
+                    if raw_response and isinstance(raw_response, dict):
+                        pages = raw_response.get('pages', [])
+                        for page in pages:
+                            if isinstance(page, dict) and 'tables' in page:
+                                page_tables = page.get('tables', [])
+                                if isinstance(page_tables, list):
+                                    tables.extend(page_tables)
+
+                        logger.info(f"   📊 Chunk {i}: Extracted {len(tables)} tables")
+
+                # Create chunk result with proper structure
+                chunk_result = {
+                    'raw_text': chunk_text,
+                    'extracted_text': chunk_text,
+                    'extracted_data': {
+                        'raw_response': chunk_ocr_metadata.get('raw_response') if chunk_ocr_metadata else {}
+                    },
+                    'chunk_info': chunk_info,
+                    'tables': tables
+                }
+
+                chunk_results.append(chunk_result)
+
+            except Exception as e:
+                logger.error(f"❌ Chunk {i} processing failed: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                # Continue with other chunks
+
+        logger.info("")
+        logger.info("=" * 80)
+        logger.info("🔗 MERGING CHUNK RESULTS")
+        logger.info("=" * 80)
+
+        # Cleanup chunk files
+        logger.info("🧹 Cleaning up temporary chunk files...")
+        pdf_chunker.cleanup_chunks([c['path'] for c in chunks])
+        logger.info("✅ Cleanup complete")
+
+        if not chunk_results:
+            raise Exception("All chunks failed to process - no valid data extracted")
+
+        logger.info(f"✅ Successfully processed {len(chunk_results)} out of {len(chunks)} chunks")
+
+        # Merge chunk results
+        logger.info("🔗 Merging extracted data from all chunks...")
+        merged = pdf_chunker.merge_extracted_data(chunk_results, document_type)
+
+        # Extract merged text and metadata
+        merged_text = merged.get('raw_text', '') or merged.get('extracted_text', '')
+
+        # Build metadata structure compatible with main flow
+        merged_metadata = {
+            'text': merged_text,
+            'extracted_fields': {},
+            'confidence': 90.0,  # Average confidence for chunked processing
+            'engine_used': f'Google Document AI (Chunked: {len(chunk_results)} chunks)',
+            'quality_score': 90.0,
+            'processing_time': 0,
+            'raw_response': merged.get('extracted_data', {}).get('raw_response', {})
+        }
+
+        logger.info(f"✅ Merge complete: {len(merged_text)} total characters")
+        logger.info("=" * 80)
+
+        return merged_text, merged_metadata
+
+    except Exception as e:
+        logger.error(f"❌ Chunking process failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise
+
+
 async def process_document_ai(file_path: str, document_type: str) -> Dict[str, Any]:
     """
     Main orchestrator function - Coordinates OCR → Parse → Confidence → Export
@@ -77,9 +218,38 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
             logger.info(f"🔍 Auto-detected document type: {detected_type}")
             document_type = detected_type
 
-        # STEP 1: Extract text using OCR (all documents, including multi-page PDFs)
-        logger.info("📄 Processing as SINGLE DOCUMENT (no chunking)")
-        extracted_text = await ocr_processor.extract_text(file_path)
+        # STEP 1: Extract text using OCR (with smart chunking for large rekening koran)
+        # Check if file needs chunking (only for rekening_koran with many pages)
+        needs_chunking = False
+        page_count = 0
+
+        if document_type == 'rekening_koran' and file_path.lower().endswith('.pdf'):
+            try:
+                page_count = pdf_chunker.get_page_count(file_path)
+                logger.info(f"📄 Rekening Koran PDF: {page_count} pages")
+
+                # Import settings to check chunking config
+                try:
+                    from config import settings
+                    chunk_enabled = settings.enable_page_chunking
+                    chunk_threshold = settings.pdf_chunk_size
+                except:
+                    chunk_enabled = True
+                    chunk_threshold = 15
+
+                if chunk_enabled and page_count > chunk_threshold:
+                    needs_chunking = True
+                    logger.info(f"📚 File needs chunking ({page_count} pages > {chunk_threshold} threshold)")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not determine page count: {e}")
+
+        if needs_chunking:
+            logger.info(f"📚 Processing with CHUNKING: {page_count} pages")
+            extracted_text, ocr_metadata = await process_with_chunking(file_path, document_type)
+        else:
+            logger.info("📄 Processing as SINGLE DOCUMENT (no chunking needed)")
+            extracted_text = await ocr_processor.extract_text(file_path)
+            ocr_metadata = ocr_processor.get_last_ocr_metadata()
         
         if not extracted_text:
             raise Exception("OCR failed to extract any text from the document. The file might be blank, corrupted, or unsupported.")
@@ -188,7 +358,9 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
                         logger.warning("⚠️ No raw OCR response available for Smart Mapper")
         elif document_type == 'rekening_koran':
             # Get OCR metadata for enhanced processing
-            ocr_metadata = ocr_processor.get_last_ocr_metadata()
+            # Note: ocr_metadata is already set from chunking or single processing above
+            if not ocr_metadata:
+                ocr_metadata = ocr_processor.get_last_ocr_metadata()
 
             # Build OCR result structure for bank adapters
             # ✅ CRITICAL FIX: Extract tables from Google Document AI raw_response.pages[].tables
