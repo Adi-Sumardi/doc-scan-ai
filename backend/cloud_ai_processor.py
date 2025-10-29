@@ -195,30 +195,26 @@ class CloudAIProcessor:
             if not mime_type:
                 mime_type = 'application/pdf' if file_path.lower().endswith('.pdf') else 'image/jpeg'
 
-            # ✅ ENHANCEMENT: Configure advanced OCR options for maximum quality
-            # NOTE: Imageless mode is NOT supported in OcrConfig
-            # We'll just remove the invalid field and rely on default behavior
+            # ✅ OPTIMIZED: Enhanced OCR config for better table detection
+            # Based on Google Document AI best practices for table extraction
             process_options = documentai.ProcessOptions(
                 ocr_config=documentai.OcrConfig(
                     enable_native_pdf_parsing=True,  # Better PDF text extraction
                     enable_image_quality_scores=True,  # Get quality metrics
-                    enable_symbol=True,  # Detect individual symbols
-                    premium_features=documentai.OcrConfig.PremiumFeatures(
-                        compute_style_info=True,  # Extract text styles (bold, italic, etc.)
-                        enable_math_ocr=False,  # Not needed for bank statements
-                        enable_selection_mark_detection=True  # Detect checkboxes if any
-                    )
+                    enable_symbol=True,  # Enable symbol detection (helps with table borders)
+                    # Character box detection enabled by default - helps identify table structure
+                    # disable_character_boxes_detection=False (default)
                 )
             )
 
-            # Configure the process request with advanced OCR options
+            # Configure the process request with OCR options
             request = {
                 "name": name,
                 "raw_document": {
                     "content": document_content,
                     "mime_type": mime_type
                 },
-                "process_options": process_options  # Add OCR enhancements
+                "process_options": process_options
             }
             
             # Process document using a client bound to the current event loop
@@ -292,6 +288,9 @@ class CloudAIProcessor:
 
             if total_tables == 0:
                 logger.warning(f"   ⚠️ Google Document AI detected 0 tables in document")
+                logger.info(f"   🔧 Will fallback to line-based synthetic table construction")
+                # ✅ Create synthetic tables from lines for better Claude processing
+                self._create_synthetic_tables_from_lines(raw_response_dict)
 
             return CloudOCRResult(
                 raw_text=raw_text,
@@ -380,7 +379,122 @@ class CloudAIProcessor:
                 document_type="unknown",
                 language_detected="unknown"
             )
-    
+
+    def _create_synthetic_tables_from_lines(self, raw_response_dict: dict) -> None:
+        """
+        ✅ SYNTHETIC TABLE CONSTRUCTION
+        When Google Document AI fails to detect tables (0 tables),
+        this method creates pseudo-table structures from lines/paragraphs.
+        This helps Claude process structured data without hitting token limits.
+
+        Strategy:
+        1. Group consecutive lines on same Y-coordinate (horizontal alignment)
+        2. Detect repeating patterns (likely transaction rows)
+        3. Create synthetic table structure
+        """
+        try:
+            if 'pages' not in raw_response_dict:
+                return
+
+            full_text = raw_response_dict.get('text', '')
+            if not full_text:
+                return
+
+            total_synth_tables = 0
+
+            for page_idx, page in enumerate(raw_response_dict['pages']):
+                if not isinstance(page, dict):
+                    continue
+
+                # Skip if page already has tables
+                if page.get('tables') and len(page.get('tables', [])) > 0:
+                    continue
+
+                # Get lines from page
+                lines = page.get('lines', [])
+                if not lines or len(lines) < 3:  # Need at least 3 lines to form a table
+                    continue
+
+                # Group lines into potential table rows
+                # Lines are already in reading order from Document AI
+                synthetic_rows = []
+                current_row_cells = []
+                prev_y_avg = None
+                y_threshold = 10  # pixels - lines within this threshold are considered same row
+
+                for line in lines:
+                    if not isinstance(line, dict):
+                        continue
+
+                    layout = line.get('layout', {})
+                    if not layout:
+                        continue
+
+                    # Get line text
+                    text_anchor = layout.get('text_anchor', {})
+                    text_segments = text_anchor.get('text_segments', [])
+                    if not text_segments:
+                        continue
+
+                    segment = text_segments[0]
+                    start_idx = int(segment.get('start_index', 0))
+                    end_idx = int(segment.get('end_index', 0))
+                    line_text = full_text[start_idx:end_idx].strip()
+
+                    if not line_text:
+                        continue
+
+                    # Get Y coordinate (vertical position)
+                    bounding_poly = layout.get('bounding_poly', {})
+                    vertices = bounding_poly.get('vertices', [])
+                    if len(vertices) < 2:
+                        continue
+
+                    # Average Y coordinate of top edge
+                    y_avg = (vertices[0].get('y', 0) + vertices[1].get('y', 0)) / 2.0
+
+                    # Check if this line is on same row as previous (similar Y coordinate)
+                    if prev_y_avg is not None and abs(y_avg - prev_y_avg) < y_threshold:
+                        # Same row - add as cell
+                        current_row_cells.append(line_text)
+                    else:
+                        # New row
+                        if current_row_cells:
+                            synthetic_rows.append(current_row_cells)
+                        current_row_cells = [line_text]
+                        prev_y_avg = y_avg
+
+                # Add last row
+                if current_row_cells:
+                    synthetic_rows.append(current_row_cells)
+
+                # Convert rows to table structure (if we have enough rows)
+                if len(synthetic_rows) >= 3:
+                    # Assume first row might be header
+                    header_rows = [{'cells': [{'layout': {'text_anchor': {'content': cell}}} for cell in synthetic_rows[0]]}]
+                    body_rows = [{'cells': [{'layout': {'text_anchor': {'content': cell}}} for cell in row]} for row in synthetic_rows[1:]]
+
+                    synthetic_table = {
+                        'layout': {},
+                        'header_rows': header_rows,
+                        'body_rows': body_rows
+                    }
+
+                    # Add synthetic table to page
+                    if 'tables' not in page:
+                        page['tables'] = []
+                    page['tables'].append(synthetic_table)
+                    total_synth_tables += 1
+
+                    logger.info(f"   ✅ Page {page_idx + 1}: Created synthetic table with {len(synthetic_rows)} rows")
+
+            if total_synth_tables > 0:
+                logger.info(f"   🎯 Created {total_synth_tables} synthetic tables from line layout")
+
+        except Exception as e:
+            logger.warning(f"   ⚠️ Synthetic table creation failed: {e}")
+            # Don't raise - this is a fallback enhancement, not critical
+
 
 # Example usage
 async def main():
