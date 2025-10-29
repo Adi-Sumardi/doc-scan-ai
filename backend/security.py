@@ -561,14 +561,24 @@ class SecurityValidator:
                 status_code=400,
                 detail="Username cannot exceed 50 characters"
             )
-        
+
+        # ✅ FIX: SQL injection check FIRST (defense in depth)
+        # Even though regex below will catch most SQL patterns, this provides
+        # an additional security layer in case regex validation is bypassed or modified
+        if SecurityValidator.check_sql_injection(username):
+            raise HTTPException(
+                status_code=400,
+                detail="Username contains invalid characters"
+            )
+
         # Only allow alphanumeric, underscore, and hyphen
+        # This is the PRIMARY security control - very strict whitelist
         if not re.match(r'^[a-zA-Z0-9_-]+$', username):
             raise HTTPException(
                 status_code=400,
                 detail="Username can only contain letters, numbers, underscore, and hyphen"
             )
-        
+
         # Check for reserved usernames
         reserved = ['admin', 'root', 'system', 'administrator', 'moderator', 'support', 'api', 'null', 'undefined']
         if username.lower() in reserved:
@@ -577,20 +587,13 @@ class SecurityValidator:
                 detail="This username is reserved and cannot be used"
             )
         
-        # Check for SQL injection patterns
-        if SecurityValidator.check_sql_injection(username):
-            raise HTTPException(
-                status_code=400,
-                detail="Username contains invalid characters"
-            )
-        
         return username
     
     @staticmethod
     def validate_password_strength(password: str) -> bool:
         """
         Validate password meets security requirements
-        
+
         Requirements:
         - At least 8 characters
         - At least one uppercase letter
@@ -598,76 +601,109 @@ class SecurityValidator:
         - At least one digit
         - At least one special character
         - Not a common weak password
-        
+        - No excessive repeated characters
+        - No common keyboard patterns
+
         Args:
             password: Password to validate
-            
+
         Returns:
             True if valid
-            
+
         Raises:
             HTTPException: If password doesn't meet requirements
         """
         if not password:
             raise HTTPException(status_code=400, detail="Password is required")
-        
+
         if len(password) < 8:
             raise HTTPException(
                 status_code=400,
                 detail="Password must be at least 8 characters long"
             )
-        
+
         if len(password) > 128:
             raise HTTPException(
                 status_code=400,
                 detail="Password too long (maximum 128 characters)"
             )
-        
+
         # Check for at least one uppercase letter
         if not re.search(r'[A-Z]', password):
             raise HTTPException(
                 status_code=400,
                 detail="Password must contain at least one uppercase letter (A-Z)"
             )
-        
+
         # Check for at least one lowercase letter
         if not re.search(r'[a-z]', password):
             raise HTTPException(
                 status_code=400,
                 detail="Password must contain at least one lowercase letter (a-z)"
             )
-        
+
         # Check for at least one digit
         if not re.search(r'\d', password):
             raise HTTPException(
                 status_code=400,
                 detail="Password must contain at least one digit (0-9)"
             )
-        
+
         # Check for at least one special character
         if not re.search(r'[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;/~`]', password):
             raise HTTPException(
                 status_code=400,
                 detail="Password must contain at least one special character (!@#$%^&* etc.)"
             )
-        
+
         # Check for common weak passwords
         weak_passwords = [
             'password', 'password123', 'password1', '12345678', 'qwerty123',
             'admin123', 'letmein123', 'welcome123', 'abc12345', 'Password1',
-            'Password123', 'Qwerty123', 'Admin123'
+            'Password123', 'Qwerty123', 'Admin123', 'Welcome1!', 'Password1!',
+            'Abc12345!', 'Qwerty1!', 'Admin1234!'
         ]
-        if password in weak_passwords:
+        if password.lower() in [p.lower() for p in weak_passwords]:
             raise HTTPException(
                 status_code=400,
                 detail="This password is too common. Please choose a stronger, unique password"
             )
-        
-        # Check for sequential characters (e.g., "12345", "abcde")
-        if re.search(r'(012|123|234|345|456|567|678|789|abc|bcd|cde|def)', password.lower()):
-            logger.warning(f"Password contains sequential characters")
-            # This is a warning, not an error - still allow but log
-        
+
+        # ✅ ENHANCEMENT: Check for excessive repeated characters (e.g., "aaaa", "1111")
+        if re.search(r'(.)\1{3,}', password):
+            raise HTTPException(
+                status_code=400,
+                detail="Password contains too many repeated characters (e.g., 'aaaa', '1111')"
+            )
+
+        # ✅ ENHANCEMENT: Check for keyboard patterns
+        keyboard_patterns = [
+            'qwerty', 'asdfgh', 'zxcvbn', 'qwertz', 'azerty',  # Keyboard rows
+            'qazwsx', 'wsxedc', 'edcrfv',  # Keyboard columns
+            '!@#$%^', '@#$%^&', '#$%^&*',  # Shifted number row patterns
+        ]
+        password_lower = password.lower()
+        for pattern in keyboard_patterns:
+            if pattern in password_lower:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Password contains keyboard pattern '{pattern}'. Please use a more random password"
+                )
+
+        # ✅ ENHANCEMENT: Check for sequential characters (stricter than before)
+        sequential_patterns = [
+            '012', '123', '234', '345', '456', '567', '678', '789',  # Numbers
+            'abc', 'bcd', 'cde', 'def', 'efg', 'fgh', 'ghi', 'hij',  # Letters
+            'ijk', 'jkl', 'klm', 'lmn', 'mno', 'nop', 'opq', 'pqr',
+            'qrs', 'rst', 'stu', 'tuv', 'uvw', 'vwx', 'wxy', 'xyz',
+        ]
+        for pattern in sequential_patterns:
+            if pattern in password.lower():
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Password contains sequential pattern '{pattern}'. Please use a more random password"
+                )
+
         return True
     
     @staticmethod

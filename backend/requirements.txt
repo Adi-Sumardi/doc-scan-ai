@@ -88,7 +88,7 @@ python-dateutil==2.9.0.post0
 pytz==2025.2
 tzdata==2025.2
 charset-normalizer==3.3.2
-urllib3==1.26.18  # Downgraded for google-auth compatibility (requires <2.0)
+urllib3==2.2.3    # ✅ FIX: Upgraded to latest - google-auth now supports 2.x (security fixes)
 certifi==2025.8.3
 regex==2025.9.1
 

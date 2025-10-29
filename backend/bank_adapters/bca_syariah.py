@@ -234,6 +234,64 @@ class BcaSyariahAdapter(BaseBankAdapter):
     def _parse_from_text(self, ocr_result: Dict[str, Any]):
         """
         Parse transaksi dari raw text (fallback)
+        Format BCA Syariah (minimal): Tgl | Kode | Ket | D/C | Nominal | Saldo | Ref | Cabang
         """
-        # TODO: Implement text-based parsing
-        pass
+        text = self.extract_text_from_ocr(ocr_result)
+        if not text:
+            return
+
+        import re
+
+        # ✅ FIX: Simplified regex pattern untuk BCA Syariah
+        # Pattern: DD/MM/YYYY (or DD/MM) ... CODE ... DESCRIPTION ... D/C ... AMOUNT ... BALANCE
+        pattern = r'(\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?)\s+(\w+)\s+(.+?)\s+([DC])\s+([\d,.-]+(?:\.\d{2})?)\s+([\d,.-]+(?:\.\d{2})?)'
+
+        matches = re.finditer(pattern, text, re.MULTILINE)
+
+        for match in matches:
+            try:
+                tanggal_str = match.group(1)
+                kode = match.group(2).strip()
+                keterangan = match.group(3).strip()
+                dc_flag = match.group(4)
+                nominal_str = match.group(5).strip()
+                saldo_str = match.group(6).strip()
+
+                # Parse tanggal (might be incomplete without year)
+                tanggal = self.parse_date(tanggal_str)
+
+                if not tanggal:
+                    continue
+
+                # Parse D/C
+                nominal = self.clean_amount(nominal_str)
+                debit, credit = self._parse_dc(dc_flag, nominal)
+
+                # Parse saldo
+                saldo = self.clean_amount(saldo_str)
+
+                transaction = StandardizedTransaction(
+                    transaction_date=tanggal,
+                    description=keterangan,
+                    transaction_code=kode,
+                    debit=debit,
+                    credit=credit,
+                    balance=saldo,
+                    bank_name=self.BANK_NAME,
+                    account_number=self.account_info.get('account_number', ''),
+                    account_holder=self.account_info.get('account_holder', ''),
+                    raw_data={
+                        'tanggal': tanggal_str,
+                        'kode': kode,
+                        'keterangan': keterangan,
+                        'dc': dc_flag,
+                        'nominal': nominal_str,
+                        'source': 'text_fallback'
+                    }
+                )
+
+                self.transactions.append(transaction)
+
+            except Exception as e:
+                # Silent fail - regex might match non-transaction text
+                continue

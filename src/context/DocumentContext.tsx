@@ -32,8 +32,11 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   const [scanResults, setScanResults] = useState<ScanResult[]>([]);
   const [loading, setLoading] = useState(false);
   const notifiedBatchesRef = useRef<Set<string>>(new Set());
-  const pollingIntervalsRef = useRef<NodeJS.Timeout[]>([]);
-  const pollingTimeoutsRef = useRef<NodeJS.Timeout[]>([]); // Track timeouts too
+
+  // ✅ FIX: Better tracking using Map instead of arrays
+  // Maps batch ID to cleanup function for proper cancellation
+  const pollingCleanupRef = useRef<Map<string, () => void>>(new Map());
+  const loadingBatchesRef = useRef<Set<string>>(new Set());
   const isMountedRef = useRef(true); // Track mount status
 
   // Load initial data ONLY after auth is ready (LAZY LOAD - only recent batches)
@@ -65,18 +68,26 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     return () => clearTimeout(timer);
   }, [batches]);
 
-  // Cleanup polling intervals and timeouts on unmount to prevent memory leaks
+  // ✅ FIX: Enhanced cleanup on unmount to prevent memory leaks
   React.useEffect(() => {
     isMountedRef.current = true;
 
     return () => {
+      console.log('🧹 DocumentContext unmounting - cleaning up all polling...');
       isMountedRef.current = false;
-      // Clear all intervals
-      pollingIntervalsRef.current.forEach(clearInterval);
-      pollingIntervalsRef.current = [];
-      // Clear all timeouts
-      pollingTimeoutsRef.current.forEach(clearTimeout);
-      pollingTimeoutsRef.current = [];
+
+      // ✅ FIX: Call all cleanup functions to properly cancel polling
+      pollingCleanupRef.current.forEach((cleanup, batchId) => {
+        console.log(`🧹 Cleaning up polling for batch ${batchId.slice(-8)}`);
+        try {
+          cleanup();
+        } catch (error) {
+          console.error(`Error cleaning up batch ${batchId}:`, error);
+        }
+      });
+      pollingCleanupRef.current.clear();
+      loadingBatchesRef.current.clear();
+      console.log('✅ All polling cleaned up');
     };
   }, []);
 
@@ -89,9 +100,22 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // Helper to consistently update results for a batch
+  // ✅ FIX: Helper to consistently update results for a batch with deduplication
   const updateResultsForBatch = (batchId: string, results: ScanResult[]) => {
-    setScanResults(prev => [...results, ...prev.filter(r => r.batch_id !== batchId)]);
+    setScanResults(prev => {
+      // Remove old results for this batch
+      const filtered = prev.filter(r => r.batch_id !== batchId);
+
+      // ✅ FIX: Deduplicate new results by ID (prevent duplicates if called twice)
+      const newResultsMap = new Map<string, ScanResult>();
+      results.forEach(result => {
+        newResultsMap.set(result.id, result);
+      });
+      const deduplicatedResults = Array.from(newResultsMap.values());
+
+      // Add deduplicated new results at the beginning
+      return [...deduplicatedResults, ...filtered];
+    });
   };
 
   const uploadDocuments = async (files: File[], documentTypes: string[]): Promise<Batch> => {
@@ -149,10 +173,20 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
   const pollBatchStatus = async (batchId: string) => {
     console.log(`🚀 Starting polling for batch ${batchId.slice(-8)}`);
 
+    // ✅ FIX: Stop existing polling for this batch if any
+    const existingCleanup = pollingCleanupRef.current.get(batchId);
+    if (existingCleanup) {
+      console.log(`⚠️ Stopping existing poll for batch ${batchId.slice(-8)}`);
+      existingCleanup();
+    }
+
+    // ✅ FIX: Create cancellation flag for this specific poll
+    let cancelled = false;
+
     const pollInterval = setInterval(async () => {
-      // Check if component is still mounted
-      if (!isMountedRef.current) {
-        console.log(`⚠️ Component unmounted, stopping polling for batch ${batchId.slice(-8)}`);
+      // ✅ FIX: Check both mounted status and cancellation flag
+      if (!isMountedRef.current || cancelled) {
+        console.log(`⚠️ Stopping polling for batch ${batchId.slice(-8)} (unmounted=${!isMountedRef.current}, cancelled=${cancelled})`);
         clearInterval(pollInterval);
         return;
       }
@@ -163,80 +197,104 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
         const updatedBatch = await apiService.getBatchStatus(batchId);
         console.log(`📡 Batch ${batchId.slice(-8)} status:`, updatedBatch.status);
 
-        // Only update state if still mounted
-        if (isMountedRef.current) {
-          setBatches(prev => {
-            console.log(`🔄 Polling update for batch ${batchId.slice(-8)}. Current batches:`, prev.length);
-            const updated = prev.map(batch =>
-              batch.id === batchId ? updatedBatch : batch
-            );
-            console.log(`🔄 After polling update, batches:`, updated.length);
-            return updated;
-          });
+        // ✅ FIX: Check again after async operation
+        if (!isMountedRef.current || cancelled) {
+          clearInterval(pollInterval);
+          return;
         }
+
+        // Update batch status
+        setBatches(prev => {
+          console.log(`🔄 Polling update for batch ${batchId.slice(-8)}. Current batches:`, prev.length);
+          const updated = prev.map(batch =>
+            batch.id === batchId ? updatedBatch : batch
+          );
+          console.log(`🔄 After polling update, batches:`, updated.length);
+          return updated;
+        });
 
         if (updatedBatch.status === 'completed') {
+          console.log(`✅ Batch ${batchId.slice(-8)} completed, loading results...`);
           clearInterval(pollInterval);
-          removePollingInterval(pollInterval);
+          pollingCleanupRef.current.delete(batchId);
 
-          // Retry mechanism to ensure all results are loaded
-          let attempts = 0;
-          const maxAttempts = 5;
-          const attemptLoad = async () => {
-            if (!isMountedRef.current) return; // Don't continue if unmounted
+          // ✅ FIX: Prevent duplicate result loading
+          if (loadingBatchesRef.current.has(batchId)) {
+            console.log(`⚠️ Already loading results for ${batchId.slice(-8)}, skipping...`);
+            return;
+          }
 
+          loadingBatchesRef.current.add(batchId);
+
+          // ✅ FIX: Simplified result loading with timeout
+          const loadTimeout = setTimeout(() => {
+            loadingBatchesRef.current.delete(batchId);
+            console.error(`⏱️ Results loading timeout for ${batchId.slice(-8)}`);
+          }, 30000); // 30 second max
+
+          try {
             const results = await apiService.getBatchResults(batchId);
-            if (Array.isArray(results) && results.length >= updatedBatch.total_files) {
-              if (isMountedRef.current) {
-                updateResultsForBatch(batchId, results);
-                handleBatchCompletion(batchId);
-              }
-            } else if (attempts < maxAttempts) {
-              attempts++;
-              const retryTimeout = setTimeout(attemptLoad, 2000);
-              pollingTimeoutsRef.current.push(retryTimeout); // Track timeout
-            } else {
-              if (isMountedRef.current) {
-                setTimeout(() => {
-                  toast.error(`Polling failed for batch ${batchId.slice(-8)}. Please refresh the page.`, {
-                    duration: 6000,
-                  });
-                }, 0);
-              }
-            }
-          };
 
-          await attemptLoad();
+            // Final check before state update
+            if (!isMountedRef.current || cancelled) {
+              clearTimeout(loadTimeout);
+              loadingBatchesRef.current.delete(batchId);
+              return;
+            }
+
+            if (Array.isArray(results) && results.length > 0) {
+              updateResultsForBatch(batchId, results);
+              handleBatchCompletion(batchId);
+              console.log(`✅ Loaded ${results.length} results for batch ${batchId.slice(-8)}`);
+            } else {
+              console.warn(`⚠️ No results returned for batch ${batchId.slice(-8)}`);
+              setTimeout(() => {
+                toast.error(`No results found for batch ${batchId.slice(-8)}. Please refresh.`, {
+                  duration: 6000,
+                });
+              }, 0);
+            }
+          } catch (error) {
+            console.error(`❌ Failed to load results for ${batchId.slice(-8)}:`, error);
+          } finally {
+            clearTimeout(loadTimeout);
+            loadingBatchesRef.current.delete(batchId);
+          }
         }
         else if (updatedBatch.status === 'error' || updatedBatch.status === 'failed') {
+          console.log(`❌ Batch ${batchId.slice(-8)} failed`);
           clearInterval(pollInterval);
-          removePollingInterval(pollInterval);
-          // Fix: Only remove results for the failed batch, not all results.
-          if (isMountedRef.current) {
+          pollingCleanupRef.current.delete(batchId);
+
+          if (isMountedRef.current && !cancelled) {
             setScanResults(prev => prev.filter(r => r.batch_id !== batchId));
           }
         }
       } catch (error) {
         console.error(`❌ Polling error for batch ${batchId.slice(-8)}:`, error);
         clearInterval(pollInterval);
-        removePollingInterval(pollInterval);
+        pollingCleanupRef.current.delete(batchId);
       }
     }, 2000); // Poll every 2 seconds
 
-    pollingIntervalsRef.current.push(pollInterval);
-    console.log(`✅ Polling interval added. Total active polls: ${pollingIntervalsRef.current.length}`);
-
-    // Stop polling after 5 minutes as a safety measure
+    // ✅ FIX: Safety timeout (5 minutes)
     const stopTimeout = setTimeout(() => {
+      console.log(`⏱️ Safety timeout for batch ${batchId.slice(-8)}`);
+      cancelled = true;
       clearInterval(pollInterval);
-      removePollingInterval(pollInterval);
-    }, 300000);
-    pollingTimeoutsRef.current.push(stopTimeout); // Track this timeout too
-  };
+      pollingCleanupRef.current.delete(batchId);
+    }, 300000); // 5 minutes
 
-  // Helper function to remove interval from tracking array
-  const removePollingInterval = (interval: NodeJS.Timeout) => {
-    pollingIntervalsRef.current = pollingIntervalsRef.current.filter(i => i !== interval);
+    // ✅ FIX: Register cleanup function that cancels everything
+    const cleanup = () => {
+      cancelled = true;
+      clearInterval(pollInterval);
+      clearTimeout(stopTimeout);
+      pollingCleanupRef.current.delete(batchId);
+    };
+
+    pollingCleanupRef.current.set(batchId, cleanup);
+    console.log(`✅ Polling registered for ${batchId.slice(-8)}. Active polls: ${pollingCleanupRef.current.size}`);
   };
 
   const refreshBatch = async (batchId: string) => {
@@ -323,12 +381,14 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     try {
       setLoading(true);
 
-      // Clear all polling intervals before refreshing to prevent conflicts
-      console.log('🧹 Clearing all polling intervals before refresh');
-      pollingIntervalsRef.current.forEach(clearInterval);
-      pollingIntervalsRef.current = [];
-      pollingTimeoutsRef.current.forEach(clearTimeout);
-      pollingTimeoutsRef.current = [];
+      // ✅ FIX: Clear all polling with proper cleanup functions
+      console.log('🧹 Clearing all polling before refresh');
+      pollingCleanupRef.current.forEach((cleanup, batchId) => {
+        console.log(`🧹 Stopping poll for batch ${batchId.slice(-8)}`);
+        cleanup();
+      });
+      pollingCleanupRef.current.clear();
+      loadingBatchesRef.current.clear();
 
       // Use Promise.allSettled to handle partial failures gracefully
       const [batchesPromise, resultsPromise] = await Promise.allSettled([

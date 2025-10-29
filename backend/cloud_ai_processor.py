@@ -381,15 +381,6 @@ class CloudAIProcessor:
                 language_detected="unknown"
             )
     
-    async def _REMOVED_process_ensemble_cloud(self, file_path: str) -> CloudOCRResult:
-        """REMOVED: Ensemble processing - Only Google Document AI is used now"""
-        # This method has been deprecated as we now use only Google Document AI
-        # Redirect to Google-only processing
-        return await self.process_with_google(file_path)
-    
-    # REMOVED: Azure and AWS helper methods
-    # These methods were used for Azure Document Intelligence and AWS Textract
-    # Now using only Google Document AI + Smart Mapper GPT
 
 # Example usage
 async def main():

@@ -1,31 +1,5 @@
 import axios from 'axios';
-
-// Tentukan base URL otomatis: dev / prod dengan environment variable support
-const getApiBaseUrl = (): string => {
-  // Check environment variable first
-  if (import.meta.env.VITE_API_URL) {
-    console.log('Using API URL from environment:', import.meta.env.VITE_API_URL);
-    return import.meta.env.VITE_API_URL;
-  }
-
-  const hostname = window.location.hostname;
-
-  // Production environment
-  if (hostname === 'docscan.adilabs.id' || hostname.includes('adilabs.id')) {
-    console.log('Production mode: backend already has /api prefix');
-    return ''; // gunakan relative path
-  }
-
-  // Development environment
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    console.log('Development mode: using localhost:8000');
-    return 'http://localhost:8000';
-  }
-
-  // Default ke production
-  console.log('Unknown domain, defaulting to production');
-  return '';
-};
+import { getApiBaseUrl } from '../utils/config';
 
 const API_BASE_URL = getApiBaseUrl();
 

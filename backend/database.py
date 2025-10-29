@@ -27,18 +27,38 @@ def get_text_column():
 
 # Database Configuration
 DATABASE_URL = os.getenv(
-    "DATABASE_URL", 
-    "mysql+pymysql://docuser:docpass123@localhost:3306/docscan_db"
+    "DATABASE_URL",
+    "sqlite:///./doc_scan_dev.db"  # ✅ FIX: SQLite default (no credentials in code)
 )
+
+# ✅ FIX: Enhanced database engine configuration with proper timeouts
+# This prevents connection pool exhaustion and hanging connections
+is_mysql = "mysql" in DATABASE_URL.lower()
+is_sqlite = "sqlite" in DATABASE_URL.lower()
+
+# Prepare connect_args based on database type
+connect_args = {}
+if is_mysql:
+    # MySQL-specific connection arguments
+    connect_args = {
+        'connect_timeout': 10,      # ✅ FIX: Max 10s to establish connection
+        'read_timeout': 300,         # ✅ FIX: Max 5min to read query results
+        'write_timeout': 300,        # ✅ FIX: Max 5min to write data
+    }
+elif is_sqlite:
+    # SQLite-specific: enable thread-safety check
+    connect_args = {'check_same_thread': False}
 
 # Create engine with optimized settings for production
 engine = create_engine(
     DATABASE_URL,
-    pool_size=20,
-    max_overflow=30,
-    pool_pre_ping=True,
-    pool_recycle=3600,
-    echo=False  # Set to True for SQL debugging
+    pool_size=20,                    # Max 20 persistent connections in pool
+    max_overflow=30,                 # Max 30 additional connections when pool is full
+    pool_pre_ping=True,              # ✅ Verify connection is alive before using
+    pool_recycle=1800,               # ✅ FIX: Recycle connections every 30min (was 1 hour)
+    pool_timeout=30,                 # ✅ FIX: Max 30s wait for connection from pool
+    connect_args=connect_args,       # ✅ FIX: Database-specific connection timeouts
+    echo=False                       # Set to True for SQL debugging
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

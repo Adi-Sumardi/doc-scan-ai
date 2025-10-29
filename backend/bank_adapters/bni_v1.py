@@ -123,6 +123,58 @@ class BniV1Adapter(BaseBankAdapter):
     def _parse_from_text(self, ocr_result: Dict[str, Any]):
         """
         Parse transaksi dari raw text (fallback)
+        Format BNI V1: Tgl Trans | Uraian | Debet | Kredit | Saldo
         """
-        # TODO: Implement text-based parsing jika table detection gagal
-        pass
+        text = self.extract_text_from_ocr(ocr_result)
+        if not text:
+            return
+
+        import re
+
+        # ✅ FIX: Regex pattern untuk BNI V1
+        # Pattern: DD/MM(/YYYY)? ... DESCRIPTION ... DEBIT ... CREDIT ... BALANCE
+        pattern = r'(\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?)\s+(.+?)\s+([\d,.-]+(?:\.\d{2})?)\s+([\d,.-]+(?:\.\d{2})?)\s+([\d,.-]+(?:\.\d{2})?)'
+
+        matches = re.finditer(pattern, text, re.MULTILINE)
+
+        for match in matches:
+            try:
+                tgl_str = match.group(1)
+                uraian = match.group(2).strip()
+                debet_str = match.group(3).strip()
+                kredit_str = match.group(4).strip()
+                saldo_str = match.group(5).strip()
+
+                # Parse tanggal
+                tgl_trans = self.parse_date(tgl_str)
+                if not tgl_trans:
+                    continue
+
+                # Parse amounts
+                debet = self.clean_amount(debet_str)
+                kredit = self.clean_amount(kredit_str)
+                saldo = self.clean_amount(saldo_str)
+
+                transaction = StandardizedTransaction(
+                    transaction_date=tgl_trans,
+                    description=uraian,
+                    debit=debet,
+                    credit=kredit,
+                    balance=saldo,
+                    bank_name=self.BANK_NAME,
+                    account_number=self.account_info.get('account_number', ''),
+                    account_holder=self.account_info.get('account_holder', ''),
+                    raw_data={
+                        'tgl_trans': tgl_str,
+                        'uraian': uraian,
+                        'debet': debet_str,
+                        'kredit': kredit_str,
+                        'source': 'text_fallback'
+                    }
+                )
+
+                self.transactions.append(transaction)
+
+            except Exception as e:
+                # Silent fail - regex might match non-transaction text
+                continue

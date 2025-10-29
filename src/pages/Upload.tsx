@@ -3,29 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useDocument } from '../context/DocumentContext';
 import { Upload as UploadIcon, FileText, X, Brain, Zap, CheckCircle, FolderArchive, Files } from 'lucide-react';
 import toast from 'react-hot-toast';
-
-// Helper function to get API base URL
-const getApiBaseUrl = (): string => {
-  // Check environment variable first
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
-
-  const hostname = window.location.hostname;
-
-  // Production environment
-  if (hostname === 'docscan.adilabs.id' || hostname.includes('adilabs.id')) {
-    return ''; // Use relative path for production
-  }
-
-  // Development environment
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return 'http://localhost:8000';
-  }
-
-  // Default to production (relative path)
-  return '';
-};
+import { getApiBaseUrl } from '../utils/config';
 
 const documentTypes = [
   {

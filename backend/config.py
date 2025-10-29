@@ -18,26 +18,27 @@ def parse_bool_env(value: str, default: bool = False) -> bool:
     return value.lower() in ('true', '1', 'yes', 'on', 'enabled')
 
 class Settings(BaseSettings):
-    
+
     frontend_url: str = "http://localhost:5173"
     backend_url: str = "http://localhost:8000"
     upload_folder: str = "uploads"
     export_folder: str = "exports"
     default_ocr_engine: str = "auto"
     enable_cloud_ocr: bool = False
-    
+
     # Database Configuration
     database_url: str = os.getenv("DATABASE_URL", "")
     database_pool_size: int = 20
     database_max_overflow: int = 30
-    
+
     # Redis Configuration
     redis_url: str = "redis://localhost:6379/0"
     redis_pool_size: int = 10
     enable_redis_cache: bool = True
-    
+
     # Security Configuration
-    secret_key: str = "your-super-secret-key-change-in-production"
+    # ✅ FIX: SECRET_KEY now REQUIRED from environment - no unsafe default
+    secret_key: str = os.getenv("SECRET_KEY", "")
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     
@@ -65,9 +66,13 @@ class Settings(BaseSettings):
     log_format: str = "json"
     
     # Production Settings
-    environment: str = "development"
-    debug: bool = False
-    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"  # Changed to string
+    environment: str = os.getenv("ENVIRONMENT", "development")
+    debug: bool = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
+    # ✅ FIX: CORS origins determined by environment, not hardcoded with localhost
+    cors_origins: str = os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173" if os.getenv("ENVIRONMENT", "development").lower() == "development" else ""
+    )
     
     # Monitoring
     enable_metrics: bool = True
@@ -104,6 +109,59 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
+
+# ✅ FIX: Validate SECRET_KEY on startup to prevent security vulnerabilities
+def validate_secret_key():
+    """Validate that SECRET_KEY is properly configured"""
+    # List of insecure default values that should never be used
+    INSECURE_DEFAULTS = [
+        "",
+        "your-super-secret-key-change-in-production",
+        "change-me",
+        "secret",
+        "secret-key",
+        "dev-secret",
+        "development",
+    ]
+
+    if not settings.secret_key or settings.secret_key in INSECURE_DEFAULTS:
+        import secrets
+        error_msg = (
+            "\n" + "="*80 + "\n"
+            "🚨 CRITICAL SECURITY ERROR: SECRET_KEY is not configured or uses default value!\n"
+            "="*80 + "\n"
+            "SECRET_KEY must be set to a cryptographically strong random value.\n\n"
+            "To generate a secure SECRET_KEY, run:\n"
+            "  python -c 'import secrets; print(secrets.token_urlsafe(32))'\n\n"
+            "Then set it in your .env file or environment:\n"
+            "  export SECRET_KEY='<generated-value>'\n\n"
+            "Current value: " + (f"'{settings.secret_key}'" if settings.secret_key else "(empty)") + "\n"
+            "="*80 + "\n"
+        )
+
+        # In development, generate a temporary key with warning
+        if settings.environment.lower() == "development":
+            temp_key = secrets.token_urlsafe(32)
+            settings.secret_key = temp_key
+            print("⚠️  WARNING: Using temporary SECRET_KEY for development")
+            print(f"⚠️  Temporary key: {temp_key}")
+            print("⚠️  This is NOT safe for production!")
+            print("⚠️  Set a permanent SECRET_KEY in your .env file\n")
+        else:
+            # In production, refuse to start
+            raise ValueError(error_msg)
+
+    # Validate key strength (should be at least 32 bytes / 256 bits)
+    if len(settings.secret_key) < 32:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            f"⚠️  SECRET_KEY is weak (only {len(settings.secret_key)} characters). "
+            f"Recommended: at least 32 characters (256 bits)."
+        )
+
+# Validate on module load
+validate_secret_key()
 
 # Synchronize critical settings back into environment variables for SDKs that rely on them
 _google_env_map = {

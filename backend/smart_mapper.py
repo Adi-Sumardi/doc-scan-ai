@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from config import settings
 
@@ -54,40 +55,159 @@ class SmartMapper:
             logger.warning("⚠️ SMART_MAPPER_API_KEY not configured. Smart mapping disabled.")
             self.enabled = False
 
+        # ✅ FIX: Lazy loading - clients are initialized on first use, not at __init__
+        # This prevents startup crashes due to network errors or invalid API keys
         self._client = None
         self._claude_client = None
-
-        if self.enabled:
-            try:
-                # Initialize primary client (GPT-4o)
-                if self.provider == "openai":
-                    from openai import OpenAI  # type: ignore
-
-                    self._client = OpenAI(api_key=self.api_key)
-                elif self.provider == "anthropic":
-                    import anthropic  # type: ignore
-
-                    self._client = anthropic.Anthropic(api_key=self.api_key)
-                logger.info(f"🤖 Smart Mapper initialized with provider {self.provider} and model {self.model}")
-                logger.info(f"🎯 Max tokens configured: {self.max_tokens}")
-
-                # Initialize Claude client for Rekening Koran (if API key provided)
-                if self.claude_api_key:
-                    try:
-                        import anthropic  # type: ignore
-                        self._claude_client = anthropic.Anthropic(api_key=self.claude_api_key)
-                        logger.info(f"🧠 Claude AI initialized for Rekening Koran: {self.claude_model}")
-                        logger.info(f"🎯 Claude max tokens: {self.claude_max_tokens}")
-                    except Exception as exc:
-                        logger.warning(f"⚠️ Failed to initialize Claude client: {exc}")
-                        logger.warning("⚠️ Rekening Koran will fallback to GPT-4o")
-
-            except Exception as exc:  # pragma: no cover - initialization failure
-                logger.error(f"❌ Failed to initialize Smart Mapper client: {exc}")
-                self.enabled = False
+        self._client_initialized = False
+        self._claude_client_initialized = False
 
         template_dir_env = os.getenv("SMART_MAPPER_TEMPLATE_DIR")
         self.template_dir = Path(template_dir_env) if template_dir_env else Path(__file__).resolve().parent / "templates"
+
+        logger.info(f"🤖 Smart Mapper configured: provider={self.provider}, model={self.model}, enabled={self.enabled}")
+        if self.claude_api_key:
+            logger.info(f"🧠 Claude AI configured for Rekening Koran: model={self.claude_model}")
+
+    # ------------------------------------------------------------------
+    # Lazy loading properties for AI clients with retry logic
+    # ------------------------------------------------------------------
+    @property
+    def client(self):
+        """
+        ✅ FIX: Lazy load primary client on first use with retry logic.
+
+        This prevents startup crashes and implements graceful degradation:
+        - Client initialized only when needed (not at __init__)
+        - Retry logic with exponential backoff for transient failures
+        - Graceful fallback if initialization fails
+        - Thread-safe initialization tracking
+        """
+        if self._client_initialized:
+            return self._client
+
+        if not self.enabled or not self.api_key:
+            self._client_initialized = True
+            return None
+
+        # Initialize client with retry logic
+        self._client = self._initialize_primary_client()
+        self._client_initialized = True
+        return self._client
+
+    @property
+    def claude_client(self):
+        """
+        ✅ FIX: Lazy load Claude client on first use with retry logic.
+
+        Similar to primary client, but for Claude-specific processing.
+        """
+        if self._claude_client_initialized:
+            return self._claude_client
+
+        if not self.claude_api_key:
+            self._claude_client_initialized = True
+            return None
+
+        # Initialize Claude client with retry logic
+        self._claude_client = self._initialize_claude_client()
+        self._claude_client_initialized = True
+        return self._claude_client
+
+    def _initialize_primary_client(self):
+        """Initialize primary AI client (OpenAI or Anthropic) with retry logic"""
+        max_retries = 3
+        base_delay = 1.0
+
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    delay = base_delay * (2 ** (attempt - 1))  # 1s, 2s, 4s
+                    logger.info(f"🔄 Retrying client initialization (attempt {attempt + 1}/{max_retries}) in {delay}s...")
+                    time.sleep(delay)
+
+                if self.provider == "openai":
+                    from openai import OpenAI  # type: ignore
+                    client = OpenAI(
+                        api_key=self.api_key,
+                        timeout=self.timeout
+                    )
+                    logger.info(f"✅ OpenAI client initialized successfully: model={self.model}")
+                    return client
+
+                elif self.provider == "anthropic":
+                    import anthropic  # type: ignore
+                    client = anthropic.Anthropic(api_key=self.api_key)
+                    logger.info(f"✅ Anthropic client initialized successfully: model={self.model}")
+                    return client
+
+                else:
+                    logger.error(f"❌ Unsupported provider: {self.provider}")
+                    return None
+
+            except ImportError as exc:
+                logger.error(f"❌ Failed to import {self.provider} SDK: {exc}")
+                logger.error(f"💡 Install with: pip install {self.provider}")
+                return None
+
+            except Exception as exc:
+                error_msg = str(exc).lower()
+
+                # Check if it's a retryable error
+                is_retryable = any(keyword in error_msg for keyword in [
+                    'timeout', 'connection', 'network', 'temporary', 'rate limit'
+                ])
+
+                if is_retryable and attempt < max_retries - 1:
+                    logger.warning(f"⚠️ Transient error initializing {self.provider} client: {exc}")
+                    continue
+                else:
+                    logger.error(f"❌ Failed to initialize {self.provider} client after {attempt + 1} attempts: {exc}")
+                    logger.warning(f"⚠️ Smart Mapper will be disabled due to client initialization failure")
+                    self.enabled = False
+                    return None
+
+        return None
+
+    def _initialize_claude_client(self):
+        """Initialize Claude client specifically for Rekening Koran with retry logic"""
+        max_retries = 3
+        base_delay = 1.0
+
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    delay = base_delay * (2 ** (attempt - 1))  # 1s, 2s, 4s
+                    logger.info(f"🔄 Retrying Claude client initialization (attempt {attempt + 1}/{max_retries}) in {delay}s...")
+                    time.sleep(delay)
+
+                import anthropic  # type: ignore
+                client = anthropic.Anthropic(api_key=self.claude_api_key)
+                logger.info(f"✅ Claude client initialized successfully: model={self.claude_model}")
+                return client
+
+            except ImportError as exc:
+                logger.error(f"❌ Failed to import anthropic SDK: {exc}")
+                logger.error(f"💡 Install with: pip install anthropic")
+                return None
+
+            except Exception as exc:
+                error_msg = str(exc).lower()
+
+                # Check if it's a retryable error
+                is_retryable = any(keyword in error_msg for keyword in [
+                    'timeout', 'connection', 'network', 'temporary', 'rate limit'
+                ])
+
+                if is_retryable and attempt < max_retries - 1:
+                    logger.warning(f"⚠️ Transient error initializing Claude client: {exc}")
+                    continue
+                else:
+                    logger.warning(f"⚠️ Failed to initialize Claude client after {attempt + 1} attempts: {exc}")
+                    logger.warning(f"⚠️ Rekening Koran will fallback to {self.provider}")
+                    return None
+
+        return None
 
     # ------------------------------------------------------------------
     # Template helpers
@@ -110,7 +230,8 @@ class SmartMapper:
         fallback_fields: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         """Send document JSON + template to the configured LLM and return structured output."""
-        if not self.enabled or not self._client:
+        # ✅ FIX: Use property instead of direct access - triggers lazy loading
+        if not self.enabled or not self.client:
             logger.debug("Smart Mapper disabled or not initialized; skipping LLM mapping")
             return None
 
@@ -288,139 +409,6 @@ class SmartMapper:
             logger.error(f"❌ Per-page processing failed: {exc}", exc_info=True)
             return None
 
-    def _map_document_chunked(
-        self,
-        *,
-        doc_type: str,
-        document_json: Dict[str, Any],
-        template: Dict[str, Any],
-        extracted_fields: Optional[Dict[str, Any]] = None,
-        fallback_fields: Optional[Dict[str, Any]] = None,
-    ) -> Optional[Dict[str, Any]]:
-        """
-        [DEPRECATED] Process large rekening koran in chunks to avoid token limits.
-        Now using _map_document_per_page instead.
-
-        Strategy:
-        1. Split table data into chunks of ~80 rows each
-        2. Process each chunk separately with Smart Mapper
-        3. Merge all results into single response
-        4. Extract bank_info and saldo_info from first chunk only
-        """
-        try:
-            logger.info("🔄 Starting chunked processing for large rekening koran")
-
-            # Split tables into chunks
-            chunks = self._split_tables_into_chunks(document_json, chunk_size=80)
-            logger.info(f"📦 Split into {len(chunks)} chunks")
-
-            # Process first chunk (includes bank_info + saldo_info + transactions)
-            first_chunk_json = {
-                "text": document_json.get("text", "")[:15000],  # Include text for metadata
-                "pages": chunks[0] if chunks else [],
-                "entities": document_json.get("entities", [])[:50]  # Limited entities
-            }
-
-            logger.info(f"🔄 Processing chunk 1/{len(chunks)} (with metadata)...")
-            first_result = self._process_single_chunk(
-                chunk_json=first_chunk_json,
-                doc_type=doc_type,
-                template=template,
-                extracted_fields=extracted_fields,
-                fallback_fields=fallback_fields,
-                include_metadata=True
-            )
-
-            if not first_result:
-                logger.error("❌ First chunk processing failed")
-                return None
-
-            # Initialize merged result with first chunk
-            merged_result = first_result.copy()
-            all_transactions = merged_result.get("transactions", [])
-
-            # Process remaining chunks (transactions only)
-            for i, chunk_pages in enumerate(chunks[1:], start=2):
-                chunk_json = {
-                    "text": "",  # No text needed for transaction-only chunks
-                    "pages": chunk_pages,
-                    "entities": []
-                }
-
-                logger.info(f"🔄 Processing chunk {i}/{len(chunks)} (transactions only)...")
-                chunk_result = self._process_single_chunk(
-                    chunk_json=chunk_json,
-                    doc_type=doc_type,
-                    template=template,
-                    extracted_fields=None,
-                    fallback_fields=None,
-                    include_metadata=False
-                )
-
-                if chunk_result and "transactions" in chunk_result:
-                    chunk_transactions = chunk_result["transactions"]
-                    if isinstance(chunk_transactions, list):
-                        all_transactions.extend(chunk_transactions)
-                        logger.info(f"✅ Chunk {i} added {len(chunk_transactions)} transactions")
-                else:
-                    logger.warning(f"⚠️ Chunk {i} returned no transactions")
-
-            # Update merged result with all transactions
-            merged_result["transactions"] = all_transactions
-            logger.info(f"✅ Chunked processing complete: {len(all_transactions)} total transactions")
-
-            return merged_result
-
-        except Exception as exc:
-            logger.error(f"❌ Chunked processing failed: {exc}", exc_info=True)
-            return None
-
-    def _split_tables_into_chunks(self, document_json: Dict[str, Any], chunk_size: int = 80) -> List[List[Dict[str, Any]]]:
-        """
-        Split Document AI pages with tables into chunks.
-        Each chunk contains pages with ~chunk_size total table rows.
-
-        Returns: List of page lists, where each page list is a chunk
-        """
-        pages = document_json.get("pages", [])
-        if not isinstance(pages, list):
-            return []
-
-        chunks = []
-        current_chunk = []
-        current_row_count = 0
-
-        for page in pages:
-            if not isinstance(page, dict):
-                continue
-
-            page_tables = page.get("tables", [])
-            if not isinstance(page_tables, list):
-                continue
-
-            # Count rows in this page
-            page_row_count = 0
-            for table in page_tables:
-                if isinstance(table, dict):
-                    body_rows = table.get("body_rows", table.get("bodyRows", []))
-                    if isinstance(body_rows, list):
-                        page_row_count += len(body_rows)
-
-            # If adding this page exceeds chunk_size, start new chunk
-            if current_row_count > 0 and current_row_count + page_row_count > chunk_size:
-                if current_chunk:
-                    chunks.append(current_chunk)
-                current_chunk = [page]
-                current_row_count = page_row_count
-            else:
-                current_chunk.append(page)
-                current_row_count += page_row_count
-
-        # Add remaining chunk
-        if current_chunk:
-            chunks.append(current_chunk)
-
-        return chunks
 
     def _process_single_page(
         self,
@@ -542,49 +530,6 @@ class SmartMapper:
             logger.error(f"❌ Page {page_number} processing failed: {exc}")
             return None
 
-    def _process_single_chunk(
-        self,
-        *,
-        chunk_json: Dict[str, Any],
-        doc_type: str,
-        template: Dict[str, Any],
-        extracted_fields: Optional[Dict[str, Any]],
-        fallback_fields: Optional[Dict[str, Any]],
-        include_metadata: bool
-    ) -> Optional[Dict[str, Any]]:
-        """[DEPRECATED] Process a single chunk of tables. Use _process_single_page instead."""
-        try:
-            # Build payload for this chunk
-            prompt_payload = self._build_payload(chunk_json, extracted_fields, fallback_fields)
-
-            # Build instructions (modify for transaction-only chunks)
-            instructions = self._build_instructions(doc_type, template)
-
-            if not include_metadata:
-                # For transaction-only chunks, simplify instructions
-                instructions += (
-                    "\n\n🔄 CHUNKED PROCESSING MODE:\n"
-                    "This is a continuation chunk. Extract ONLY the transactions from the tables.\n"
-                    "You do NOT need to extract bank_info or saldo_info - only transactions array.\n"
-                    "Output format: {\"transactions\": [...]}\n"
-                )
-
-            # Invoke LLM (pass doc_type for routing)
-            raw_response = self._invoke_llm(prompt_payload, instructions, doc_type)
-            if not raw_response:
-                return None
-
-            # Parse response
-            parsed = self._safe_json_loads(raw_response)
-            if not parsed:
-                logger.error("❌ Chunk returned non-JSON content")
-                return None
-
-            return parsed
-
-        except Exception as exc:
-            logger.error(f"❌ Chunk processing failed: {exc}")
-            return None
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -790,19 +735,6 @@ class SmartMapper:
         logger.warning(f"   ⚠️ Could not extract text for this page using layout anchors")
         return "No text extracted. Please analyze any visible data in the page structure."
 
-    def _get_text_from_page(self, page: Dict[str, Any]) -> str:
-        """
-        DEPRECATED: Old method that didn't properly extract text.
-        Kept for compatibility but shouldn't be used anymore.
-        """
-        if not isinstance(page, dict):
-            return ""
-
-        table_count = len(page.get("tables", []))
-        if table_count > 0:
-            return f"Page contains {table_count} transaction table(s). Extract ALL transaction rows."
-
-        return "Page contains transaction data. Extract ALL transactions."
 
     def _get_text_from_layout(self, layout: dict, full_text: str) -> str:
         """Extract text from layout using text anchor segments"""
@@ -930,7 +862,8 @@ class SmartMapper:
         payload_text = json.dumps(payload, ensure_ascii=False, indent=2)
 
         # 🧠 ROUTING LOGIC: Use Claude for Rekening Koran, GPT-4o for others
-        if doc_type == "rekening_koran" and self._claude_client:
+        # ✅ FIX: Use property instead of direct access - triggers lazy loading
+        if doc_type == "rekening_koran" and self.claude_client:
             logger.info("🧠 Using Claude AI for Rekening Koran processing")
             return self._invoke_claude_direct(payload_text, instructions)
 
@@ -943,10 +876,10 @@ class SmartMapper:
 
     def _invoke_openai(self, payload_text: str, instructions: str) -> Optional[str]:
         """Invoke OpenAI API with automatic retry on rate limits"""
-        if not self._client:
+        # ✅ FIX: Use property instead of direct access - triggers lazy loading
+        if not self.client:
             return None
 
-        import time
         max_retries = 5
         base_delay = 2  # Start with 2 seconds
 
@@ -956,7 +889,7 @@ class SmartMapper:
                     logger.info(f"🔄 Retry attempt {attempt + 1}/{max_retries}")
 
                 logger.info(f"🤖 Calling OpenAI API with model: {self.model}")
-                response = self._client.chat.completions.create(
+                response = self.client.chat.completions.create(
                     model=self.model,
                     messages=[
                         {"role": "system", "content": "You are a precise data-mapping assistant that outputs strict JSON."},
@@ -978,13 +911,18 @@ class SmartMapper:
                     logger.info(f"✅ OpenAI response received: {len(content) if content else 0} characters")
                     logger.info(f"🏁 Finish reason: {finish_reason}")
 
-                    # ⚠️ CRITICAL: Check if response was truncated
+                    # ✅ FIX: Check if response was truncated - RAISE EXCEPTION instead of silent return
                     if finish_reason == "length":
                         logger.error("🚨 RESPONSE TRUNCATED! GPT-4o hit max_tokens limit!")
                         logger.error(f"🚨 Current max_tokens: {self.max_tokens}")
                         logger.error("🚨 This means TRANSACTIONS ARE MISSING from the output!")
-                        logger.error("🚨 Solution: Increase SMART_MAPPER_MAX_TOKENS in .env or split document into chunks")
-                        # Still return the partial content, but log warning
+                        logger.error("🚨 Returning None to trigger per-page fallback strategy")
+
+                        # ✅ FIX: Return None instead of partial content
+                        # This triggers per-page processing fallback in ai_processor.py
+                        # Silent partial data is worse than explicit failure
+                        return None
+
                     elif finish_reason != "stop":
                         logger.warning(f"⚠️ Unusual finish reason: {finish_reason}")
 
@@ -1015,10 +953,10 @@ class SmartMapper:
 
     def _invoke_anthropic(self, payload_text: str, instructions: str) -> Optional[str]:
         """Invoke Anthropic (Claude) API with automatic retry on rate limits"""
-        if not self._client:
+        # ✅ FIX: Use property instead of direct access - triggers lazy loading
+        if not self.client:
             return None
 
-        import time
         max_retries = 5
         base_delay = 2  # Start with 2 seconds
 
@@ -1027,7 +965,7 @@ class SmartMapper:
                 if attempt > 0:
                     logger.info(f"🔄 Retry attempt {attempt + 1}/{max_retries}")
 
-                response = self._client.messages.create(  # type: ignore[attr-defined]
+                response = self.client.messages.create(  # type: ignore[attr-defined]
                     model=self.model,
                     max_tokens=self.max_tokens,
                     temperature=self.temperature,
@@ -1048,11 +986,14 @@ class SmartMapper:
                     stop_reason = getattr(response, "stop_reason", None)
                     logger.info(f"🏁 Stop reason: {stop_reason}")
 
+                    # ✅ FIX: Check if response was truncated - return None instead of partial
                     if stop_reason == "max_tokens":
                         logger.error("🚨 RESPONSE TRUNCATED! Claude hit max_tokens limit!")
                         logger.error(f"🚨 Current max_tokens: {self.max_tokens}")
                         logger.error("🚨 This means TRANSACTIONS ARE MISSING from the output!")
-                        logger.error("🚨 Solution: Increase SMART_MAPPER_MAX_TOKENS in .env or split document into chunks")
+                        logger.error("🚨 Returning None to trigger per-page fallback strategy")
+                        return None
+
                     elif stop_reason != "end_turn":
                         logger.warning(f"⚠️ Unusual stop reason: {stop_reason}")
 
@@ -1089,11 +1030,11 @@ class SmartMapper:
 
     def _invoke_claude_direct(self, payload_text: str, instructions: str) -> Optional[str]:
         """Invoke Claude API directly (dedicated for Rekening Koran)"""
-        if not self._claude_client:
+        # ✅ FIX: Use property instead of direct access - triggers lazy loading
+        if not self.claude_client:
             logger.warning("⚠️ Claude client not initialized, falling back to primary provider")
             return None
 
-        import time
         max_retries = 5
         base_delay = 2  # Start with 2 seconds
 
@@ -1103,7 +1044,7 @@ class SmartMapper:
                     logger.info(f"🔄 Retry attempt {attempt + 1}/{max_retries}")
 
                 logger.info(f"🧠 Calling Claude API with model: {self.claude_model}")
-                response = self._claude_client.messages.create(
+                response = self.claude_client.messages.create(
                     model=self.claude_model,
                     max_tokens=self.claude_max_tokens,
                     temperature=self.temperature,
@@ -1125,11 +1066,14 @@ class SmartMapper:
                     stop_reason = getattr(response, "stop_reason", None)
                     logger.info(f"🏁 Stop reason: {stop_reason}")
 
+                    # ✅ FIX: Check if response was truncated - return None instead of partial
                     if stop_reason == "max_tokens":
                         logger.error("🚨 RESPONSE TRUNCATED! Claude hit max_tokens limit!")
                         logger.error(f"🚨 Current max_tokens: {self.claude_max_tokens}")
                         logger.error("🚨 This means TRANSACTIONS ARE MISSING from the output!")
-                        logger.error("🚨 Solution: Increase CLAUDE_MAX_TOKENS in .env or split document into chunks")
+                        logger.error("🚨 Returning None to trigger per-page fallback strategy")
+                        return None
+
                     elif stop_reason != "end_turn":
                         logger.warning(f"⚠️ Unusual stop reason: {stop_reason}")
 
@@ -1233,7 +1177,8 @@ class SmartMapper:
         Returns:
             Refinement suggestions (corrections, additions, etc.)
         """
-        if not self.enabled or not self._client:
+        # ✅ FIX: Use property instead of direct access - triggers lazy loading
+        if not self.enabled or not self.client:
             logger.debug("Smart Mapper disabled - skipping refinement")
             return adapter_result
 

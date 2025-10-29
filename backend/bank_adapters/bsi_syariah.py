@@ -178,6 +178,48 @@ class BsiSyariahAdapter(BaseBankAdapter):
     def _parse_from_text(self, ocr_result: Dict[str, Any]):
         """
         Parse transaksi dari raw text (fallback)
+        Format BSI Syariah: Tanggal | Uraian | Debet | Kredit | Saldo
         """
-        # TODO: Implement text-based parsing
-        pass
+        text = self.extract_text_from_ocr(ocr_result)
+        if not text:
+            return
+
+        import re
+
+        # ✅ FIX: Regex pattern untuk BSI Syariah
+        pattern = r'(\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?)\s+(.+?)\s+([\d,.-]+(?:\.\d{2})?)\s+([\d,.-]+(?:\.\d{2})?)\s+([\d,.-]+(?:\.\d{2})?)'
+
+        matches = re.finditer(pattern, text, re.MULTILINE)
+
+        for match in matches:
+            try:
+                tgl_str = match.group(1)
+                uraian = match.group(2).strip()
+                debet_str = match.group(3).strip()
+                kredit_str = match.group(4).strip()
+                saldo_str = match.group(5).strip()
+
+                tgl = self.parse_date(tgl_str)
+                if not tgl:
+                    continue
+
+                debet = self.clean_amount(debet_str)
+                kredit = self.clean_amount(kredit_str)
+                saldo = self.clean_amount(saldo_str)
+
+                transaction = StandardizedTransaction(
+                    transaction_date=tgl,
+                    description=uraian,
+                    debit=debet,
+                    credit=kredit,
+                    balance=saldo,
+                    bank_name=self.BANK_NAME,
+                    account_number=self.account_info.get('account_number', ''),
+                    account_holder=self.account_info.get('account_holder', ''),
+                    raw_data={'tanggal': tgl_str, 'uraian': uraian, 'source': 'text_fallback'}
+                )
+
+                self.transactions.append(transaction)
+
+            except Exception as e:
+                continue

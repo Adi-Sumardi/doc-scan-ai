@@ -144,6 +144,48 @@ class OcbcBankAdapter(BaseBankAdapter):
     def _parse_from_text(self, ocr_result: Dict[str, Any]):
         """
         Parse transaksi dari raw text (fallback)
+        Format OCBC: Date | Description | Debit | Credit | Balance
         """
-        # TODO: Implement text-based parsing
-        pass
+        text = self.extract_text_from_ocr(ocr_result)
+        if not text:
+            return
+
+        import re
+
+        # ✅ FIX: Regex pattern untuk OCBC
+        pattern = r'(\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?)\s+(.+?)\s+([\d,.-]+(?:\.\d{2})?)\s+([\d,.-]+(?:\.\d{2})?)\s+([\d,.-]+(?:\.\d{2})?)'
+
+        matches = re.finditer(pattern, text, re.MULTILINE)
+
+        for match in matches:
+            try:
+                date_str = match.group(1)
+                description = match.group(2).strip()
+                debit_str = match.group(3).strip()
+                credit_str = match.group(4).strip()
+                balance_str = match.group(5).strip()
+
+                date = self.parse_date(date_str)
+                if not date:
+                    continue
+
+                debit = self.clean_amount(debit_str)
+                credit = self.clean_amount(credit_str)
+                balance = self.clean_amount(balance_str)
+
+                transaction = StandardizedTransaction(
+                    transaction_date=date,
+                    description=description,
+                    debit=debit,
+                    credit=credit,
+                    balance=balance,
+                    bank_name=self.BANK_NAME,
+                    account_number=self.account_info.get('account_number', ''),
+                    account_holder=self.account_info.get('account_holder', ''),
+                    raw_data={'date': date_str, 'description': description, 'source': 'text_fallback'}
+                )
+
+                self.transactions.append(transaction)
+
+            except Exception as e:
+                continue
