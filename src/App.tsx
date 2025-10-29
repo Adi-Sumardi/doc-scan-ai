@@ -11,8 +11,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import AdminDashboard from './pages/AdminDashboard';
 import UserActivities from './pages/UserActivities';
-import ReconciliationProjects from './pages/ReconciliationProjects';
-import ReconciliationDetail from './pages/ReconciliationDetail';
+import ExcelReconciliation from './pages/ExcelReconciliation';
 import { DocumentProvider } from './context/DocumentContext';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -70,12 +69,12 @@ function App() {
                 } />
                 <Route path="/reconciliation" element={
                   <ProtectedRoute>
-                    <ReconciliationProjects />
+                    <ExcelReconciliation />
                   </ProtectedRoute>
                 } />
-                <Route path="/reconciliation/:id" element={
+                <Route path="/excel-reconciliation" element={
                   <ProtectedRoute>
-                    <ReconciliationDetail />
+                    <ExcelReconciliation />
                   </ProtectedRoute>
                 } />
               </Routes>

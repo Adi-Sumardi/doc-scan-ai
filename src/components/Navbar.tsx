@@ -12,8 +12,8 @@ import {
   LogOut,
   User,
   Shield,
-  Scale,
-  ChevronDown
+  ChevronDown,
+  FileSpreadsheet
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -22,14 +22,14 @@ const Navbar = () => {
   const navigate = useNavigate();
   const { user, isAuthenticated, logout } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [historyDropdownOpen, setHistoryDropdownOpen] = useState(false);
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setHistoryDropdownOpen(false);
+        setOpenDropdown(null);
       }
     };
 
@@ -55,7 +55,7 @@ const Navbar = () => {
         { path: '/documents', icon: FileText, label: 'Documents' },
       ]
     },
-    { path: '/reconciliation', icon: Scale, label: 'Reconciliation' },
+    { path: '/excel-reconciliation', icon: FileSpreadsheet, label: 'Reconciliation' },
   ];
   
   // Add Admin menu item if user is admin
@@ -101,10 +101,11 @@ const Navbar = () => {
                 const isDropdownItemActive = item.submenu?.some(sub => sub.path === location.pathname);
 
                 if (item.hasDropdown) {
+                  const isDropdownOpen = openDropdown === item.path;
                   return (
                     <div key={item.path} className="relative" ref={dropdownRef}>
                       <button
-                        onClick={() => setHistoryDropdownOpen(!historyDropdownOpen)}
+                        onClick={() => setOpenDropdown(isDropdownOpen ? null : item.path)}
                         className={`flex items-center space-x-2 px-3 xl:px-4 py-2 rounded-lg transition-all duration-200 ${
                           isActive || isDropdownItemActive
                             ? 'bg-blue-50 text-blue-600 shadow-sm'
@@ -113,10 +114,10 @@ const Navbar = () => {
                       >
                         <Icon className={`w-4 h-4 xl:w-5 xl:h-5 ${isActive || isDropdownItemActive ? 'text-blue-600' : 'text-gray-500'}`} />
                         <span className="font-medium text-sm xl:text-base">{item.label}</span>
-                        <ChevronDown className={`w-4 h-4 transition-transform ${historyDropdownOpen ? 'rotate-180' : ''}`} />
+                        <ChevronDown className={`w-4 h-4 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
                       </button>
 
-                      {historyDropdownOpen && (
+                      {isDropdownOpen && (
                         <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
                           {item.submenu?.map((subItem) => {
                             const SubIcon = subItem.icon;
@@ -125,7 +126,7 @@ const Navbar = () => {
                               <Link
                                 key={subItem.path}
                                 to={subItem.path}
-                                onClick={() => setHistoryDropdownOpen(false)}
+                                onClick={() => setOpenDropdown(null)}
                                 className={`flex items-center space-x-2 px-4 py-2 transition-colors ${
                                   isSubActive
                                     ? 'bg-blue-50 text-blue-600'
@@ -245,10 +246,11 @@ const Navbar = () => {
                 const isDropdownItemActive = item.submenu?.some(sub => sub.path === location.pathname);
 
                 if (item.hasDropdown) {
+                  const isDropdownOpen = openDropdown === item.path;
                   return (
                     <div key={item.path}>
                       <button
-                        onClick={() => setHistoryDropdownOpen(!historyDropdownOpen)}
+                        onClick={() => setOpenDropdown(isDropdownOpen ? null : item.path)}
                         className={`w-full flex items-center justify-between space-x-3 px-3 py-3 rounded-lg transition-all duration-200 ${
                           isActive || isDropdownItemActive
                             ? 'bg-blue-50 text-blue-600 shadow-sm'
@@ -259,10 +261,10 @@ const Navbar = () => {
                           <Icon className={`w-5 h-5 ${isActive || isDropdownItemActive ? 'text-blue-600' : 'text-gray-500'}`} />
                           <span className="font-medium">{item.label}</span>
                         </div>
-                        <ChevronDown className={`w-4 h-4 transition-transform ${historyDropdownOpen ? 'rotate-180' : ''}`} />
+                        <ChevronDown className={`w-4 h-4 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
                       </button>
 
-                      {historyDropdownOpen && (
+                      {isDropdownOpen && (
                         <div className="ml-8 mt-1 space-y-1">
                           {item.submenu?.map((subItem) => {
                             const SubIcon = subItem.icon;

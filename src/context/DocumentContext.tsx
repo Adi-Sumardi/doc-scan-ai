@@ -347,27 +347,26 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
       setLoading(false);
 
-      // ✅ OPTIMIZATION: Load remaining batches in background (non-blocking)
-      // This happens AFTER UI is ready - user sees fast initial load!
-      console.log('🔄 Loading remaining batches in background (non-blocking)...');
-      setTimeout(async () => {
-        try {
-          // Load ALL batches (will use cache if available)
-          const allBatches = await apiService.getAllBatches();
-          const remainingCount = allBatches.length - recentBatches.length;
+      // ✅ OPTIMIZATION: Redis cache TTL increased to 30 minutes (from 5 min)
+      // This significantly improves performance by reducing repeated database queries
+      console.log('⚡ OPTIMIZED: Showing 15 recent batches (Redis cached for 30min)');
 
-          if (remainingCount > 0) {
-            console.log(`🔄 Loading remaining ${remainingCount} batches in background...`);
-            setBatches(allBatches);
-            setScanResults(recentResults);
-            console.log(`✅ Background load complete: ${allBatches.length} total batches`);
-          } else {
-            console.log('✅ No additional batches to load');
+      // Optional: Load remaining batches in background if user has more
+      if (recentBatches.length === 15) {
+        setTimeout(async () => {
+          try {
+            const allBatches = await apiService.getAllBatches();
+            const remainingCount = allBatches.length - recentBatches.length;
+
+            if (remainingCount > 0) {
+              console.log(`⚡ Loaded ${allBatches.length} total batches (from 30min cache)`);
+              setBatches(allBatches);
+            }
+          } catch (bgError) {
+            console.error('Background batch load failed (non-critical):', bgError);
           }
-        } catch (bgError) {
-          console.error('Background batch load failed (non-critical):', bgError);
-        }
-      }, 1500); // Load after 1.5 seconds (non-blocking)
+        }, 1500); // Load after 1.5 seconds (non-blocking)
+      }
     } catch (error) {
       console.error('Load recent batches error:', error);
       setLoading(false);

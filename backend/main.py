@@ -16,11 +16,11 @@ from pathlib import Path
 # Import config first
 try:  # Support running as package (`backend.main`) and as script (`python main.py`)
     from config import settings, get_upload_dir, get_results_dir, get_exports_dir
-    from routers import auth, admin, health, documents, batches, exports, reconciliation
+    from routers import auth, admin, health, documents, batches, exports, reconciliation, reconciliation_excel
     from database import Base, engine
 except ModuleNotFoundError:  # pragma: no cover - fallback for package context
     from .config import settings, get_upload_dir, get_results_dir, get_exports_dir
-    from .routers import auth, admin, health, documents, batches, exports, reconciliation
+    from .routers import auth, admin, health, documents, batches, exports, reconciliation, reconciliation_excel
     from .database import Base, engine
 
 # Apply nest_asyncio for gRPC compatibility (disabled for uvloop)
@@ -178,6 +178,7 @@ app.include_router(documents.router)
 app.include_router(batches.router)
 app.include_router(exports.router)
 app.include_router(reconciliation.router)
+app.include_router(reconciliation_excel.router)
 
 # ==================== Run Application ====================
 

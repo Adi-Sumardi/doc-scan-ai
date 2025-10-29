@@ -245,11 +245,11 @@ async def get_all_batches(
 
             batch_list.append(batch_data)
 
-        # Cache the result for 5 minutes (300 seconds)
+        # Cache the result for 30 minutes (1800 seconds) for better performance
         if redis_cache.is_connected():
             try:
-                redis_cache.set(cache_key, json.dumps(batch_list), ttl=300)
-                logger.info(f"💾 Cached batches for user {current_user.id} (TTL: 5min)")
+                redis_cache.set(cache_key, json.dumps(batch_list), ttl=1800)
+                logger.info(f"💾 Cached batches for user {current_user.id} (TTL: 30min)")
             except Exception as cache_error:
                 logger.warning(f"Failed to cache batches: {cache_error}")
 
