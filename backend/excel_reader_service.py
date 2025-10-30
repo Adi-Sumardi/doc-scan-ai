@@ -57,30 +57,47 @@ class ExcelFileInfo:
 
 @dataclass
 class FakturPajakData:
-    """Parsed data from Faktur Pajak Excel"""
+    """Parsed data from Faktur Pajak Excel with Buyer & Seller information"""
     row_number: int
-    nama: str
     tanggal: str
-    npwp: str
     nomor_faktur: str
     dpp: Decimal
     ppn: Decimal
     total: Decimal
-    alamat: Optional[str] = None
+    # Seller (Penjual/PKP yang menjual)
+    nama_seller: Optional[str] = None
+    alamat_seller: Optional[str] = None
+    npwp_seller: Optional[str] = None
+    # Buyer (Pembeli/PKP yang membeli)
+    nama_buyer: Optional[str] = None
+    alamat_buyer: Optional[str] = None
+    npwp_buyer: Optional[str] = None
+    # Additional fields
     invoice_number: Optional[str] = None
+    # Legacy fields for backward compatibility
+    nama: Optional[str] = None
+    npwp: Optional[str] = None
+    alamat: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             'row_number': self.row_number,
-            'nama': self.nama,
             'tanggal': self.tanggal,
-            'npwp': self.npwp,
             'nomor_faktur': self.nomor_faktur,
             'dpp': float(self.dpp) if self.dpp else 0.0,
             'ppn': float(self.ppn) if self.ppn else 0.0,
             'total': float(self.total) if self.total else 0.0,
-            'alamat': self.alamat,
-            'invoice_number': self.invoice_number
+            'nama_seller': self.nama_seller,
+            'alamat_seller': self.alamat_seller,
+            'npwp_seller': self.npwp_seller,
+            'nama_buyer': self.nama_buyer,
+            'alamat_buyer': self.alamat_buyer,
+            'npwp_buyer': self.npwp_buyer,
+            'invoice_number': self.invoice_number,
+            # Legacy fields for backward compatibility
+            'nama': self.nama or self.nama_seller,
+            'npwp': self.npwp or self.npwp_seller,
+            'alamat': self.alamat or self.alamat_seller
         }
 
 
@@ -317,39 +334,83 @@ class ExcelReaderService:
         return None
 
     def _parse_faktur_row(self, row, row_number: int) -> Optional[FakturPajakData]:
-        """Parse single Faktur Pajak row"""
-        # Expected columns: Nama, Tgl, NPWP, Nomor Faktur, Alamat, DPP, PPN, Total, Invoice
-        # Row indexing starts at 0
-
-        nama = str(row[0].value or '').strip()
-        tanggal = str(row[1].value or '').strip()
-        npwp = str(row[2].value or '').strip()
-        nomor_faktur = str(row[3].value or '').strip()
-        alamat = str(row[4].value or '').strip() if len(row) > 4 else ''
-
-        # Parse amounts (handle "Rp" prefix and thousands separators)
-        dpp = self._parse_amount(row[5].value if len(row) > 5 else None)
-        ppn = self._parse_amount(row[6].value if len(row) > 6 else None)
-        total = self._parse_amount(row[7].value if len(row) > 7 else None)
-
-        invoice_number = str(row[8].value or '').strip() if len(row) > 8 else ''
-
-        # Skip if essential fields are missing
-        if not nama and not nomor_faktur:
-            return None
-
-        return FakturPajakData(
-            row_number=row_number,
-            nama=nama,
-            tanggal=tanggal,
-            npwp=npwp,
-            nomor_faktur=nomor_faktur,
-            dpp=dpp,
-            ppn=ppn,
-            total=total,
-            alamat=alamat,
-            invoice_number=invoice_number
-        )
+        """Parse single Faktur Pajak row with buyer & seller support"""
+        # Try new format first: Nama Seller, Alamat Seller, NPWP Seller, Nama Buyer, Alamat Buyer, NPWP Buyer, Tgl, Nomor Faktur, DPP, PPN, Total
+        # Fallback to old format: Nama, Tgl, NPWP, Nomor Faktur, Alamat, DPP, PPN, Total, Invoice
+        
+        # Check if this is new format (has buyer/seller columns) by looking at row length
+        has_buyer_seller = len(row) >= 11
+        
+        if has_buyer_seller:
+            # New format with buyer & seller
+            nama_seller = str(row[0].value or '').strip()
+            alamat_seller = str(row[1].value or '').strip()
+            npwp_seller = str(row[2].value or '').strip()
+            nama_buyer = str(row[3].value or '').strip()
+            alamat_buyer = str(row[4].value or '').strip()
+            npwp_buyer = str(row[5].value or '').strip()
+            tanggal = str(row[6].value or '').strip()
+            nomor_faktur = str(row[7].value or '').strip()
+            dpp = self._parse_amount(row[8].value if len(row) > 8 else None)
+            ppn = self._parse_amount(row[9].value if len(row) > 9 else None)
+            total = self._parse_amount(row[10].value if len(row) > 10 else None)
+            invoice_number = str(row[11].value or '').strip() if len(row) > 11 else ''
+            
+            # Skip if essential fields are missing
+            if not tanggal and not nomor_faktur:
+                return None
+            
+            return FakturPajakData(
+                row_number=row_number,
+                tanggal=tanggal,
+                nomor_faktur=nomor_faktur,
+                dpp=dpp,
+                ppn=ppn,
+                total=total,
+                nama_seller=nama_seller,
+                alamat_seller=alamat_seller,
+                npwp_seller=npwp_seller,
+                nama_buyer=nama_buyer,
+                alamat_buyer=alamat_buyer,
+                npwp_buyer=npwp_buyer,
+                invoice_number=invoice_number,
+                # Legacy fields
+                nama=nama_seller,
+                npwp=npwp_seller,
+                alamat=alamat_seller
+            )
+        else:
+            # Old format (backward compatibility)
+            nama = str(row[0].value or '').strip()
+            tanggal = str(row[1].value or '').strip()
+            npwp = str(row[2].value or '').strip()
+            nomor_faktur = str(row[3].value or '').strip()
+            alamat = str(row[4].value or '').strip() if len(row) > 4 else ''
+            dpp = self._parse_amount(row[5].value if len(row) > 5 else None)
+            ppn = self._parse_amount(row[6].value if len(row) > 6 else None)
+            total = self._parse_amount(row[7].value if len(row) > 7 else None)
+            invoice_number = str(row[8].value or '').strip() if len(row) > 8 else ''
+            
+            # Skip if essential fields are missing
+            if not nama and not nomor_faktur:
+                return None
+            
+            return FakturPajakData(
+                row_number=row_number,
+                tanggal=tanggal,
+                nomor_faktur=nomor_faktur,
+                dpp=dpp,
+                ppn=ppn,
+                total=total,
+                nama_seller=nama,
+                alamat_seller=alamat,
+                npwp_seller=npwp,
+                invoice_number=invoice_number,
+                # Legacy fields
+                nama=nama,
+                npwp=npwp,
+                alamat=alamat
+            )
 
     def _parse_amount(self, value: Any) -> Decimal:
         """Parse amount from Excel cell (handles 'Rp', thousands separators)"""
@@ -610,16 +671,28 @@ class ExcelReaderService:
                 source_row=faktur.row_number,
                 date=faktur.tanggal,
                 amount=faktur.total,
-                vendor_name=faktur.nama,
+                vendor_name=faktur.nama_seller or faktur.nama or '',
                 reference=faktur.nomor_faktur,
                 raw_data={
-                    'nama': faktur.nama,
+                    # Seller information
+                    'nama_seller': faktur.nama_seller,
+                    'alamat_seller': faktur.alamat_seller,
+                    'npwp_seller': faktur.npwp_seller,
+                    # Buyer information
+                    'nama_buyer': faktur.nama_buyer,
+                    'alamat_buyer': faktur.alamat_buyer,
+                    'npwp_buyer': faktur.npwp_buyer,
+                    # Transaction info
                     'tanggal': faktur.tanggal,
-                    'npwp': faktur.npwp,
                     'nomor_faktur': faktur.nomor_faktur,
                     'dpp': float(faktur.dpp),
                     'ppn': float(faktur.ppn),
-                    'total': float(faktur.total)
+                    'total': float(faktur.total),
+                    'invoice_number': faktur.invoice_number,
+                    # Legacy fields for backward compatibility
+                    'nama': faktur.nama or faktur.nama_seller,
+                    'npwp': faktur.npwp or faktur.npwp_seller,
+                    'alamat': faktur.alamat or faktur.alamat_seller
                 }
             )
             candidates.append(candidate)

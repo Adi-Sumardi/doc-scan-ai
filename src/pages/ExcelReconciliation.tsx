@@ -262,14 +262,23 @@ const ExcelReconciliation = () => {
     const matchedData = [
       ['DATA TRANSAKSI YANG MATCHED'],
       [],
-      ['Confidence', 'Vendor (Faktur)', 'Tanggal Faktur', 'Nominal Faktur', 'Tanggal Bank', 'Nominal Bank', 'Tipe Match', 'Selisih']
+      ['Confidence', 'Seller (Penjual)', 'NPWP Seller', 'Buyer (Pembeli)', 'NPWP Buyer', 'Tanggal Faktur', 'Nominal Faktur', 'Tanggal Bank', 'Nominal Bank', 'Tipe Match', 'Selisih']
     ];
 
     matchResult.matched_items.forEach(item => {
       const difference = Math.abs(item.faktur.amount - item.rekening.amount);
+      // Access buyer & seller data from raw_data if available
+      const namaSeller = (item.faktur as any).nama_seller || item.faktur.vendor_name || '-';
+      const npwpSeller = (item.faktur as any).npwp_seller || (item.faktur as any).npwp || '-';
+      const namaBuyer = (item.faktur as any).nama_buyer || '-';
+      const npwpBuyer = (item.faktur as any).npwp_buyer || '-';
+
       matchedData.push([
         `${(item.confidence * 100).toFixed(0)}%`,
-        item.faktur.vendor_name,
+        namaSeller,
+        npwpSeller,
+        namaBuyer,
+        npwpBuyer,
         item.faktur.date,
         item.faktur.amount as any,
         item.rekening.date,
@@ -284,7 +293,10 @@ const ExcelReconciliation = () => {
     // Set column widths for Matched sheet
     ws_matched['!cols'] = [
       { wch: 12 },  // Confidence
-      { wch: 30 },  // Vendor
+      { wch: 30 },  // Seller
+      { wch: 20 },  // NPWP Seller
+      { wch: 30 },  // Buyer
+      { wch: 20 },  // NPWP Buyer
       { wch: 15 },  // Tanggal Faktur
       { wch: 18 },  // Nominal Faktur
       { wch: 15 },  // Tanggal Bank
@@ -322,9 +334,9 @@ const ExcelReconciliation = () => {
             }
           };
         }
-        // Data rows - format currency columns (D, F, H - columns 3, 5, 7)
+        // Data rows - format currency columns (G, I, K - columns 6, 8, 10)
         else if (R > 2) {
-          if (C === 3 || C === 5 || C === 7) {
+          if (C === 6 || C === 8 || C === 10) {
             ws_matched[cellAddress].t = 'n';
             ws_matched[cellAddress].z = '"Rp "#,##0';
           }
@@ -336,7 +348,7 @@ const ExcelReconciliation = () => {
               left: { style: "thin", color: { rgb: "D3D3D3" } },
               right: { style: "thin", color: { rgb: "D3D3D3" } }
             },
-            alignment: { horizontal: C === 1 ? "left" : "center", vertical: "center" }
+            alignment: { horizontal: (C === 1 || C === 3) ? "left" : "center", vertical: "center" }
           };
         }
       }
