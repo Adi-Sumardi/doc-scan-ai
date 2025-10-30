@@ -154,8 +154,12 @@ class PPhData:
 class ExcelReaderService:
     """Service to read and parse Excel exports from OCR results"""
 
-    def __init__(self, exports_dir: str = "backend/exports"):
-        self.exports_dir = Path(exports_dir)
+    def __init__(self, exports_dir: Optional[str] = None):
+        # Use absolute path from current file location if not specified
+        if exports_dir is None:
+            self.exports_dir = Path(__file__).parent / "exports"
+        else:
+            self.exports_dir = Path(exports_dir)
 
         if not self.exports_dir.exists():
             logger.warning(f"Exports directory not found: {self.exports_dir}")
