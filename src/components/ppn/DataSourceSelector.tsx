@@ -42,8 +42,6 @@ const DataSourceSelector = ({ companyNpwp, onDataSelected }: DataSourceSelectorP
   const [buktiPotongFiles, setBuktiPotongFiles] = useState<ExcelFile[]>([]);
   const [rekeningKoranFiles, setRekeningKoranFiles] = useState<ExcelFile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [showAllFiles, setShowAllFiles] = useState(false);
   const INITIAL_LOAD_LIMIT = 5; // Load only 5 files initially for fast display
 
   // Toggle states for showing/hiding scanned files lists
