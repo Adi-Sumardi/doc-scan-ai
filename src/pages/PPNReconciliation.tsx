@@ -210,23 +210,23 @@ const PPNReconciliation = () => {
   return (
     <div className="max-w-7xl mx-auto">
       {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
+      <div className="mb-6 md:mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-              <FileSpreadsheet className="w-8 h-8 text-blue-600" />
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900 flex items-center gap-2 md:gap-3">
+              <FileSpreadsheet className="w-6 h-6 md:w-8 md:h-8 text-blue-600" />
               Reconciliation
             </h1>
-            <p className="text-gray-600 mt-2">
+            <p className="text-sm md:text-base text-gray-600 mt-1 md:mt-2">
               Rekonsiliasi komprehensif untuk Faktur Pajak Keluaran, Masukan, dan Bukti Potong
             </p>
           </div>
           <button
             onClick={() => setIsCreateModalOpen(true)}
-            className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md"
+            className="flex items-center justify-center gap-2 px-4 py-2.5 md:px-6 md:py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md whitespace-nowrap"
           >
-            <Plus className="w-5 h-5" />
-            New Project
+            <Plus className="w-4 h-4 md:w-5 md:h-5" />
+            <span className="text-sm md:text-base">New Project</span>
           </button>
         </div>
       </div>
@@ -305,57 +305,62 @@ const PPNReconciliation = () => {
                   onClick={() => handleProjectClick(project.id)}
                   className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer"
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-lg font-semibold text-gray-900">{project.name}</h3>
-                        <span className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
+                  {/* Mobile & Tablet Layout */}
+                  <div className="flex flex-col gap-3">
+                    {/* Header Row */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-base md:text-lg font-semibold text-gray-900 truncate">{project.name}</h3>
+                        <span className={`inline-flex items-center gap-1 px-2 md:px-3 py-1 rounded-full text-xs font-medium mt-1 ${getStatusColor(project.status)}`}>
                           {getStatusIcon(project.status)}
-                          {project.status.charAt(0).toUpperCase() + project.status.slice(1)}
+                          <span className="hidden sm:inline">{project.status.charAt(0).toUpperCase() + project.status.slice(1)}</span>
                         </span>
                       </div>
-                      <p className="text-sm text-gray-600">
-                        Periode: {project.periode_start} to {project.periode_end}
-                      </p>
-                      {(project.point_a_count || project.point_b_count || project.point_c_count || project.point_e_count) && (
-                        <div className="flex items-center gap-4 mt-2 text-sm text-gray-600">
-                          {project.point_a_count ? (
-                            <span>Point A: {project.point_a_count} items</span>
-                          ) : null}
-                          {project.point_b_count ? (
-                            <span>Point B: {project.point_b_count} items</span>
-                          ) : null}
-                          {project.point_c_count ? (
-                            <span>Point C: {project.point_c_count} items</span>
-                          ) : null}
-                          {project.point_e_count ? (
-                            <span>Point E: {project.point_e_count} items</span>
-                          ) : null}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <p className="text-xs text-gray-500">Created</p>
-                        <p className="text-sm text-gray-700">{new Date(project.created_at).toLocaleDateString()}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
                         <button
                           onClick={(e) => handleEditClick(e, project)}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          className="p-1.5 md:p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                           title="Edit project"
                         >
-                          <Edit2 className="w-5 h-5" />
+                          <Edit2 className="w-4 h-4 md:w-5 md:h-5" />
                         </button>
                         <button
                           onClick={(e) => handleDeleteClick(e, project)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          className="p-1.5 md:p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                           title="Delete project"
                         >
-                          <Trash2 className="w-5 h-5" />
+                          <Trash2 className="w-4 h-4 md:w-5 md:h-5" />
                         </button>
                       </div>
                     </div>
+
+                    {/* Period & Date */}
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs md:text-sm text-gray-600">
+                      <p className="truncate">
+                        Periode: {project.periode_start} to {project.periode_end}
+                      </p>
+                      <p className="text-gray-500 flex-shrink-0">
+                        Created: {new Date(project.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+
+                    {/* Data Counts */}
+                    {(project.point_a_count || project.point_b_count || project.point_c_count || project.point_e_count) && (
+                      <div className="flex flex-wrap items-center gap-2 md:gap-4 text-xs md:text-sm text-gray-600">
+                        {project.point_a_count ? (
+                          <span className="bg-gray-50 px-2 py-1 rounded">Point A: {project.point_a_count}</span>
+                        ) : null}
+                        {project.point_b_count ? (
+                          <span className="bg-gray-50 px-2 py-1 rounded">Point B: {project.point_b_count}</span>
+                        ) : null}
+                        {project.point_c_count ? (
+                          <span className="bg-gray-50 px-2 py-1 rounded">Point C: {project.point_c_count}</span>
+                        ) : null}
+                        {project.point_e_count ? (
+                          <span className="bg-gray-50 px-2 py-1 rounded">Point E: {project.point_e_count}</span>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

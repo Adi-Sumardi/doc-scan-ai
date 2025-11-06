@@ -346,8 +346,19 @@ async def update_project(
         # Update project fields
         project.name = project_update.name
         project.company_npwp = project_update.company_npwp
-        project.periode_start = project_update.periode_start
-        project.periode_end = project_update.periode_end
+
+        # Parse date strings to datetime objects
+        # Handle both 'YYYY-MM-DD' and datetime objects
+        if isinstance(project_update.periode_start, str):
+            project.periode_start = datetime.strptime(project_update.periode_start, '%Y-%m-%d')
+        else:
+            project.periode_start = project_update.periode_start
+
+        if isinstance(project_update.periode_end, str):
+            project.periode_end = datetime.strptime(project_update.periode_end, '%Y-%m-%d')
+        else:
+            project.periode_end = project_update.periode_end
+
         project.updated_at = datetime.utcnow()
 
         db.commit()
