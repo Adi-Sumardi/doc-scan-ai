@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useCallback } from 'react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
+import { tokenManager } from '../utils/tokenManager';
 
 interface User {
   id: string;
@@ -57,9 +58,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setUser(null);
     setToken(null);
 
-    // Clear all auth-related data
-    localStorage.removeItem('token');
-    localStorage.removeItem('access_token');
+    // Clear all auth-related data including tokens
+    tokenManager.clearTokens();
     localStorage.removeItem('user');
     sessionStorage.clear();
 
@@ -115,14 +115,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Load token from localStorage on mount
   useEffect(() => {
     // Check both 'token' and 'access_token' for backward compatibility
-    const storedToken = localStorage.getItem('token') || localStorage.getItem('access_token');
+    const storedToken = tokenManager.getAccessToken() || localStorage.getItem('access_token');
     if (storedToken) {
-      // Normalize to 'token' key
-      localStorage.setItem('token', storedToken);
-      localStorage.removeItem('access_token'); // Clean up old key
-
       // Set token first (synchronously in effect)
       setToken(storedToken);
+      // Initialize token manager for auto-refresh
+      tokenManager.initialize();
       // Then fetch user info
       fetchUserInfo(storedToken);
     } else {
@@ -192,28 +190,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         password
       });
 
-      const { access_token } = response.data;
+      const { access_token, refresh_token, expires_in } = response.data;
 
-      // Set token to localStorage with error handling (normalize to 'token' key)
-      try {
-        localStorage.setItem('token', access_token);
-        localStorage.removeItem('access_token'); // Clean up old key
-      } catch (storageError) {
-        // If localStorage is full or disabled, fallback to sessionStorage
-        console.warn('localStorage unavailable, using sessionStorage:', storageError);
-        try {
-          sessionStorage.setItem('token', access_token);
-        } catch (sessionError) {
-          console.error('Both localStorage and sessionStorage failed:', sessionError);
-          // Continue anyway - token will be in memory
-        }
-      }
+      // Store tokens using tokenManager for auto-refresh
+      tokenManager.setTokens({
+        access_token,
+        refresh_token,
+        expires_in,
+        token_type: 'bearer'
+      });
 
       // Then set to state
       setToken(access_token);
 
       // Fetch user info with the new token
       await fetchUserInfo(access_token);
+
+      console.log('✅ Login successful - Token will auto-refresh in', Math.floor(expires_in / 60), 'minutes');
 
       // Check if there's a redirect path saved
       const redirectPath = localStorage.getItem('redirectAfterLogin');

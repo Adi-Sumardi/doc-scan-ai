@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from excel_reader_service import excel_reader_service
 from matching_engine import MatchingEngine
 import logging
+from functools import lru_cache
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,36 @@ router = APIRouter(
     tags=["reconciliation-excel"]
 )
 
+# Cache for Excel files list (expires every 60 seconds)
+_excel_files_cache = {
+    'data': None,
+    'timestamp': None,
+    'ttl': 60  # seconds
+}
+
+def get_cached_excel_files(document_type: Optional[str] = None):
+    """Get cached Excel files list or fetch fresh data if cache expired"""
+    cache_key = f"excel_files_{document_type or 'all'}"
+    now = datetime.now()
+
+    # Check if cache exists and is still valid
+    if (_excel_files_cache.get('data') is not None and
+        _excel_files_cache.get('timestamp') is not None):
+        age = (now - _excel_files_cache['timestamp']).total_seconds()
+        if age < _excel_files_cache['ttl']:
+            logger.info(f"⚡ Using cached Excel files list (age: {age:.1f}s)")
+            return _excel_files_cache['data']
+
+    # Cache miss or expired - fetch fresh data
+    logger.info("💾 Fetching fresh Excel files list")
+    excel_files = excel_reader_service.list_available_exports(document_type)
+
+    # Update cache
+    _excel_files_cache['data'] = excel_files
+    _excel_files_cache['timestamp'] = now
+
+    return excel_files
+
 
 # ==================== List Excel Exports ====================
 
@@ -36,7 +68,7 @@ async def list_excel_files(
     )
 ):
     """
-    List all available Excel export files from OCR scans
+    List all available Excel export files from OCR scans (CACHED for 60s)
 
     Returns:
         List of Excel files with metadata (filename, row_count, file_size, etc.)
@@ -45,7 +77,7 @@ async def list_excel_files(
         GET /api/reconciliation-excel/excel-files?document_type=faktur_pajak
     """
     try:
-        excel_files = excel_reader_service.list_available_exports(document_type)
+        excel_files = get_cached_excel_files(document_type)
 
         return {
             "success": True,

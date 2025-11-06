@@ -43,7 +43,12 @@ class ExcelFileInfo:
     date_range: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
+        # Generate unique ID from filepath for consistent identification
+        import hashlib
+        file_id = hashlib.md5(self.filepath.encode()).hexdigest()[:16]
+
         return {
+            'id': file_id,  # Add unique ID for frontend selection
             'filename': self.filename,
             'filepath': self.filepath,
             'document_type': self.document_type,
@@ -251,6 +256,35 @@ class ExcelReaderService:
             sheet_names=sheet_names,
             date_range=None  # Will be determined when parsing
         )
+
+    def get_excel_file_by_id(self, file_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get Excel file metadata by ID
+
+        The ID is generated from MD5 hash of the filepath (first 16 chars)
+
+        Args:
+            file_id: MD5 hash ID of the file
+
+        Returns:
+            Dictionary with file metadata including file_path, or None if not found
+        """
+        import hashlib
+
+        # Get all Excel files
+        all_files = self.list_available_exports()
+
+        # Find file with matching ID
+        for file_info in all_files:
+            # Generate ID same way as in to_dict()
+            file_hash = hashlib.md5(file_info.filepath.encode()).hexdigest()[:16]
+            if file_hash == file_id:
+                file_dict = file_info.to_dict()
+                file_dict['file_path'] = file_info.filepath  # Add file_path for backend use
+                return file_dict
+
+        logger.warning(f"Excel file not found for ID: {file_id}")
+        return None
 
     # ==================== Parse Faktur Pajak ====================
 

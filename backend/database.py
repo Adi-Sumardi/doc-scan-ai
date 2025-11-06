@@ -364,6 +364,190 @@ class ReconciliationMatch(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+
+# ==================== PPN Reconciliation Models ====================
+
+class PPNProject(Base):
+    """PPN Reconciliation Project"""
+    __tablename__ = "ppn_projects"
+
+    id = Column(String(36), primary_key=True, index=True)
+    user_id = Column(String(36), nullable=False, index=True)
+
+    # Project metadata
+    name = Column(String(255), nullable=False)
+    periode_start = Column(DateTime, nullable=False)
+    periode_end = Column(DateTime, nullable=False)
+    company_npwp = Column(String(20), nullable=False)
+
+    # Status tracking
+    status = Column(String(50), default="draft", index=True)  # draft, in_progress, completed, archived
+
+    # Counts for each point
+    point_a_count = Column(Integer, default=0)
+    point_b_count = Column(Integer, default=0)
+    point_c_count = Column(Integer, default=0)
+    point_e_count = Column(Integer, default=0)
+
+    # Audit fields
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+
+class PPNDataSource(Base):
+    """PPN Data Source"""
+    __tablename__ = "ppn_data_sources"
+
+    id = Column(String(36), primary_key=True, index=True)
+    project_id = Column(String(36), nullable=False, index=True)
+
+    # Source identification
+    point_type = Column(String(20), nullable=False, index=True)  # point_a_b, point_c, point_e
+    source_type = Column(String(20), nullable=False)  # scanned, upload
+
+    # File reference
+    excel_export_id = Column(String(36), nullable=True)
+    uploaded_file_path = Column(String(500), nullable=True)
+
+    # File metadata
+    filename = Column(String(255), nullable=False)
+    row_count = Column(Integer, default=0)
+
+    # Processing status
+    processing_status = Column(String(50), default="pending")  # pending, processing, completed, failed
+    error_message = Column(Text, nullable=True)
+
+    # Audit fields
+    created_at = Column(DateTime, default=datetime.utcnow)
+    processed_at = Column(DateTime, nullable=True)
+
+
+class PPNPointA(Base):
+    """Point A: Faktur Pajak Keluaran (Output Tax)"""
+    __tablename__ = "ppn_point_a"
+
+    id = Column(String(36), primary_key=True, index=True)
+    project_id = Column(String(36), nullable=False, index=True)
+    data_source_id = Column(String(36), nullable=False, index=True)
+
+    # Faktur Pajak Keluaran data
+    nomor_faktur = Column(String(100), index=True)
+    tanggal_faktur = Column(DateTime, index=True)
+    npwp_seller = Column(String(20), index=True)
+    nama_seller = Column(String(200))
+    npwp_buyer = Column(String(20), index=True)
+    nama_buyer = Column(String(200))
+
+    # Amount fields
+    dpp = Column(Float)
+    ppn = Column(Float)
+    total = Column(Float)
+
+    # Reconciliation status
+    is_matched = Column(Boolean, default=False, index=True)
+    matched_with_point_c_id = Column(String(36), nullable=True)
+    match_confidence = Column(Float, nullable=True)
+    match_type = Column(String(50), nullable=True)
+
+    # Metadata
+    raw_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PPNPointB(Base):
+    """Point B: Faktur Pajak Masukan (Input Tax)"""
+    __tablename__ = "ppn_point_b"
+
+    id = Column(String(36), primary_key=True, index=True)
+    project_id = Column(String(36), nullable=False, index=True)
+    data_source_id = Column(String(36), nullable=False, index=True)
+
+    # Faktur Pajak Masukan data
+    nomor_faktur = Column(String(100), index=True)
+    tanggal_faktur = Column(DateTime, index=True)
+    npwp_seller = Column(String(20), index=True)
+    nama_seller = Column(String(200))
+    npwp_buyer = Column(String(20), index=True)
+    nama_buyer = Column(String(200))
+
+    # Amount fields
+    dpp = Column(Float)
+    ppn = Column(Float)
+    total = Column(Float)
+
+    # Reconciliation status
+    is_matched = Column(Boolean, default=False, index=True)
+    matched_with_point_e_id = Column(String(36), nullable=True)
+    match_confidence = Column(Float, nullable=True)
+    match_type = Column(String(50), nullable=True)
+
+    # Metadata
+    raw_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PPNPointC(Base):
+    """Point C: Bukti Potong Lawan Transaksi"""
+    __tablename__ = "ppn_point_c"
+
+    id = Column(String(36), primary_key=True, index=True)
+    project_id = Column(String(36), nullable=False, index=True)
+    data_source_id = Column(String(36), nullable=False, index=True)
+
+    # Bukti Potong data
+    nomor_bukti_potong = Column(String(100), index=True)
+    tanggal_bukti_potong = Column(DateTime, index=True)
+    npwp_pemotong = Column(String(20), index=True)
+    nama_pemotong = Column(String(200))
+    npwp_dipotong = Column(String(20), index=True)
+    nama_dipotong = Column(String(200))
+
+    # Amount fields
+    jumlah_penghasilan_bruto = Column(Float)
+    tarif_pph = Column(Float)
+    pph_dipotong = Column(Float)
+
+    # Reconciliation status
+    is_matched = Column(Boolean, default=False, index=True)
+    matched_with_point_a_id = Column(String(36), nullable=True)
+    match_confidence = Column(Float, nullable=True)
+    match_type = Column(String(50), nullable=True)
+
+    # Metadata
+    raw_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PPNPointE(Base):
+    """Point E: Rekening Koran (Bank Statement)"""
+    __tablename__ = "ppn_point_e"
+
+    id = Column(String(36), primary_key=True, index=True)
+    project_id = Column(String(36), nullable=False, index=True)
+    data_source_id = Column(String(36), nullable=False, index=True)
+
+    # Rekening Koran data
+    tanggal_transaksi = Column(DateTime, index=True)
+    keterangan = Column(Text)
+    nominal = Column(Float, index=True)
+    jenis_transaksi = Column(String(20))  # debit, credit
+
+    # Bank details
+    bank_name = Column(String(100))
+    account_number = Column(String(100))
+
+    # Reconciliation status
+    is_matched = Column(Boolean, default=False, index=True)
+    matched_with_point_b_id = Column(String(36), nullable=True)
+    match_confidence = Column(Float, nullable=True)
+    match_type = Column(String(50), nullable=True)
+
+    # Metadata
+    raw_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 # Database utility functions
 
 def get_db() -> Generator[Session, None, None]:

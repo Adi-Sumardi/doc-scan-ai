@@ -12,6 +12,8 @@ import Register from './pages/Register';
 import AdminDashboard from './pages/AdminDashboard';
 import UserActivities from './pages/UserActivities';
 import ExcelReconciliation from './pages/ExcelReconciliation';
+import PPNReconciliation from './pages/PPNReconciliation';
+import PPNProjectDetail from './pages/PPNProjectDetail';
 import { DocumentProvider } from './context/DocumentContext';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -75,6 +77,16 @@ function App() {
                 <Route path="/excel-reconciliation" element={
                   <ProtectedRoute>
                     <ExcelReconciliation />
+                  </ProtectedRoute>
+                } />
+                <Route path="/ppn-reconciliation" element={
+                  <ProtectedRoute>
+                    <PPNReconciliation />
+                  </ProtectedRoute>
+                } />
+                <Route path="/ppn-reconciliation/:projectId" element={
+                  <ProtectedRoute>
+                    <PPNProjectDetail />
                   </ProtectedRoute>
                 } />
               </Routes>

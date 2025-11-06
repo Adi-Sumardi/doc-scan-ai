@@ -98,17 +98,86 @@ async def login(request: Request, user: UserLogin, db: Session = Depends(get_db)
     db_user.last_login = datetime.utcnow()
     db.commit()
     
-    # Create access token
-    access_token_expires = timedelta(minutes=30)
+    # Create access token (8 hours)
+    access_token_expires = timedelta(hours=8)
     access_token = create_access_token(
         data={"sub": db_user.id, "username": db_user.username},
         expires_delta=access_token_expires
     )
-    
+
+    # Create refresh token (7 days)
+    refresh_token_expires = timedelta(days=7)
+    refresh_token = create_access_token(
+        data={"sub": db_user.id, "username": db_user.username, "type": "refresh"},
+        expires_delta=refresh_token_expires
+    )
+
     # Log successful login
     log_login_success(db_user.username, request.client.host)
     logger.info(f"User logged in: {user.username}")
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": int(access_token_expires.total_seconds())
+    }
+
+
+@router.post("/refresh", response_model=Token)
+@limiter.limit("20/minute")  # Allow more frequent refresh
+async def refresh_token(request: Request, refresh_token: str, db: Session = Depends(get_db)):
+    """Refresh access token using refresh token"""
+    from auth import decode_access_token
+
+    # Decode refresh token
+    payload = decode_access_token(refresh_token)
+    if not payload:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Check if it's a refresh token
+    if payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid token type",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Get user
+    user_id = payload.get("sub")
+    db_user = db.query(User).filter(User.id == user_id).first()
+
+    if not db_user or not db_user.is_active:
+        raise HTTPException(
+            status_code=401,
+            detail="User not found or inactive",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Create new access token (8 hours)
+    access_token_expires = timedelta(hours=8)
+    new_access_token = create_access_token(
+        data={"sub": db_user.id, "username": db_user.username},
+        expires_delta=access_token_expires
+    )
+
+    # Create new refresh token (7 days)
+    refresh_token_expires = timedelta(days=7)
+    new_refresh_token = create_access_token(
+        data={"sub": db_user.id, "username": db_user.username, "type": "refresh"},
+        expires_delta=refresh_token_expires
+    )
+
+    logger.info(f"Token refreshed for user: {db_user.username}")
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer",
+        "expires_in": int(access_token_expires.total_seconds())
+    }
 
 
 @router.get("/me", response_model=UserResponse)
