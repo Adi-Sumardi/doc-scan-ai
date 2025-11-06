@@ -317,6 +317,54 @@ async def get_project(
         raise HTTPException(status_code=500, detail=f"Failed to get project: {str(e)}")
 
 
+@router.put("/projects/{project_id}", response_model=ProjectResponse)
+async def update_project(
+    project_id: str,
+    project_update: ProjectCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update a PPN reconciliation project
+
+    Args:
+        project_id: Project UUID
+        project_update: Updated project data
+
+    Returns:
+        Updated project
+    """
+    try:
+        project = db.query(PPNProject).filter(
+            PPNProject.id == project_id,
+            PPNProject.user_id == current_user.id
+        ).first()
+
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # Update project fields
+        project.name = project_update.name
+        project.company_npwp = project_update.company_npwp
+        project.periode_start = project_update.periode_start
+        project.periode_end = project_update.periode_end
+        project.updated_at = datetime.utcnow()
+
+        db.commit()
+        db.refresh(project)
+
+        logger.info(f"Updated PPN reconciliation project: {project_id} for user {current_user.username}")
+
+        return project
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update project {project_id}: {str(e)}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update project: {str(e)}")
+
+
 @router.delete("/projects/{project_id}")
 async def delete_project(
     project_id: str,

@@ -46,12 +46,16 @@ def split_faktur_pajak(df: pd.DataFrame, company_npwp: str) -> Tuple[pd.DataFram
 
     # Log first few NPWP values from the DataFrame
     if 'NPWP Penjual' in df.columns:
-        logger.info(f"Sample NPWP Penjual values: {df['NPWP Penjual'].head(3).tolist()}")
+        sample_penjual = df['NPWP Penjual'].head(3).tolist()
+        logger.info(f"Sample NPWP Penjual values (raw): {sample_penjual}")
+        logger.info(f"Sample NPWP Penjual values (normalized): {[normalize_npwp(x) for x in sample_penjual]}")
     else:
         logger.error(f"Column 'NPWP Penjual' not found! Available columns: {list(df.columns)}")
 
     if 'NPWP Pembeli' in df.columns:
-        logger.info(f"Sample NPWP Pembeli values: {df['NPWP Pembeli'].head(3).tolist()}")
+        sample_pembeli = df['NPWP Pembeli'].head(3).tolist()
+        logger.info(f"Sample NPWP Pembeli values (raw): {sample_pembeli}")
+        logger.info(f"Sample NPWP Pembeli values (normalized): {[normalize_npwp(x) for x in sample_pembeli]}")
     else:
         logger.error(f"Column 'NPWP Pembeli' not found! Available columns: {list(df.columns)}")
 
