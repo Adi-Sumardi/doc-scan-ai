@@ -98,8 +98,18 @@ const PPNReconciliation = () => {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to update project');
+        // Try to parse JSON error, fallback to text if it fails
+        let errorMessage = 'Failed to update project';
+        try {
+          const error = await response.json();
+          errorMessage = error.detail || errorMessage;
+        } catch {
+          // If JSON parsing fails, get text response (likely HTML error page)
+          const text = await response.text();
+          console.error('Server returned non-JSON error:', text.substring(0, 200));
+          errorMessage = `Server error (${response.status}): ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
       }
 
       const updatedProject = await response.json();

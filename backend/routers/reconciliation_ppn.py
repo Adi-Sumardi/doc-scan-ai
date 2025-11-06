@@ -347,17 +347,9 @@ async def update_project(
         project.name = project_update.name
         project.company_npwp = project_update.company_npwp
 
-        # Parse date strings to datetime objects
-        # Handle both 'YYYY-MM-DD' and datetime objects
-        if isinstance(project_update.periode_start, str):
-            project.periode_start = datetime.strptime(project_update.periode_start, '%Y-%m-%d')
-        else:
-            project.periode_start = project_update.periode_start
-
-        if isinstance(project_update.periode_end, str):
-            project.periode_end = datetime.strptime(project_update.periode_end, '%Y-%m-%d')
-        else:
-            project.periode_end = project_update.periode_end
+        # Parse date strings to datetime objects for database
+        project.periode_start = datetime.fromisoformat(project_update.periode_start)
+        project.periode_end = datetime.fromisoformat(project_update.periode_end)
 
         project.updated_at = datetime.utcnow()
 
@@ -366,7 +358,21 @@ async def update_project(
 
         logger.info(f"Updated PPN reconciliation project: {project_id} for user {current_user.username}")
 
-        return project
+        # Return properly formatted response
+        return ProjectResponse(
+            id=project.id,
+            name=project.name,
+            periode_start=project.periode_start.isoformat(),
+            periode_end=project.periode_end.isoformat(),
+            company_npwp=project.company_npwp,
+            status=project.status,
+            created_at=project.created_at.isoformat(),
+            updated_at=project.updated_at.isoformat(),
+            point_a_count=project.point_a_count,
+            point_b_count=project.point_b_count,
+            point_c_count=project.point_c_count,
+            point_e_count=project.point_e_count
+        )
 
     except HTTPException:
         raise
