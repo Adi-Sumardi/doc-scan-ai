@@ -55,16 +55,7 @@ const Navbar = () => {
         { path: '/documents', icon: FileText, label: 'Documents' },
       ]
     },
-    {
-      path: '/reconciliation',
-      icon: FileSpreadsheet,
-      label: 'Reconciliation',
-      hasDropdown: true,
-      submenu: [
-        { path: '/excel-reconciliation', icon: FileSpreadsheet, label: 'Excel Reconciliation' },
-        { path: '/ppn-reconciliation', icon: FileSpreadsheet, label: 'PPN Reconciliation' },
-      ]
-    },
+    { path: '/ppn-reconciliation', icon: FileSpreadsheet, label: 'Reconciliation' },
   ];
   
   // Add Admin menu item if user is admin
