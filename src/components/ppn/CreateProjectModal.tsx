@@ -27,10 +27,17 @@ const CreateProjectModal = ({ isOpen, onClose, onSubmit, initialData, isEditMode
   // Update form data when initialData changes (for edit mode)
   useEffect(() => {
     if (isEditMode && initialData) {
+      // Convert datetime strings to date format (YYYY-MM-DD) for date inputs
+      const formatDateForInput = (dateString?: string) => {
+        if (!dateString) return '';
+        // Handle both ISO datetime (2024-01-01T00:00:00) and date-only (2024-01-01)
+        return dateString.split('T')[0];
+      };
+
       setFormData({
         name: initialData.name || '',
-        periode_start: initialData.periode_start || '',
-        periode_end: initialData.periode_end || '',
+        periode_start: formatDateForInput(initialData.periode_start),
+        periode_end: formatDateForInput(initialData.periode_end),
         company_npwp: initialData.company_npwp || '',
       });
     }
@@ -282,10 +289,10 @@ const CreateProjectModal = ({ isOpen, onClose, onSubmit, initialData, isEditMode
               {isSubmitting ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Creating...
+                  {isEditMode ? 'Updating...' : 'Creating...'}
                 </>
               ) : (
-                'Create Project'
+                isEditMode ? 'Update Project' : 'Create Project'
               )}
             </button>
           </div>
