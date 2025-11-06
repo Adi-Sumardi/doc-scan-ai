@@ -106,7 +106,7 @@ const DataSourceSelector = ({ companyNpwp, onDataSelected }: DataSourceSelectorP
           setFakturPajakFiles(fakturFiles);
           setBuktiPotongFiles(buktiFiles);
           setRekeningKoranFiles(rekeningFiles);
-          setShowAllFiles(true);
+          // Lazy loading completed
         }
       }, 100); // Load rest after 100ms
 
