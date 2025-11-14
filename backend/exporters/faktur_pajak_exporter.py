@@ -817,7 +817,7 @@ class FakturPajakExporter(BaseExporter):
             return False
     
     def _populate_excel_sheet(self, ws, result: Dict[str, Any]):
-        """Helper to populate worksheet with structured Faktur Pajak data"""
+        """Helper to populate worksheet with structured Faktur Pajak data - FLAT TABLE (NO MERGE)"""
         # Define styles
         header_fill = PatternFill(start_color="1e40af", end_color="1e40af", fill_type="solid")
         header_font = Font(bold=True, size=11, color="FFFFFF")
@@ -879,147 +879,137 @@ class FakturPajakExporter(BaseExporter):
             cell.border = border_thin
         row += 1
 
-        # ===== HYBRID APPROACH: Main data single row + Items multi-row =====
-        # Determine number of item rows (minimum 1)
-        num_items = max(len(items), 1) if items else 1
+        # ===== FLAT TABLE: ALL DATA REPEATED PER ITEM ROW (NO MERGE) =====
+        # If no items, create one row with N/A for item columns
+        if not items or len(items) == 0:
+            items = [{'description': 'N/A', 'quantity': '-', 'unit_price': '-'}]
+
         first_data_row = row
 
-        # Columns 1-15: Main faktur data (MERGED across all item rows)
-        main_data = [
-            structured.get('nama_seller') or 'N/A',           # Col 1
-            structured.get('alamat_seller') or 'N/A',         # Col 2
-            structured.get('npwp_seller') or 'N/A',           # Col 3
-            structured.get('nama_buyer') or 'N/A',            # Col 4
-            structured.get('alamat_buyer') or 'N/A',          # Col 5
-            structured.get('npwp_buyer') or 'N/A',            # Col 6
-            structured.get('email_buyer') or 'N/A',           # Col 7
-            self._format_date(structured.get('tanggal')) or 'N/A',  # Col 8
-            structured.get('nomor_faktur') or 'N/A',          # Col 9
-            self._parse_amount(structured.get('harga_jual')), # Col 10 - NUMBER format
-            self._parse_amount(structured.get('uang_muka')),  # Col 11 - NUMBER format
-            self._parse_amount(structured.get('dpp')),        # Col 12 - NUMBER format
-            self._parse_amount(structured.get('ppn')),        # Col 13 - NUMBER format
-            self._parse_amount(structured.get('total')),      # Col 14 - NUMBER format
-            structured.get('invoice') or 'N/A',               # Col 15
-        ]
+        # Write ONE ROW PER ITEM (all columns 1-19 filled, NO MERGE)
+        for item_idx, item in enumerate(items):
+            current_row = row + item_idx
 
-        # Write main data (columns 1-15) with vertical merge
-        for col_idx, value in enumerate(main_data, start=1):
-            if num_items > 1:
-                # Merge cell vertically across all item rows
-                ws.merge_cells(start_row=first_data_row, start_column=col_idx,
-                              end_row=first_data_row + num_items - 1, end_column=col_idx)
+            # Columns 1-15: Main faktur data (REPEATED for each item)
+            main_data = [
+                structured.get('nama_seller') or 'N/A',           # Col 1
+                structured.get('alamat_seller') or 'N/A',         # Col 2
+                structured.get('npwp_seller') or 'N/A',           # Col 3
+                structured.get('nama_buyer') or 'N/A',            # Col 4
+                structured.get('alamat_buyer') or 'N/A',          # Col 5
+                structured.get('npwp_buyer') or 'N/A',            # Col 6
+                structured.get('email_buyer') or 'N/A',           # Col 7
+                self._format_date(structured.get('tanggal')) or 'N/A',  # Col 8
+                structured.get('nomor_faktur') or 'N/A',          # Col 9
+                self._parse_amount(structured.get('harga_jual')), # Col 10 - NUMBER format
+                self._parse_amount(structured.get('uang_muka')),  # Col 11 - NUMBER format
+                self._parse_amount(structured.get('dpp')),        # Col 12 - NUMBER format
+                self._parse_amount(structured.get('ppn')),        # Col 13 - NUMBER format
+                self._parse_amount(structured.get('total')),      # Col 14 - NUMBER format
+                structured.get('invoice') or 'N/A',               # Col 15
+            ]
 
-            cell = ws.cell(row=first_data_row, column=col_idx, value=value)
-            cell.fill = data_fill
-            cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
-            cell.border = border_thin
-            cell.font = Font(size=10)
-
-            # Apply number format for currency columns (10-14)
-            if col_idx >= 10 and col_idx <= 14 and isinstance(value, (int, float)):
-                cell.number_format = '#,##0'  # Excel number format with thousand separator
-
-        # Columns 16-19: Item data (ONE ROW PER ITEM)
-        if items and len(items) > 0:
-            for item_idx, item in enumerate(items):
-                current_row = first_data_row + item_idx
-
-                # Column 16: Item Name
-                desc = item.get('description', 'N/A')
-                cell = ws.cell(row=current_row, column=16, value=desc)
+            # Write main data (columns 1-15) - NO MERGE, repeated per row
+            for col_idx, value in enumerate(main_data, start=1):
+                cell = ws.cell(row=current_row, column=col_idx, value=value)
                 cell.fill = data_fill
                 cell.alignment = left_align
                 cell.border = border_thin
                 cell.font = Font(size=10)
 
-                # Column 17: Quantity (as NUMBER)
-                qty_str = item.get('quantity', '-')
-                qty_value = self._parse_quantity(qty_str)
-                cell = ws.cell(row=current_row, column=17, value=qty_value)
-                cell.fill = data_fill
-                cell.alignment = center_align
-                cell.border = border_thin
-                cell.font = Font(size=10)
-                if isinstance(qty_value, (int, float)):
-                    cell.number_format = '0'  # Integer format
+                # Apply number format for currency columns (10-14)
+                if col_idx >= 10 and col_idx <= 14 and isinstance(value, (int, float)):
+                    cell.number_format = '#,##0'  # Excel number format with thousand separator
 
-                # Column 18: Unit Price (as NUMBER)
-                price_str = item.get('unit_price', '-')
-                price_value = self._parse_price(price_str)
-                cell = ws.cell(row=current_row, column=18, value=price_value)
+            # Column 16: Item Name
+            desc = item.get('description', 'N/A')
+            cell = ws.cell(row=current_row, column=16, value=desc)
+            cell.fill = data_fill
+            cell.alignment = left_align
+            cell.border = border_thin
+            cell.font = Font(size=10)
+
+            # Column 17: Quantity (as NUMBER)
+            qty_str = item.get('quantity', '-')
+            qty_value = self._parse_quantity(qty_str)
+            cell = ws.cell(row=current_row, column=17, value=qty_value)
+            cell.fill = data_fill
+            cell.alignment = center_align
+            cell.border = border_thin
+            cell.font = Font(size=10)
+            if isinstance(qty_value, (int, float)):
+                cell.number_format = '0'  # Integer format
+
+            # Column 18: Unit Price (as NUMBER)
+            price_str = item.get('unit_price', '-')
+            price_value = self._parse_price(price_str)
+            cell = ws.cell(row=current_row, column=18, value=price_value)
+            cell.fill = data_fill
+            cell.alignment = right_align
+            cell.border = border_thin
+            cell.font = Font(size=10)
+            if isinstance(price_value, (int, float)) and price_value > 0:
+                cell.number_format = '#,##0'  # Number format with thousand separator
+
+            # Column 19: Item Total (as FORMULA: Qty × Unit Price)
+            if isinstance(qty_value, (int, float)) and isinstance(price_value, (int, float)):
+                cell = ws.cell(row=current_row, column=19, value=f"=Q{current_row}*R{current_row}")
                 cell.fill = data_fill
                 cell.alignment = right_align
                 cell.border = border_thin
                 cell.font = Font(size=10)
-                if isinstance(price_value, (int, float)) and price_value > 0:
-                    cell.number_format = '#,##0'  # Number format with thousand separator
-
-                # Column 19: Item Total (as FORMULA: Qty × Unit Price)
-                if isinstance(qty_value, (int, float)) and isinstance(price_value, (int, float)):
-                    cell = ws.cell(row=current_row, column=19, value=f"=Q{current_row}*R{current_row}")
-                    cell.fill = data_fill
-                    cell.alignment = right_align
-                    cell.border = border_thin
-                    cell.font = Font(size=10)
-                    cell.number_format = '#,##0'
-                else:
-                    cell = ws.cell(row=current_row, column=19, value='-')
-                    cell.fill = data_fill
-                    cell.alignment = right_align
-                    cell.border = border_thin
-                    cell.font = Font(size=10)
-        else:
-            # No items - show N/A in all item columns
-            for col_idx in range(16, 20):
-                cell = ws.cell(row=first_data_row, column=col_idx, value='N/A')
+                cell.number_format = '#,##0'
+            else:
+                cell = ws.cell(row=current_row, column=19, value='-')
                 cell.fill = data_fill
-                cell.alignment = center_align if col_idx == 17 else left_align
+                cell.alignment = right_align
                 cell.border = border_thin
                 cell.font = Font(size=10)
 
-        # ===== GRAND TOTAL ROW (only if items exist) =====
-        if items and len(items) > 0:
-            grand_total_row = first_data_row + num_items
+            # Set standard row height
+            ws.row_dimensions[current_row].height = 30
 
-            # Grand Total styling (darker blue, bold)
-            grand_total_fill = PatternFill(start_color="93c5fd", end_color="93c5fd", fill_type="solid")
-            grand_total_font = Font(bold=True, size=10)
+        # ===== GRAND TOTAL ROW =====
+        num_items = len(items)
+        grand_total_row = first_data_row + num_items
 
-            # Merge columns 1-16 for "GRAND TOTAL" label
-            ws.merge_cells(start_row=grand_total_row, start_column=1,
-                          end_row=grand_total_row, end_column=16)
-            cell = ws.cell(row=grand_total_row, column=1, value="GRAND TOTAL")
-            cell.fill = grand_total_fill
-            cell.alignment = Alignment(horizontal='right', vertical='center')
-            cell.border = border_thin
-            cell.font = grand_total_font
+        # Grand Total styling (darker blue, bold)
+        grand_total_fill = PatternFill(start_color="93c5fd", end_color="93c5fd", fill_type="solid")
+        grand_total_font = Font(bold=True, size=10)
 
-            # Column 17: Total Quantity (SUM formula)
-            first_item_row = first_data_row
-            last_item_row = first_data_row + num_items - 1
-            cell = ws.cell(row=grand_total_row, column=17, value=f"=SUM(Q{first_item_row}:Q{last_item_row})")
-            cell.fill = grand_total_fill
-            cell.alignment = center_align
-            cell.border = border_thin
-            cell.font = grand_total_font
-            cell.number_format = '0'
+        # Merge columns 1-16 for "GRAND TOTAL" label
+        ws.merge_cells(start_row=grand_total_row, start_column=1,
+                      end_row=grand_total_row, end_column=16)
+        cell = ws.cell(row=grand_total_row, column=1, value="GRAND TOTAL")
+        cell.fill = grand_total_fill
+        cell.alignment = Alignment(horizontal='right', vertical='center')
+        cell.border = border_thin
+        cell.font = grand_total_font
 
-            # Column 18: Leave blank (no unit price sum makes sense)
-            cell = ws.cell(row=grand_total_row, column=18, value='')
-            cell.fill = grand_total_fill
-            cell.border = border_thin
+        # Column 17: Total Quantity (SUM formula)
+        last_item_row = first_data_row + num_items - 1
+        cell = ws.cell(row=grand_total_row, column=17, value=f"=SUM(Q{first_data_row}:Q{last_item_row})")
+        cell.fill = grand_total_fill
+        cell.alignment = center_align
+        cell.border = border_thin
+        cell.font = grand_total_font
+        cell.number_format = '0'
 
-            # Column 19: Total Amount (SUM formula)
-            cell = ws.cell(row=grand_total_row, column=19, value=f"=SUM(S{first_item_row}:S{last_item_row})")
-            cell.fill = grand_total_fill
-            cell.alignment = right_align
-            cell.border = border_thin
-            cell.font = grand_total_font
-            cell.number_format = '#,##0'
+        # Column 18: Leave blank (no unit price sum makes sense)
+        cell = ws.cell(row=grand_total_row, column=18, value='')
+        cell.fill = grand_total_fill
+        cell.border = border_thin
 
-            # Set height for grand total row
-            ws.row_dimensions[grand_total_row].height = 30
+        # Column 19: Total Amount (SUM formula)
+        cell = ws.cell(row=grand_total_row, column=19, value=f"=SUM(S{first_data_row}:S{last_item_row})")
+        cell.fill = grand_total_fill
+        cell.alignment = right_align
+        cell.border = border_thin
+        cell.font = grand_total_font
+        cell.number_format = '#,##0'
+
+        # Set height for grand total row
+        ws.row_dimensions[grand_total_row].height = 30
 
         # Auto-adjust column widths
         ws.column_dimensions['A'].width = 25  # Nama Seller
@@ -1041,10 +1031,6 @@ class FakturPajakExporter(BaseExporter):
         ws.column_dimensions['Q'].width = 12  # Quantity
         ws.column_dimensions['R'].width = 18  # Unit Price
         ws.column_dimensions['S'].width = 20  # Item Total
-
-        # Set standard row height for all data rows
-        for r in range(first_data_row, first_data_row + num_items):
-            ws.row_dimensions[r].height = 30
     
     def export_to_pdf(self, result: Dict[str, Any], output_path: str) -> bool:
         """
@@ -1100,7 +1086,7 @@ class FakturPajakExporter(BaseExporter):
                 cell.border = border_thin
             row += 1
             
-            # ===== HYBRID DATA ROWS: Main data merged + Items per row =====
+            # ===== FLAT TABLE: ALL DATA REPEATED PER ITEM ROW (NO MERGE) =====
             from ai_processor import IndonesianTaxDocumentParser
             temp_parser = IndonesianTaxDocumentParser()
 
@@ -1127,151 +1113,135 @@ class FakturPajakExporter(BaseExporter):
                             structured = temp_parser.extract_structured_fields(raw_text, "faktur_pajak")
                     structured = self._prepare_structured_fields(structured, raw_text)
 
-                # Determine number of item rows (minimum 1)
-                num_items = max(len(items), 1) if items else 1
+                # If no items, create one row with N/A for item columns
+                if not items or len(items) == 0:
+                    items = [{'description': 'N/A', 'quantity': '-', 'unit_price': '-'}]
+
                 first_data_row = row
 
                 # Alternating background color for document blocks
                 fill = data_fill_1 if idx % 2 == 0 else data_fill_2
 
-                # Columns 1-15: Main faktur data (MERGED across all item rows)
-                main_data = [
-                    structured.get('nama_seller') or 'N/A',
-                    structured.get('alamat_seller') or 'N/A',
-                    structured.get('npwp_seller') or 'N/A',
-                    structured.get('nama_buyer') or 'N/A',
-                    structured.get('alamat_buyer') or 'N/A',
-                    structured.get('npwp_buyer') or 'N/A',
-                    structured.get('email_buyer') or 'N/A',
-                    self._format_date(structured.get('tanggal')) or 'N/A',
-                    structured.get('nomor_faktur') or 'N/A',
-                    self._parse_amount(structured.get('harga_jual')),  # NUMBER format
-                    self._parse_amount(structured.get('uang_muka')),   # NUMBER format
-                    self._parse_amount(structured.get('dpp')),         # NUMBER format
-                    self._parse_amount(structured.get('ppn')),         # NUMBER format
-                    self._parse_amount(structured.get('total')),       # NUMBER format
-                    structured.get('invoice') or 'N/A',
-                ]
+                # Write ONE ROW PER ITEM (all columns 1-19 filled, NO MERGE)
+                for item_idx, item in enumerate(items):
+                    current_row = row + item_idx
 
-                # Write main data (columns 1-15) with vertical merge
-                for col_idx, value in enumerate(main_data, start=1):
-                    if num_items > 1:
-                        # Merge cell vertically across all item rows
-                        ws.merge_cells(start_row=first_data_row, start_column=col_idx,
-                                      end_row=first_data_row + num_items - 1, end_column=col_idx)
+                    # Columns 1-15: Main faktur data (REPEATED for each item)
+                    main_data = [
+                        structured.get('nama_seller') or 'N/A',
+                        structured.get('alamat_seller') or 'N/A',
+                        structured.get('npwp_seller') or 'N/A',
+                        structured.get('nama_buyer') or 'N/A',
+                        structured.get('alamat_buyer') or 'N/A',
+                        structured.get('npwp_buyer') or 'N/A',
+                        structured.get('email_buyer') or 'N/A',
+                        self._format_date(structured.get('tanggal')) or 'N/A',
+                        structured.get('nomor_faktur') or 'N/A',
+                        self._parse_amount(structured.get('harga_jual')),  # NUMBER format
+                        self._parse_amount(structured.get('uang_muka')),   # NUMBER format
+                        self._parse_amount(structured.get('dpp')),         # NUMBER format
+                        self._parse_amount(structured.get('ppn')),         # NUMBER format
+                        self._parse_amount(structured.get('total')),       # NUMBER format
+                        structured.get('invoice') or 'N/A',
+                    ]
 
-                    cell = ws.cell(row=first_data_row, column=col_idx, value=value)
-                    cell.fill = fill
-                    cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
-                    cell.border = border_thin
-                    cell.font = Font(size=10)
-
-                    # Apply number format for currency columns (10-14)
-                    if col_idx >= 10 and col_idx <= 14 and isinstance(value, (int, float)):
-                        cell.number_format = '#,##0'
-
-                # Columns 16-19: Item data (ONE ROW PER ITEM)
-                if items and len(items) > 0:
-                    for item_idx, item in enumerate(items):
-                        current_row = first_data_row + item_idx
-
-                        # Column 16: Item Name
-                        desc = item.get('description', 'N/A')
-                        cell = ws.cell(row=current_row, column=16, value=desc)
+                    # Write main data (columns 1-15) - NO MERGE, repeated per row
+                    for col_idx, value in enumerate(main_data, start=1):
+                        cell = ws.cell(row=current_row, column=col_idx, value=value)
                         cell.fill = fill
                         cell.alignment = left_align
                         cell.border = border_thin
                         cell.font = Font(size=10)
 
-                        # Column 17: Quantity (as NUMBER)
-                        qty_str = item.get('quantity', '-')
-                        qty_value = self._parse_quantity(qty_str)
-                        cell = ws.cell(row=current_row, column=17, value=qty_value)
-                        cell.fill = fill
-                        cell.alignment = center_align
-                        cell.border = border_thin
-                        cell.font = Font(size=10)
-                        if isinstance(qty_value, (int, float)):
-                            cell.number_format = '0'
+                        # Apply number format for currency columns (10-14)
+                        if col_idx >= 10 and col_idx <= 14 and isinstance(value, (int, float)):
+                            cell.number_format = '#,##0'
 
-                        # Column 18: Unit Price (as NUMBER)
-                        price_str = item.get('unit_price', '-')
-                        price_value = self._parse_price(price_str)
-                        cell = ws.cell(row=current_row, column=18, value=price_value)
+                    # Column 16: Item Name
+                    desc = item.get('description', 'N/A')
+                    cell = ws.cell(row=current_row, column=16, value=desc)
+                    cell.fill = fill
+                    cell.alignment = left_align
+                    cell.border = border_thin
+                    cell.font = Font(size=10)
+
+                    # Column 17: Quantity (as NUMBER)
+                    qty_str = item.get('quantity', '-')
+                    qty_value = self._parse_quantity(qty_str)
+                    cell = ws.cell(row=current_row, column=17, value=qty_value)
+                    cell.fill = fill
+                    cell.alignment = center_align
+                    cell.border = border_thin
+                    cell.font = Font(size=10)
+                    if isinstance(qty_value, (int, float)):
+                        cell.number_format = '0'
+
+                    # Column 18: Unit Price (as NUMBER)
+                    price_str = item.get('unit_price', '-')
+                    price_value = self._parse_price(price_str)
+                    cell = ws.cell(row=current_row, column=18, value=price_value)
+                    cell.fill = fill
+                    cell.alignment = right_align
+                    cell.border = border_thin
+                    cell.font = Font(size=10)
+                    if isinstance(price_value, (int, float)) and price_value > 0:
+                        cell.number_format = '#,##0'
+
+                    # Column 19: Item Total (as FORMULA)
+                    if isinstance(qty_value, (int, float)) and isinstance(price_value, (int, float)):
+                        cell = ws.cell(row=current_row, column=19, value=f"=Q{current_row}*R{current_row}")
                         cell.fill = fill
                         cell.alignment = right_align
                         cell.border = border_thin
                         cell.font = Font(size=10)
-                        if isinstance(price_value, (int, float)) and price_value > 0:
-                            cell.number_format = '#,##0'
-
-                        # Column 19: Item Total (as FORMULA)
-                        if isinstance(qty_value, (int, float)) and isinstance(price_value, (int, float)):
-                            cell = ws.cell(row=current_row, column=19, value=f"=Q{current_row}*R{current_row}")
-                            cell.fill = fill
-                            cell.alignment = right_align
-                            cell.border = border_thin
-                            cell.font = Font(size=10)
-                            cell.number_format = '#,##0'
-                        else:
-                            cell = ws.cell(row=current_row, column=19, value='-')
-                            cell.fill = fill
-                            cell.alignment = right_align
-                            cell.border = border_thin
-                            cell.font = Font(size=10)
-
-                        # Set standard row height
-                        ws.row_dimensions[current_row].height = 30
-                else:
-                    # No items - show N/A in all item columns
-                    for col_idx in range(16, 20):
-                        cell = ws.cell(row=first_data_row, column=col_idx, value='N/A')
+                        cell.number_format = '#,##0'
+                    else:
+                        cell = ws.cell(row=current_row, column=19, value='-')
                         cell.fill = fill
-                        cell.alignment = center_align if col_idx == 17 else left_align
+                        cell.alignment = right_align
                         cell.border = border_thin
                         cell.font = Font(size=10)
-                    ws.row_dimensions[first_data_row].height = 30
 
-                # Add GRAND TOTAL row for this document (if items exist)
-                if items and len(items) > 0:
-                    grand_total_row = first_data_row + num_items
+                    # Set standard row height
+                    ws.row_dimensions[current_row].height = 30
 
-                    # Merge columns 1-16 for "GRAND TOTAL" label
-                    ws.merge_cells(start_row=grand_total_row, start_column=1,
-                                  end_row=grand_total_row, end_column=16)
-                    cell = ws.cell(row=grand_total_row, column=1, value="GRAND TOTAL")
-                    cell.fill = grand_total_fill
-                    cell.alignment = Alignment(horizontal='right', vertical='center')
-                    cell.border = border_thin
-                    cell.font = grand_total_font
+                # Add GRAND TOTAL row for this document
+                num_items = len(items)
+                grand_total_row = first_data_row + num_items
 
-                    # Column 17: Total Quantity (SUM formula)
-                    first_item_row = first_data_row
-                    last_item_row = first_data_row + num_items - 1
-                    cell = ws.cell(row=grand_total_row, column=17, value=f"=SUM(Q{first_item_row}:Q{last_item_row})")
-                    cell.fill = grand_total_fill
-                    cell.alignment = center_align
-                    cell.border = border_thin
-                    cell.font = grand_total_font
-                    cell.number_format = '0'
+                # Merge columns 1-16 for "GRAND TOTAL" label
+                ws.merge_cells(start_row=grand_total_row, start_column=1,
+                              end_row=grand_total_row, end_column=16)
+                cell = ws.cell(row=grand_total_row, column=1, value=f"SUBTOTAL - {structured.get('nomor_faktur') or 'Document'}")
+                cell.fill = grand_total_fill
+                cell.alignment = Alignment(horizontal='right', vertical='center')
+                cell.border = border_thin
+                cell.font = grand_total_font
 
-                    # Column 18: Leave blank
-                    cell = ws.cell(row=grand_total_row, column=18, value='')
-                    cell.fill = grand_total_fill
-                    cell.border = border_thin
+                # Column 17: Total Quantity (SUM formula)
+                last_item_row = first_data_row + num_items - 1
+                cell = ws.cell(row=grand_total_row, column=17, value=f"=SUM(Q{first_data_row}:Q{last_item_row})")
+                cell.fill = grand_total_fill
+                cell.alignment = center_align
+                cell.border = border_thin
+                cell.font = grand_total_font
+                cell.number_format = '0'
 
-                    # Column 19: Total Amount (SUM formula)
-                    cell = ws.cell(row=grand_total_row, column=19, value=f"=SUM(S{first_item_row}:S{last_item_row})")
-                    cell.fill = grand_total_fill
-                    cell.alignment = right_align
-                    cell.border = border_thin
-                    cell.font = grand_total_font
-                    cell.number_format = '#,##0'
+                # Column 18: Leave blank
+                cell = ws.cell(row=grand_total_row, column=18, value='')
+                cell.fill = grand_total_fill
+                cell.border = border_thin
 
-                    ws.row_dimensions[grand_total_row].height = 30
-                    row = grand_total_row + 1
-                else:
-                    row = first_data_row + 1
+                # Column 19: Total Amount (SUM formula)
+                cell = ws.cell(row=grand_total_row, column=19, value=f"=SUM(S{first_data_row}:S{last_item_row})")
+                cell.fill = grand_total_fill
+                cell.alignment = right_align
+                cell.border = border_thin
+                cell.font = grand_total_font
+                cell.number_format = '#,##0'
+
+                ws.row_dimensions[grand_total_row].height = 30
+                row = grand_total_row + 1
 
             # Auto-adjust column widths
             ws.column_dimensions['A'].width = 25  # Nama Seller
