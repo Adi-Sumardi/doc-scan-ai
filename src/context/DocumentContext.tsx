@@ -261,7 +261,7 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
             loadingBatchesRef.current.delete(batchId);
           }
         }
-        else if (updatedBatch.status === 'error' || updatedBatch.status === 'failed') {
+        else if (updatedBatch.status === 'error') {
           console.log(`❌ Batch ${batchId.slice(-8)} failed`);
           clearInterval(pollInterval);
           pollingCleanupRef.current.delete(batchId);

@@ -42,7 +42,7 @@ const Dashboard = () => {
   const totalBatches = safeBatches.length;
   const completedBatches = safeBatches.filter(b => b.status === 'completed').length;
   const processingBatches = safeBatches.filter(b => b.status === 'processing').length;
-  const failedBatches = safeBatches.filter(b => b.status === 'error' || b.status === 'failed').length;
+  const failedBatches = safeBatches.filter(b => b.status === 'error').length;
 
   // Calculate success rate
   const successRate = totalBatches > 0
@@ -266,7 +266,7 @@ const Dashboard = () => {
                       }`}>
                         {batch.status === 'completed' && <CheckCircle className="w-4 h-4 md:w-5 md:h-5 text-green-600" />}
                         {batch.status === 'processing' && <Clock className="w-4 h-4 md:w-5 md:h-5 text-yellow-600 animate-spin" />}
-                        {(batch.status === 'error' || batch.status === 'failed') && <AlertCircle className="w-4 h-4 md:w-5 md:h-5 text-red-600" />}
+                        {batch.status === 'error' && <AlertCircle className="w-4 h-4 md:w-5 md:h-5 text-red-600" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
