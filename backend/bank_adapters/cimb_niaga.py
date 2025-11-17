@@ -8,6 +8,7 @@ Mendukung 2 format rekening koran:
 from typing import Dict, Any, List, Tuple, Optional
 from .base import BaseBankAdapter, StandardizedTransaction
 from decimal import Decimal
+from datetime import datetime
 import re
 
 
