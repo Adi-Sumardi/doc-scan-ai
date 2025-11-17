@@ -57,7 +57,9 @@ class FakturPajakExporter(BaseExporter):
             "Nama Barang Kena Pajak / Jasa Kena Pajak",
             "Quantity",
             "Nilai Barang",
-            "Total Nilai Barang"
+            "Total Nilai Barang",
+            "Total Qty",      # NEW: Sum of all quantities
+            "Grand Total"     # NEW: Sum of all item totals
         ]
 
     # ------------------------------------------------------------------
@@ -862,7 +864,7 @@ class FakturPajakExporter(BaseExporter):
         row = 1
 
         # ===== TITLE =====
-        ws.merge_cells(f'A{row}:S{row}')
+        ws.merge_cells(f'A{row}:U{row}')
         ws[f'A{row}'] = "📋 FAKTUR PAJAK - DATA TERSTRUKTUR"
         ws[f'A{row}'].font = Font(bold=True, size=14, color="FFFFFF")
         ws[f'A{row}'].fill = header_fill
@@ -969,47 +971,50 @@ class FakturPajakExporter(BaseExporter):
             # Set standard row height
             ws.row_dimensions[current_row].height = 30
 
-        # ===== GRAND TOTAL ROW =====
+        # ===== NEW COLUMNS 20-21: TOTAL QTY & GRAND TOTAL (ONLY FIRST ROW) =====
         num_items = len(items)
-        grand_total_row = first_data_row + num_items
-
-        # Grand Total styling (darker blue, bold)
-        grand_total_fill = PatternFill(start_color="93c5fd", end_color="93c5fd", fill_type="solid")
-        grand_total_font = Font(bold=True, size=10)
-
-        # Merge columns 1-16 for "GRAND TOTAL" label
-        ws.merge_cells(start_row=grand_total_row, start_column=1,
-                      end_row=grand_total_row, end_column=16)
-        cell = ws.cell(row=grand_total_row, column=1, value="GRAND TOTAL")
-        cell.fill = grand_total_fill
-        cell.alignment = Alignment(horizontal='right', vertical='center')
-        cell.border = border_thin
-        cell.font = grand_total_font
-
-        # Column 17: Total Quantity (SUM formula)
         last_item_row = first_data_row + num_items - 1
-        cell = ws.cell(row=grand_total_row, column=17, value=f"=SUM(Q{first_data_row}:Q{last_item_row})")
-        cell.fill = grand_total_fill
-        cell.alignment = center_align
-        cell.border = border_thin
-        cell.font = grand_total_font
-        cell.number_format = '0'
 
-        # Column 18: Leave blank (no unit price sum makes sense)
-        cell = ws.cell(row=grand_total_row, column=18, value='')
-        cell.fill = grand_total_fill
-        cell.border = border_thin
+        # Calculate formulas for Total Qty and Grand Total
+        total_qty_formula = f"=SUM(Q{first_data_row}:Q{last_item_row})"
+        grand_total_formula = f"=SUM(S{first_data_row}:S{last_item_row})"
 
-        # Column 19: Total Amount (SUM formula)
-        cell = ws.cell(row=grand_total_row, column=19, value=f"=SUM(S{first_data_row}:S{last_item_row})")
-        cell.fill = grand_total_fill
-        cell.alignment = right_align
-        cell.border = border_thin
-        cell.font = grand_total_font
-        cell.number_format = '#,##0'
+        # Write columns 20-21 for each item row (only first row has values, rest are empty)
+        for item_idx, item in enumerate(items):
+            current_row = first_data_row + item_idx
 
-        # Set height for grand total row
-        ws.row_dimensions[grand_total_row].height = 30
+            if item_idx == 0:
+                # First row: Add Total Qty and Grand Total with formulas
+                # Column 20: Total Qty (SUM formula)
+                cell = ws.cell(row=current_row, column=20, value=total_qty_formula)
+                cell.fill = data_fill
+                cell.alignment = center_align
+                cell.border = border_thin
+                cell.font = Font(size=10)
+                cell.number_format = '0'
+
+                # Column 21: Grand Total (SUM formula)
+                cell = ws.cell(row=current_row, column=21, value=grand_total_formula)
+                cell.fill = data_fill
+                cell.alignment = right_align
+                cell.border = border_thin
+                cell.font = Font(size=10)
+                cell.number_format = '#,##0'
+            else:
+                # Other rows: Empty cells with same styling
+                # Column 20: Empty
+                cell = ws.cell(row=current_row, column=20, value='')
+                cell.fill = data_fill
+                cell.alignment = center_align
+                cell.border = border_thin
+                cell.font = Font(size=10)
+
+                # Column 21: Empty
+                cell = ws.cell(row=current_row, column=21, value='')
+                cell.fill = data_fill
+                cell.alignment = right_align
+                cell.border = border_thin
+                cell.font = Font(size=10)
 
         # Auto-adjust column widths
         ws.column_dimensions['A'].width = 25  # Nama Seller
@@ -1031,6 +1036,8 @@ class FakturPajakExporter(BaseExporter):
         ws.column_dimensions['Q'].width = 12  # Quantity
         ws.column_dimensions['R'].width = 18  # Unit Price
         ws.column_dimensions['S'].width = 20  # Item Total
+        ws.column_dimensions['T'].width = 15  # Total Qty (NEW)
+        ws.column_dimensions['U'].width = 20  # Grand Total (NEW)
     
     def export_to_pdf(self, result: Dict[str, Any], output_path: str) -> bool:
         """
@@ -1205,43 +1212,53 @@ class FakturPajakExporter(BaseExporter):
                     # Set standard row height
                     ws.row_dimensions[current_row].height = 30
 
-                # Add GRAND TOTAL row for this document
+                # ===== NEW COLUMNS 20-21: TOTAL QTY & GRAND TOTAL (ONLY FIRST ROW) =====
                 num_items = len(items)
-                grand_total_row = first_data_row + num_items
-
-                # Merge columns 1-16 for "GRAND TOTAL" label
-                ws.merge_cells(start_row=grand_total_row, start_column=1,
-                              end_row=grand_total_row, end_column=16)
-                cell = ws.cell(row=grand_total_row, column=1, value=f"SUBTOTAL - {structured.get('nomor_faktur') or 'Document'}")
-                cell.fill = grand_total_fill
-                cell.alignment = Alignment(horizontal='right', vertical='center')
-                cell.border = border_thin
-                cell.font = grand_total_font
-
-                # Column 17: Total Quantity (SUM formula)
                 last_item_row = first_data_row + num_items - 1
-                cell = ws.cell(row=grand_total_row, column=17, value=f"=SUM(Q{first_data_row}:Q{last_item_row})")
-                cell.fill = grand_total_fill
-                cell.alignment = center_align
-                cell.border = border_thin
-                cell.font = grand_total_font
-                cell.number_format = '0'
 
-                # Column 18: Leave blank
-                cell = ws.cell(row=grand_total_row, column=18, value='')
-                cell.fill = grand_total_fill
-                cell.border = border_thin
+                # Calculate formulas for Total Qty and Grand Total
+                total_qty_formula = f"=SUM(Q{first_data_row}:Q{last_item_row})"
+                grand_total_formula = f"=SUM(S{first_data_row}:S{last_item_row})"
 
-                # Column 19: Total Amount (SUM formula)
-                cell = ws.cell(row=grand_total_row, column=19, value=f"=SUM(S{first_data_row}:S{last_item_row})")
-                cell.fill = grand_total_fill
-                cell.alignment = right_align
-                cell.border = border_thin
-                cell.font = grand_total_font
-                cell.number_format = '#,##0'
+                # Write columns 20-21 for each item row (only first row has values, rest are empty)
+                for item_idx in range(num_items):
+                    current_row = first_data_row + item_idx
 
-                ws.row_dimensions[grand_total_row].height = 30
-                row = grand_total_row + 1
+                    if item_idx == 0:
+                        # First row: Add Total Qty and Grand Total with formulas
+                        # Column 20: Total Qty (SUM formula)
+                        cell = ws.cell(row=current_row, column=20, value=total_qty_formula)
+                        cell.fill = fill
+                        cell.alignment = center_align
+                        cell.border = border_thin
+                        cell.font = Font(size=10)
+                        cell.number_format = '0'
+
+                        # Column 21: Grand Total (SUM formula)
+                        cell = ws.cell(row=current_row, column=21, value=grand_total_formula)
+                        cell.fill = fill
+                        cell.alignment = right_align
+                        cell.border = border_thin
+                        cell.font = Font(size=10)
+                        cell.number_format = '#,##0'
+                    else:
+                        # Other rows: Empty cells with same styling
+                        # Column 20: Empty
+                        cell = ws.cell(row=current_row, column=20, value='')
+                        cell.fill = fill
+                        cell.alignment = center_align
+                        cell.border = border_thin
+                        cell.font = Font(size=10)
+
+                        # Column 21: Empty
+                        cell = ws.cell(row=current_row, column=21, value='')
+                        cell.fill = fill
+                        cell.alignment = right_align
+                        cell.border = border_thin
+                        cell.font = Font(size=10)
+
+                # Move to next document section (no subtotal row)
+                row = first_data_row + num_items
 
             # Auto-adjust column widths
             ws.column_dimensions['A'].width = 25  # Nama Seller
@@ -1263,6 +1280,8 @@ class FakturPajakExporter(BaseExporter):
             ws.column_dimensions['Q'].width = 12  # Quantity
             ws.column_dimensions['R'].width = 18  # Nilai Barang (satuan)
             ws.column_dimensions['S'].width = 20  # Total Nilai Barang
+            ws.column_dimensions['T'].width = 15  # Total Qty (NEW)
+            ws.column_dimensions['U'].width = 20  # Grand Total (NEW)
 
             wb.save(output_path)
             logger.info(f"✅ Batch Faktur Pajak Excel export created: {output_path} with {len(results)} documents")

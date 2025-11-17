@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDocument } from '../context/DocumentContext';
 import OCRMetricsDisplay from '../components/OCRMetricsDisplay';
-import RealtimeOCRProcessing from '../components/RealtimeOCRProcessing';
+import ImprovedScanAnimation from '../components/ImprovedScanAnimation';
 import DocumentPreview from '../components/DocumentPreview';
 import EditableOCRResult from '../components/EditableOCRResult';
 import { 
@@ -164,9 +164,13 @@ const ScanResults = () => {
 
       {/* Real-time OCR Processing */}
       {batch.status === 'processing' ? (
-        <RealtimeOCRProcessing
+        <ImprovedScanAnimation
           batchId={batchId!}
           onComplete={() => refreshBatch(batchId!)}
+          onError={(error) => {
+            console.error('Processing error:', error);
+            // You can add toast notification here
+          }}
           className="mb-6"
         />
       ) : batch.status === 'completed' ? (

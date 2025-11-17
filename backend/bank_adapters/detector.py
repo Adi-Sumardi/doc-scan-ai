@@ -16,6 +16,7 @@ from .bca import BcaAdapter
 from .bca_syariah import BcaSyariahAdapter
 from .ocbc import OcbcBankAdapter
 from .bsi_syariah import BsiSyariahAdapter
+from .cimb_niaga import CimbNiagaAdapter
 
 
 class BankDetector:
@@ -39,6 +40,7 @@ class BankDetector:
         BcaAdapter,
 
         # Bank lain (tidak ada konflik keywords)
+        CimbNiagaAdapter,
         MufgBankAdapter,
         PermataBankAdapter,
         BriAdapter,

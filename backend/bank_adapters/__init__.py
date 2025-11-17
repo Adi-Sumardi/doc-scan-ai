@@ -38,6 +38,7 @@ from .bca import BcaAdapter
 from .bca_syariah import BcaSyariahAdapter
 from .ocbc import OcbcBankAdapter
 from .bsi_syariah import BsiSyariahAdapter
+from .cimb_niaga import CimbNiagaAdapter
 from .detector import BankDetector
 
 __all__ = [
@@ -57,6 +58,7 @@ __all__ = [
     'BcaSyariahAdapter',
     'OcbcBankAdapter',
     'BsiSyariahAdapter',
+    'CimbNiagaAdapter',
 
     # Detector
     'BankDetector',

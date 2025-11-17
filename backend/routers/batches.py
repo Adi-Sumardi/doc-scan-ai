@@ -90,16 +90,54 @@ async def get_batch_status(
         progress_percentage = 0
         if batch.total_files > 0:
             progress_percentage = (batch.processed_files / batch.total_files) * 100
-        
+
+        # Get all files in this batch for per-file status
+        files = db.query(DocumentFile).filter(DocumentFile.batch_id == batch_id).all()
+
+        # Build file list with status
+        file_list = []
+        failed_count = 0
+        current_file_name = None
+
+        for file in files:
+            file_list.append({
+                "id": file.id,
+                "filename": file.name,
+                "original_filename": file.name,
+                "status": file.status,  # pending, processing, completed, error
+                "progress": file.progress,
+                "error_message": None  # Can add error tracking per file if needed
+            })
+
+            # Count failed files
+            if file.status == "error":
+                failed_count += 1
+
+            # Track current processing file
+            if file.status == "processing":
+                current_file_name = file.name
+
+        # Calculate ETA (Estimated Time of Arrival)
+        eta_seconds = None
+        if batch.status == "processing" and batch.processing_start and batch.processed_files > 0:
+            elapsed_seconds = (datetime.utcnow() - batch.processing_start).total_seconds()
+            avg_time_per_file = elapsed_seconds / batch.processed_files
+            remaining_files = batch.total_files - batch.processed_files
+            eta_seconds = int(avg_time_per_file * remaining_files)
+
         return {
             "id": batch.id,
             "status": batch.status,
             "total_files": batch.total_files,
             "processed_files": batch.processed_files,
+            "failed_files": failed_count,
             "progress_percentage": round(progress_percentage, 1),
             "created_at": batch.created_at.isoformat(),
             "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
             "error_message": batch.error_message,
+            "current_file": current_file_name,
+            "eta_seconds": eta_seconds,
+            "results": file_list,  # Include file list for per-file progress
             "source": "database"
         }
         

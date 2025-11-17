@@ -97,7 +97,22 @@ export interface DocumentFile { id: string; name: string; type: string; status: 
 export interface NextGenOCRMetrics { confidence: number; layout_confidence: number; semantic_confidence: number; quality_score: number; processing_time: number; engine_used: string; }
 export interface ProcessingQuality { overall_score: number; text_clarity: number; structure_preservation: number; accuracy_rating: 'excellent' | 'good' | 'fair' | 'poor'; }
 export interface AIData { extracted_data: any; entities: any[]; document_type: string; confidence: number; }
-export interface Batch { id: string; files: DocumentFile[]; status: string; created_at: string; total_files: number; processed_files: number; completed_at?: string; error?: string; }
+export interface Batch {
+  id: string;
+  files: DocumentFile[];
+  status: 'pending' | 'processing' | 'completed' | 'error';
+  created_at: string;
+  total_files: number;
+  processed_files: number;
+  completed_at?: string;
+  error?: string;
+  // New fields for improved animation
+  failed_files?: number;
+  current_file?: string;
+  eta_seconds?: number;
+  error_message?: string;
+  results?: any[];  // Per-file progress data
+}
 export interface ScanResult {
   id: string; batch_id: string; filename: string; document_type: string; extracted_text?: string; extracted_data: any;
   confidence?: number; confidence_score?: number; ocr_engine_used?: string; created_at: string;

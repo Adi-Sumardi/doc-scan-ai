@@ -460,7 +460,11 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
             # })
             batch_processor.clear_cancel_request(batch_id)
             return
-        
+
+        # Set processing start time for ETA calculation
+        batch.processing_start = datetime.now(timezone.utc)
+        db.commit()
+
         processed_count = 0
         
         for i, file_info in enumerate(file_paths):
