@@ -374,7 +374,118 @@ class CimbNiagaAdapter(BaseBankAdapter):
     def _parse_from_text(self, ocr_result: Dict[str, Any]):
         """
         Fallback: Parse dari raw text jika tidak ada table structure
+        Uses regex patterns to extract transactions directly from text
         """
-        self.logger.warning("⚠️ No table structure found, parsing from text")
-        # Implement text-based parsing if needed
-        pass
+        self.logger.info("📝 No table structure - using text-based extraction")
+
+        # Extract raw text
+        text = self.extract_text_from_ocr(ocr_result)
+        if not text:
+            self.logger.warning("⚠️ No text found in OCR result")
+            return
+
+        # Split into lines
+        lines = text.split('\n')
+
+        # Transaction pattern for Format 1: MM/DD/YY HH:MM ... Debit/Credit ... Balance
+        # Example: "02/01/24 09:30  02/01/24 09:30  Transfer  1,500,000.00  -  15,000,000.00"
+        format_1_pattern = r'(\d{2}/\d{2}/\d{2}\s+\d{2}:\d{2}).*?(?:(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s+)?(?:(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s+)?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)'
+
+        # Transaction pattern for Format 2: DD/MM ... Description ... Debit/Credit ... Balance
+        # Example: "15/06  Transfer  1,500,000  -  15,000,000"
+        format_2_pattern = r'(\d{2}/\d{2})(?:/\d{2,4})?\s+(.*?)\s+(?:(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s+)?(?:(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s+)?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)'
+
+        transactions_found = 0
+
+        for line in lines:
+            line = line.strip()
+            if not line or len(line) < 20:  # Skip short lines
+                continue
+
+            # Try Format 1 first
+            match = re.search(format_1_pattern, line)
+            if match and self.detected_format == 'format_1':
+                try:
+                    post_date_text = match.group(1)
+                    debit_text = match.group(2) or ''
+                    credit_text = match.group(3) or ''
+                    balance_text = match.group(4) or ''
+
+                    # Parse date
+                    transaction_date = self._parse_format_1_date(post_date_text)
+                    if not transaction_date:
+                        continue
+
+                    # Parse amounts
+                    debit = self.clean_amount(debit_text)
+                    credit = self.clean_amount(credit_text)
+                    balance = self.clean_amount(balance_text)
+
+                    # Extract description (everything between date and amounts)
+                    desc_match = re.search(r'\d{2}:\d{2}\s+(.*?)\s+\d{1,3}(?:,\d{3})*', line)
+                    description = desc_match.group(1).strip() if desc_match else ''
+
+                    txn = StandardizedTransaction(
+                        transaction_date=transaction_date,
+                        posting_date=transaction_date,
+                        effective_date=transaction_date,
+                        description=description,
+                        reference_number='',
+                        debit=debit,
+                        credit=credit,
+                        balance=balance,
+                        bank_name=self.BANK_NAME,
+                        account_number=self.account_info.get('account_number', ''),
+                        account_holder=self.account_info.get('account_holder', ''),
+                        raw_data={'format': 'format_1_text', 'source': 'text_extraction'}
+                    )
+                    self.transactions.append(txn)
+                    transactions_found += 1
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Error parsing Format 1 text line: {e}")
+                    continue
+
+            # Try Format 2
+            elif self.detected_format == 'format_2':
+                match = re.search(format_2_pattern, line)
+                if match:
+                    try:
+                        date_text = match.group(1)
+                        description = match.group(2).strip()
+                        debit_text = match.group(3) or ''
+                        credit_text = match.group(4) or ''
+                        balance_text = match.group(5) or ''
+
+                        # Parse date
+                        transaction_date = self._parse_format_2_date(date_text)
+                        if not transaction_date:
+                            continue
+
+                        # Parse amounts
+                        debit = self.clean_amount(debit_text)
+                        credit = self.clean_amount(credit_text)
+                        balance = self.clean_amount(balance_text)
+
+                        txn = StandardizedTransaction(
+                            transaction_date=transaction_date,
+                            posting_date=transaction_date,
+                            effective_date=transaction_date,
+                            description=description,
+                            reference_number='',
+                            debit=debit,
+                            credit=credit,
+                            balance=balance,
+                            bank_name=self.BANK_NAME,
+                            account_number=self.account_info.get('account_number', ''),
+                            account_holder=self.account_info.get('account_holder', ''),
+                            raw_data={'format': 'format_2_text', 'source': 'text_extraction'}
+                        )
+                        self.transactions.append(txn)
+                        transactions_found += 1
+                    except Exception as e:
+                        self.logger.warning(f"⚠️ Error parsing Format 2 text line: {e}")
+                        continue
+
+        self.logger.info(f"📝 Text extraction: {transactions_found} transactions found")
+        if transactions_found == 0:
+            self.logger.warning("⚠️ Text extraction failed - falling back to Smart Mapper")
