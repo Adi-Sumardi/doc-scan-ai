@@ -48,21 +48,27 @@ class CimbNiagaAdapter(BaseBankAdapter):
         self.raw_ocr_data = ocr_result
         self.transactions = []
 
-        # Detect format
+        # Detect format (might be None if text-only, will be inferred later)
         self.detected_format = self._detect_format(ocr_result)
-        if not self.detected_format:
-            self.logger.warning("⚠️ Could not detect CIMB Niaga format")
-            return self.transactions
 
-        self.logger.info(f"🏦 Detected CIMB Niaga {self.detected_format}")
+        if self.detected_format:
+            self.logger.info(f"🏦 Detected CIMB Niaga {self.detected_format}")
+        else:
+            self.logger.info("🏦 CIMB Niaga format not detected yet - will try to infer from text patterns")
 
         # Extract account info
         self.account_info = self.extract_account_info(ocr_result)
 
         # Parse transactions based on detected format
-        if 'tables' in ocr_result:
-            self._parse_from_tables(ocr_result['tables'])
+        if 'tables' in ocr_result and ocr_result['tables']:
+            # If format not detected but we have tables, skip (shouldn't happen)
+            if not self.detected_format:
+                self.logger.warning("⚠️ Tables found but format not detected - falling back to text extraction")
+                self._parse_from_text(ocr_result)
+            else:
+                self._parse_from_tables(ocr_result['tables'])
         else:
+            # No tables - use text extraction (will auto-infer format)
             self._parse_from_text(ocr_result)
 
         return self.transactions
@@ -394,6 +400,23 @@ class CimbNiagaAdapter(BaseBankAdapter):
         # Transaction pattern for Format 2: DD/MM ... Description ... Debit/Credit ... Balance
         # Example: "15/06  Transfer  1,500,000  -  15,000,000"
         format_2_pattern = r'(\d{2}/\d{2})(?:/\d{2,4})?\s+(.*?)\s+(?:(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s+)?(?:(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s+)?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)'
+
+        # ✅ FIX: If format not detected yet, try to auto-detect from transaction patterns
+        if not self.detected_format:
+            self.logger.info("🔍 Format not detected - trying to infer from transaction patterns...")
+            # Count which pattern matches more lines
+            format_1_matches = sum(1 for line in lines if re.search(format_1_pattern, line))
+            format_2_matches = sum(1 for line in lines if re.search(format_2_pattern, line))
+
+            if format_1_matches > format_2_matches and format_1_matches >= 2:
+                self.detected_format = 'format_1'
+                self.logger.info(f"✅ Inferred format_1 from {format_1_matches} transaction lines")
+            elif format_2_matches >= 2:
+                self.detected_format = 'format_2'
+                self.logger.info(f"✅ Inferred format_2 from {format_2_matches} transaction lines")
+            else:
+                self.logger.warning("⚠️ Could not infer format from transaction patterns")
+                return
 
         transactions_found = 0
 
