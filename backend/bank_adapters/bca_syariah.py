@@ -114,7 +114,8 @@ class BcaSyariahAdapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                if len(cells) < 9:  # Minimal: dates, kode, ket, dc, nominal, saldo, ref
+                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
+                if len(cells) < 1:  # Reduced from 9 to 1
                     continue
 
                 try:

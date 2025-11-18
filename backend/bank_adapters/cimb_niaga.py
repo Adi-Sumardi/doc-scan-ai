@@ -184,8 +184,8 @@ class CimbNiagaAdapter(BaseBankAdapter):
 
                 cells = row.get('cells', [])
 
-                # ✅ FIX: Be more lenient with cell count for synthetic tables
-                if len(cells) < 5:  # Reduced from 7 to 5 (minimal: date, desc, debit, credit, balance)
+                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
+                if len(cells) < 1:  # Reduced from 7 to 1
                     rows_skipped += 1
                     continue
 
@@ -259,7 +259,8 @@ class CimbNiagaAdapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                if len(cells) < 5:  # Minimal untuk extract data
+                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
+                if len(cells) < 1:  # Reduced from 5 to 1
                     continue
 
                 try:

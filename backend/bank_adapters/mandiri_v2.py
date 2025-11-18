@@ -120,7 +120,8 @@ class MandiriV2Adapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                if len(cells) < 7:  # Minimal columns
+                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
+                if len(cells) < 1:  # Reduced from 7 to 1
                     continue
 
                 try:

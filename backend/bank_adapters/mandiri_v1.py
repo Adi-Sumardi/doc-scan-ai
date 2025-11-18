@@ -81,7 +81,8 @@ class MandiriV1Adapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                if len(cells) < 6:
+                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
+                if len(cells) < 1:  # Reduced from 6 to 1
                     continue
 
                 try:

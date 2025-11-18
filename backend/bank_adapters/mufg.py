@@ -87,7 +87,8 @@ class MufgBankAdapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                if len(cells) < 5:  # Minimal: date, debit, credit, balance, detail
+                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
+                if len(cells) < 1:  # Reduced from 5 to 1
                     continue
 
                 try:

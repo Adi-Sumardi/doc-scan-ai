@@ -35,12 +35,14 @@ class BankDetector:
         BniV2Adapter,
         BniV1Adapter,
 
+        # CIMB Niaga SEBELUM BCA (keyword "BCA" terlalu generic, bisa match "CIMB")
+        CimbNiagaAdapter,
+
         # BCA Syariah sebelum BCA reguler (Syariah lebih spesifik)
         BcaSyariahAdapter,
         BcaAdapter,
 
         # Bank lain (tidak ada konflik keywords)
-        CimbNiagaAdapter,
         MufgBankAdapter,
         PermataBankAdapter,
         BriAdapter,

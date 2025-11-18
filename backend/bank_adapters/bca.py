@@ -20,11 +20,11 @@ class BcaAdapter(BaseBankAdapter):
     DETECTION_KEYWORDS = [
         "BANK CENTRAL ASIA",
         "PT BANK CENTRAL ASIA",
-        "BCA",
+        "PT. BANK CENTRAL ASIA",
         "KETERANGAN",
         "CBG",
         "MUTASI",
-        # Pastikan bukan BCA Syariah
+        # Removed generic "BCA" keyword to avoid false positive with "CIMB"
         # BCA Syariah akan detect duluan karena ada di ADAPTERS list sebelum ini
     ]
 
@@ -129,7 +129,8 @@ class BcaAdapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                if len(cells) < 5:
+                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
+                if len(cells) < 1:  # Reduced from 5 to 1
                     continue
 
                 try:
