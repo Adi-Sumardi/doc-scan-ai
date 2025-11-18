@@ -275,15 +275,15 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
         clearInterval(pollInterval);
         pollingCleanupRef.current.delete(batchId);
       }
-    }, 2000); // Poll every 2 seconds
+    }, 5000); // Poll every 5 seconds (reduced from 2s to reduce server load)
 
-    // ✅ FIX: Safety timeout (5 minutes)
+    // ✅ FIX: Safety timeout (10 minutes for large rekening koran files)
     const stopTimeout = setTimeout(() => {
       console.log(`⏱️ Safety timeout for batch ${batchId.slice(-8)}`);
       cancelled = true;
       clearInterval(pollInterval);
       pollingCleanupRef.current.delete(batchId);
-    }, 300000); // 5 minutes
+    }, 600000); // 10 minutes (increased from 5 for large files)
 
     // ✅ FIX: Register cleanup function that cancels everything
     const cleanup = () => {
@@ -328,51 +328,53 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
   const loadRecentBatchesOnly = async () => {
     try {
-      setLoading(true);
-      console.log('⚡ OPTIMIZED: Loading recent 15 batches with pagination...');
-
-      // ✅ OPTIMIZATION: Use backend pagination - only load recent 15 batches initially
-      // This uses Redis cache if available (5min TTL) - instant on subsequent loads!
-      const recentBatches = await apiService.getAllBatches(15, 0);
-
-      console.log(`✅ Loaded ${recentBatches.length} recent batches (cached & paginated)`);
-      setBatches(recentBatches);
-
-      // Load results for recent batches only
-      const recentResults = await apiService.getAllResults();
-      const recentBatchIds = new Set(recentBatches.map(b => b.id));
-      const filteredResults = recentResults.filter(r => recentBatchIds.has(r.batch_id));
-
-      setScanResults(filteredResults);
-
+      // ✅ CRITICAL FIX: Set loading=false IMMEDIATELY - NO BLOCKING!
+      // UI must be ready instantly, data loads in background
       setLoading(false);
+      console.log('✅ UI ready IMMEDIATELY - upload button enabled (data loading in background)');
 
-      // ✅ OPTIMIZATION: Redis cache TTL increased to 30 minutes (from 5 min)
-      // This significantly improves performance by reducing repeated database queries
-      console.log('⚡ OPTIMIZED: Showing 15 recent batches (Redis cached for 30min)');
+      // 🔄 Background data load - does NOT block UI
+      setTimeout(async () => {
+        try {
+          console.log('🔄 Loading recent batches in background (non-blocking)...');
 
-      // Optional: Load remaining batches in background if user has more
-      if (recentBatches.length === 15) {
-        setTimeout(async () => {
-          try {
-            const allBatches = await apiService.getAllBatches();
-            const remainingCount = allBatches.length - recentBatches.length;
+          // Load recent 15 batches (cached, fast)
+          const recentBatches = await apiService.getAllBatches(15, 0);
+          console.log(`✅ Loaded ${recentBatches.length} recent batches (background)`);
+          setBatches(recentBatches);
 
-            if (remainingCount > 0) {
-              console.log(`⚡ Loaded ${allBatches.length} total batches (from 30min cache)`);
-              setBatches(allBatches);
-            }
-          } catch (bgError) {
-            console.error('Background batch load failed (non-critical):', bgError);
+          // Load results for recent batches only
+          const recentResults = await apiService.getAllResults();
+          const recentBatchIds = new Set(recentBatches.map(b => b.id));
+          const filteredResults = recentResults.filter(r => recentBatchIds.has(r.batch_id));
+          setScanResults(filteredResults);
+
+          console.log('⚡ Background data load complete');
+
+          // Load remaining batches if there are more (even more background)
+          if (recentBatches.length === 15) {
+            setTimeout(async () => {
+              try {
+                console.log('🔄 Loading remaining batches (deep background)...');
+                const allBatches = await apiService.getAllBatches();
+                const remainingCount = allBatches.length - recentBatches.length;
+
+                if (remainingCount > 0) {
+                  console.log(`⚡ Loaded ${allBatches.length} total batches`);
+                  setBatches(allBatches);
+                }
+              } catch (bgError) {
+                console.error('Deep background load failed (non-critical):', bgError);
+              }
+            }, 3000); // Load after 3 seconds (deep background)
           }
-        }, 1500); // Load after 1.5 seconds (non-blocking)
-      }
+        } catch (error) {
+          console.error('Background batch load error (non-critical):', error);
+        }
+      }, 100); // Start background load after 100ms (immediate but non-blocking)
     } catch (error) {
-      console.error('Load recent batches error:', error);
+      console.error('Load initialization error:', error);
       setLoading(false);
-      setTimeout(() => {
-        toast.error('Failed to load recent batches');
-      }, 0);
     }
   };
 

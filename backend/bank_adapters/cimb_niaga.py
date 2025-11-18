@@ -150,6 +150,17 @@ class CimbNiagaAdapter(BaseBankAdapter):
         Parse transaksi dari table structure
         Route to appropriate parser based on detected format
         """
+        # ✅ DEBUG: Log table structure
+        self.logger.info(f"📊 Parsing {len(tables)} tables with format: {self.detected_format}")
+        if tables:
+            self.logger.info(f"   First table has {len(tables[0].get('rows', []))} rows")
+            if tables[0].get('rows'):
+                first_row = tables[0]['rows'][0]
+                cells = first_row.get('cells', [])
+                self.logger.info(f"   First row has {len(cells)} cells")
+                if cells:
+                    self.logger.info(f"   Cell structure: {list(cells[0].keys())}")
+
         if self.detected_format == 'format_1':
             self._parse_format_1(tables)
         elif self.detected_format == 'format_2':
@@ -160,6 +171,9 @@ class CimbNiagaAdapter(BaseBankAdapter):
         Parse Format 1 (Feb 2024): 9 kolom
         [No, Post Date, Eff Date, Cheque No, Description, Debit, Credit, Balance, Ref No]
         """
+        transactions_found = 0
+        rows_skipped = 0
+
         for table in tables:
             if 'rows' not in table:
                 continue
@@ -169,7 +183,10 @@ class CimbNiagaAdapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                if len(cells) < 7:  # Minimal untuk extract data
+
+                # ✅ FIX: Be more lenient with cell count for synthetic tables
+                if len(cells) < 5:  # Reduced from 7 to 5 (minimal: date, desc, debit, credit, balance)
+                    rows_skipped += 1
                     continue
 
                 try:
@@ -216,10 +233,17 @@ class CimbNiagaAdapter(BaseBankAdapter):
                         }
                     )
                     self.transactions.append(txn)
+                    transactions_found += 1
 
                 except Exception as e:
-                    self.logger.warning(f"⚠️ Error parsing Format 1 row: {e}")
+                    self.logger.warning(f"⚠️ Error parsing Format 1 row {row_idx}: {e}")
+                    rows_skipped += 1
                     continue
+
+        # ✅ LOG SUMMARY
+        self.logger.info(f"📊 Format 1 Parsing Summary:")
+        self.logger.info(f"   ✅ Transactions found: {transactions_found}")
+        self.logger.info(f"   ⚠️ Rows skipped: {rows_skipped}")
 
     def _parse_format_2(self, tables: List[Dict[str, Any]]):
         """

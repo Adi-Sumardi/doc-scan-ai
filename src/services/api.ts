@@ -148,7 +148,10 @@ export const apiService = {
     const params = new URLSearchParams();
     if (limit !== undefined) params.append('limit', limit.toString());
     if (offset !== undefined) params.append('offset', offset.toString());
-    params.append('include_files', 'true');
+    // ✅ PERFORMANCE FIX: Don't include files in list view - massive over-fetching!
+    // Files are only needed when viewing batch details (getBatchStatus has include_files=true)
+    // This reduces initial load from 150+ records to just 15 batches
+    // params.append('include_files', 'true');  // ❌ REMOVED - causes slow loading
 
     const response = await api.get(`/api/batches?${params.toString()}`);
     return response.data;

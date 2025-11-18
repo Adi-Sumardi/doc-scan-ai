@@ -9,6 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import List, Dict, Any, Optional
 import re
+import logging
 
 
 @dataclass
@@ -130,6 +131,7 @@ class BaseBankAdapter(ABC):
         self.transactions: List[StandardizedTransaction] = []
         self.account_info = {}
         self.raw_ocr_data = None
+        self.logger = logging.getLogger(self.__class__.__name__)
 
     @abstractmethod
     def parse(self, ocr_result: Dict[str, Any]) -> List[StandardizedTransaction]:
