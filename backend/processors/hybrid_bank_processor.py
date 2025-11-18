@@ -35,6 +35,8 @@ class HybridBankProcessor:
         rule_parser=None,
         validator=None,
         smart_mapper=None,
+        bank_detector=None,
+        ai_detector=None,
         confidence_threshold: float = 0.90,
         enable_gpt_fallback: bool = True
     ):
@@ -43,12 +45,16 @@ class HybridBankProcessor:
             rule_parser: RuleBasedTransactionParser instance
             validator: ProgressiveValidator instance
             smart_mapper: SmartMapper instance (for GPT fallback)
+            bank_detector: BankDetector instance (for bank-specific adapters)
+            ai_detector: AIBankDetector instance (for AI-based bank detection)
             confidence_threshold: Minimum confidence to skip GPT
             enable_gpt_fallback: Whether to use GPT for edge cases
         """
         self.rule_parser = rule_parser
         self.validator = validator
         self.smart_mapper = smart_mapper
+        self.bank_detector = bank_detector
+        self.ai_detector = ai_detector
         self.confidence_threshold = confidence_threshold
         self.enable_gpt_fallback = enable_gpt_fallback
 
@@ -56,6 +62,8 @@ class HybridBankProcessor:
         logger.info(f"   ✅ Rule-based parser: {'Loaded' if rule_parser else 'Not loaded'}")
         logger.info(f"   ✅ Progressive validator: {'Loaded' if validator else 'Not loaded'}")
         logger.info(f"   ✅ Smart Mapper (GPT): {'Loaded' if smart_mapper else 'Not loaded'}")
+        logger.info(f"   ✅ Bank Detector: {'Loaded' if bank_detector else 'Not loaded'}")
+        logger.info(f"   ✅ AI Bank Detector: {'Loaded' if ai_detector else 'Not loaded'}")
         logger.info(f"   ⚙️ Confidence threshold: {confidence_threshold}")
         logger.info(f"   ⚙️ GPT fallback: {'Enabled' if enable_gpt_fallback else 'Disabled'}")
 
@@ -108,30 +116,51 @@ class HybridBankProcessor:
         logger.info(f"   Bank: {bank_name}")
         logger.info(f"   Saldo Awal: {saldo_awal:,.2f}")
 
-        # Step 2: Rule-based parsing (NO GPT!)
-        logger.info("🔧 Step 2: Rule-based parsing...")
+        # Step 1.5: Try bank-specific adapter first (NEW!)
+        logger.info("🏦 Step 1.5: Trying bank-specific adapter...")
+        adapter_result = self._try_bank_adapter(ocr_result)
 
-        tables = self._extract_tables(ocr_result, page_offset)
-        logger.info(f"   Found {len(tables)} tables")
+        if adapter_result and adapter_result.get('success'):
+            logger.info(f"   ✅ Bank adapter succeeded: {adapter_result.get('bank_name', 'N/A')}")
+            logger.info(f"   ✅ Found {len(adapter_result.get('transactions', []))} transactions")
 
-        # Track page information
-        pages_info = self._extract_pages_info(ocr_result, page_offset)
-        logger.info(f"   Processing {len(pages_info)} pages")
+            # Convert adapter transactions to standard format
+            adapter_transactions = adapter_result.get('transactions', [])
+            transactions = [self._convert_adapter_transaction(t) for t in adapter_transactions]
 
-        parsed_transactions = self.rule_parser.parse_transactions(tables, bank_name)
-        logger.info(f"   Parsed {len(parsed_transactions)} transactions")
+            # Update metadata from adapter
+            if adapter_result.get('account_info'):
+                extracted_metadata.update(adapter_result['account_info'])
 
-        # Get parsing statistics
-        parse_stats = self.rule_parser.get_statistics(parsed_transactions)
-        logger.info(f"   High confidence: {parse_stats['high_confidence']} "
-                   f"({parse_stats['high_conf_percentage']:.1f}%)")
-        logger.info(f"   Low confidence: {parse_stats['low_confidence']} "
-                   f"({parse_stats['low_conf_percentage']:.1f}%)")
+            metrics['rule_based_parsed'] = len(transactions)
+            logger.info("   🎯 Using bank adapter results (skipping rule-based parser)")
+        else:
+            logger.info("   ⚠️ Bank adapter failed or not available - falling back to rule-based parser")
 
-        metrics['rule_based_parsed'] = len(parsed_transactions)
+            # Step 2: Rule-based parsing (NO GPT!) - FALLBACK
+            logger.info("🔧 Step 2: Rule-based parsing...")
 
-        # Convert to standard format
-        transactions = [self._to_standard_format(t) for t in parsed_transactions]
+            tables = self._extract_tables(ocr_result, page_offset)
+            logger.info(f"   Found {len(tables)} tables")
+
+            # Track page information
+            pages_info = self._extract_pages_info(ocr_result, page_offset)
+            logger.info(f"   Processing {len(pages_info)} pages")
+
+            parsed_transactions = self.rule_parser.parse_transactions(tables, bank_name)
+            logger.info(f"   Parsed {len(parsed_transactions)} transactions")
+
+            # Get parsing statistics
+            parse_stats = self.rule_parser.get_statistics(parsed_transactions)
+            logger.info(f"   High confidence: {parse_stats['high_confidence']} "
+                       f"({parse_stats['high_conf_percentage']:.1f}%)")
+            logger.info(f"   Low confidence: {parse_stats['low_confidence']} "
+                       f"({parse_stats['low_conf_percentage']:.1f}%)")
+
+            metrics['rule_based_parsed'] = len(parsed_transactions)
+
+            # Convert to standard format
+            transactions = [self._to_standard_format(t) for t in parsed_transactions]
 
         # Step 3: Chunk transactions by saldo context
         logger.info("📦 Step 3: Chunking by saldo context...")
@@ -577,4 +606,114 @@ class HybridBankProcessor:
             'pages_without_transactions': pages_without_data,
             'transactions_per_page': transactions_per_page,
             'pages_detail': pages_detail,
+        }
+
+    def _try_bank_adapter(self, ocr_result: Dict) -> Optional[Dict]:
+        """
+        Try to detect and use bank-specific adapter
+
+        Returns:
+            Dict with success flag, transactions, and account_info
+            or None if detection/parsing failed
+        """
+        if not self.bank_detector:
+            logger.info("   ⚠️ BankDetector not available")
+            return None
+
+        try:
+            # Try AI detection first if available
+            bank_code = None
+            adapter = None
+
+            if self.ai_detector:
+                try:
+                    logger.info("   🤖 Trying AI-based bank detection...")
+                    bank_code = self.ai_detector.detect(ocr_result, verbose=True)
+                    if bank_code:
+                        logger.info(f"   ✅ AI detected bank code: {bank_code}")
+                        adapter = self.bank_detector.get_adapter_by_code(bank_code)
+                except Exception as e:
+                    logger.warning(f"   ⚠️ AI detection failed: {e}")
+                    bank_code = None
+
+            # Fallback to keyword-based detection
+            if not adapter:
+                logger.info("   🔍 Trying keyword-based bank detection...")
+                adapter = self.bank_detector.detect(ocr_result, verbose=True)
+
+            if not adapter:
+                logger.warning("   ⚠️ No bank adapter detected")
+                return {'success': False, 'reason': 'no_adapter_detected'}
+
+            logger.info(f"   ✅ Detected bank: {adapter.BANK_NAME} ({adapter.BANK_CODE})")
+
+            # Parse transactions using bank adapter
+            logger.info("   📝 Parsing with bank adapter...")
+            transactions = adapter.parse(ocr_result)
+
+            if not transactions:
+                logger.warning("   ⚠️ Bank adapter returned no transactions")
+                return {'success': False, 'reason': 'no_transactions'}
+
+            logger.info(f"   ✅ Bank adapter parsed {len(transactions)} transactions")
+
+            # Extract account info
+            account_info = adapter.extract_account_info(ocr_result)
+
+            return {
+                'success': True,
+                'source': 'bank_adapter',
+                'bank_name': adapter.BANK_NAME,
+                'bank_code': adapter.BANK_CODE,
+                'transactions': transactions,
+                'account_info': account_info,
+                'confidence': 0.90  # Bank adapters have high confidence
+            }
+
+        except Exception as e:
+            logger.error(f"   ❌ Bank adapter error: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {'success': False, 'reason': str(e)}
+
+    def _convert_adapter_transaction(self, adapter_txn) -> Dict:
+        """
+        Convert bank adapter's StandardizedTransaction to our format
+
+        Args:
+            adapter_txn: StandardizedTransaction object from bank adapter
+
+        Returns:
+            Dict in our standard format
+        """
+        # Extract values from adapter transaction
+        # Handle both object attributes and dict access
+        if hasattr(adapter_txn, 'transaction_date'):
+            # It's a StandardizedTransaction object
+            tanggal = adapter_txn.transaction_date or ''
+            keterangan = adapter_txn.description or ''
+            debet = float(adapter_txn.debit or 0)
+            kredit = float(adapter_txn.credit or 0)
+            saldo = float(adapter_txn.balance or 0)
+            referensi = adapter_txn.reference_number or ''
+            page = getattr(adapter_txn, 'page_number', 1)
+        else:
+            # It's already a dict
+            tanggal = adapter_txn.get('transaction_date', '')
+            keterangan = adapter_txn.get('description', '')
+            debet = float(adapter_txn.get('debit', 0))
+            kredit = float(adapter_txn.get('credit', 0))
+            saldo = float(adapter_txn.get('balance', 0))
+            referensi = adapter_txn.get('reference_number', '')
+            page = adapter_txn.get('page_number', 1)
+
+        return {
+            'tanggal': tanggal,
+            'keterangan': keterangan,
+            'debet': debet,
+            'kredit': kredit,
+            'saldo': saldo,
+            'referensi': referensi,
+            'confidence': 0.90,  # Bank adapters have high confidence
+            'page': page,
         }

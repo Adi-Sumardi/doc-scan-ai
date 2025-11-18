@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 # Import bank adapters
 try:
     from bank_adapters import BankDetector, process_bank_statement
+    from bank_adapters.ai_detector import AIBankDetector
     HAS_BANK_ADAPTERS = True
     logger.info("✅ Bank Adapters loaded")
 except ImportError as e:
@@ -49,8 +50,18 @@ class EnhancedBankStatementProcessor:
         self.has_adapters = HAS_BANK_ADAPTERS
         self.has_smart_mapper = HAS_SMART_MAPPER
 
+        # Initialize AI detector
+        self.ai_detector = None
+        if self.has_adapters:
+            try:
+                self.ai_detector = AIBankDetector()
+                logger.info("✅ AI Bank Detector initialized")
+            except Exception as e:
+                logger.warning(f"⚠️ AI Detector initialization failed: {e}")
+
         logger.info(f"🏦 Enhanced Bank Processor initialized:")
         logger.info(f"   - Bank Adapters: {'✅' if self.has_adapters else '❌'}")
+        logger.info(f"   - AI Detector: {'✅' if self.ai_detector else '❌'}")
         logger.info(f"   - Smart Mapper: {'✅' if self.has_smart_mapper else '❌'}")
 
     def process(
@@ -74,20 +85,22 @@ class EnhancedBankStatementProcessor:
         logger.info("   ✅ BTN, BSI, Danamon, OCBC NISP, Panin, Maybank")
         logger.info("   ✅ UOB, MUFG, Jenius, Neo Bank, Seabank, and more...")
 
-        # ⚠️ BYPASS BANK ADAPTER: Use Smart Mapper directly for all banks
-        # Reason: Bank Adapter expects 'rows' key but Document AI returns 'bodyRows'
-        # Smart Mapper handles Document AI format correctly with table extraction
-        # This works for ALL banks universally - no bank-specific code needed!
-        logger.info("⚠️ Skipping Bank Adapter - using Smart Mapper directly (Document AI format)")
-        adapter_result = {
-            'success': False,
-            'source': 'bank_adapter',
-            'reason': 'bypassed_for_smart_mapper',
-            'note': 'Using Universal Smart Mapper instead - works for all banks'
-        }
+        # Strategy 1: Try Bank Adapter first (fast, free, accurate for known banks)
+        adapter_result = self._try_bank_adapter(ocr_result)
 
-        # Strategy 1: Use Smart Mapper (universal method for ALL banks)
-        smart_mapper_result = self._try_smart_mapper(ocr_result, ocr_metadata)
+        # Strategy 2: Use Smart Mapper as fallback or enhancement
+        # Only call Smart Mapper if Bank Adapter failed OR for metadata enhancement
+        if adapter_result.get('success'):
+            logger.info("✅ Bank Adapter succeeded - skipping Smart Mapper to save cost & time")
+            smart_mapper_result = {
+                'success': False,
+                'source': 'smart_mapper',
+                'reason': 'skipped_adapter_success',
+                'note': 'Bank Adapter already succeeded'
+            }
+        else:
+            logger.info("⚠️ Bank Adapter failed - falling back to Smart Mapper")
+            smart_mapper_result = self._try_smart_mapper(ocr_result, ocr_metadata)
 
         # Strategy 3: Merge results intelligently
         final_result = self._merge_results(
@@ -123,12 +136,27 @@ class EnhancedBankStatementProcessor:
         try:
             logger.info("🏦 Attempting bank adapter detection...")
 
-            # Detect bank
-            adapter = BankDetector.detect(ocr_result, verbose=True)
+            # Try AI detection first (more accurate)
+            bank_code = None
+            if self.ai_detector:
+                try:
+                    bank_code = self.ai_detector.detect(ocr_result, verbose=True)
+                except Exception as e:
+                    logger.warning(f"⚠️ AI detection failed: {e}, falling back to keyword detection")
 
-            if not adapter:
-                logger.warning("⚠️ No matching bank adapter found")
-                return {'success': False, 'source': 'bank_adapter', 'reason': 'no_match'}
+            # Fallback to keyword detection if AI fails
+            if not bank_code:
+                logger.info("🔍 Falling back to keyword-based detection...")
+                adapter = BankDetector.detect(ocr_result, verbose=True)
+                if not adapter:
+                    logger.warning("⚠️ No matching bank adapter found")
+                    return {'success': False, 'source': 'bank_adapter', 'reason': 'no_match'}
+            else:
+                # Get adapter by code
+                adapter = BankDetector.get_adapter_by_code(bank_code)
+                if not adapter:
+                    logger.warning(f"⚠️ No adapter found for bank code: {bank_code}")
+                    return {'success': False, 'source': 'bank_adapter', 'reason': 'no_adapter_for_code'}
 
             logger.info(f"✅ Detected bank: {adapter.BANK_NAME} ({adapter.BANK_CODE})")
 

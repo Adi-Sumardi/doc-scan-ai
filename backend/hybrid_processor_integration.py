@@ -33,21 +33,39 @@ def initialize_hybrid_processor():
             HybridBankProcessor
         )
         from smart_mapper import smart_mapper_service
+        from bank_adapters import BankDetector
+        from bank_adapters.ai_detector import AIBankDetector
 
         # Initialize components
         _rule_parser = RuleBasedTransactionParser()
         _validator = ProgressiveValidator(tolerance=0.01)  # 1 cent tolerance
 
-        # Initialize hybrid processor with smart mapper for GPT fallback
+        # Initialize bank detectors
+        bank_detector = BankDetector()
+        logger.info("✅ BankDetector initialized (12 adapters)")
+
+        # Initialize AI bank detector (optional)
+        ai_detector = None
+        try:
+            ai_detector = AIBankDetector()
+            logger.info("✅ AIBankDetector initialized")
+        except Exception as e:
+            logger.warning(f"⚠️ AIBankDetector not available: {e}")
+
+        # Initialize hybrid processor with ALL components
         _hybrid_processor = HybridBankProcessor(
             rule_parser=_rule_parser,
             validator=_validator,
             smart_mapper=smart_mapper_service if hasattr(smart_mapper_service, 'enabled') and smart_mapper_service.enabled else None,
+            bank_detector=bank_detector,  # NEW: Bank adapter detection
+            ai_detector=ai_detector,      # NEW: AI-based bank detection
             confidence_threshold=0.90,
             enable_gpt_fallback=True
         )
 
         logger.info("✅ Hybrid Processor initialized successfully")
+        logger.info("   🏦 Bank adapters: ENABLED (12 adapters)")
+        logger.info("   🤖 AI detection: " + ("ENABLED" if ai_detector else "DISABLED"))
         logger.info("   💰 Expected token savings: 90-96%")
         logger.info("   🎯 Target: Process 90% without GPT")
 

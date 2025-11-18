@@ -94,11 +94,16 @@ class AIBankDetector:
                 logger.warning("No text found in OCR result for AI detection")
                 return None
 
-            # Limit text to first 2000 characters for cost efficiency
-            text_sample = text[:2000]
+            # ✅ FIX: Use ONLY first 500 characters (header area) to avoid confusion from transaction details
+            # CIMB files have "BCA (BANK CENTRAL A" appearing many times in transactions,
+            # which confuses Claude if we send 2000 chars
+            text_sample = text[:500]  # Reduced from 2000 to 500
 
             if verbose:
                 logger.info(f"🤖 AI Bank Detection: Analyzing {len(text_sample)} characters...")
+                # DEBUG: Show first 300 chars to understand what's being sent
+                logger.info(f"📝 Text sample (first 300 chars):")
+                logger.info(f"{text_sample[:300]}")
 
             # Call Claude API for detection
             bank_name = self._call_claude_detection(text_sample)
@@ -172,22 +177,25 @@ class AIBankDetector:
         Returns:
             Bank name or None
         """
-        # ✅ STRICT PROMPT: Force single-word output
-        prompt = f"""Analyze this Indonesian bank statement and return ONLY the bank name.
+        # ✅ STRICT PROMPT: Force single-word output with explicit instructions to ignore transaction details
+        prompt = f"""Analyze this Indonesian bank statement and return ONLY the bank name from the HEADER/TITLE.
 
 Text sample:
 {text}
 
 CRITICAL RULES:
-1. Return ONLY the bank name (one or two words maximum)
-2. Valid banks: BCA, MANDIRI, BNI, BRI, CIMB NIAGA, PERMATA, OCBC, BSI, MUFG
-3. DO NOT write explanations, reasoning, or full sentences
-4. If unsure, return: UNKNOWN
+1. Look ONLY at the TOP/HEADER of the document for the bank name (usually in first 5-10 lines)
+2. IGNORE bank names that appear in transaction descriptions (e.g., "Transfer to BCA", "From MANDIRI", "BCA (BANK CENTRAL A" in transactions)
+3. The bank name is usually displayed prominently at the very top of the statement
+4. Return ONLY the bank name (one or two words maximum)
+5. Valid banks: BCA, MANDIRI, BNI, BRI, CIMB NIAGA, PERMATA, OCBC, BSI, MUFG
+6. DO NOT write explanations, reasoning, or full sentences
+7. If unsure, return: UNKNOWN
 
 Examples:
-- For CIMB Niaga statement → respond: CIMB NIAGA
-- For BCA statement → respond: BCA
-- For Bank Mandiri → respond: MANDIRI
+- Header shows "CIMB NIAGA" → respond: CIMB NIAGA (ignore "BCA" in transaction details)
+- Header shows "BANK CENTRAL ASIA" → respond: BCA (ignore "MANDIRI" in transaction details)
+- Header shows "Bank Mandiri" → respond: MANDIRI (ignore "BCA" in transaction details)
 
 Your response (bank name only):"""
 

@@ -86,7 +86,7 @@ const SubmitButton: React.FC<{
                   />
                 ))}
               </div>
-              <span className="animate-pulse">Processing...</span>
+              <span className="animate-pulse">Waiting...</span>
               <Zap className="w-5 h-5 animate-pulse" />
             </>
           ) : (
@@ -106,9 +106,10 @@ const SubmitButton: React.FC<{
 
 const Upload = () => {
   const navigate = useNavigate();
-  const { uploadDocuments, loading } = useDocument();
+  const { uploadDocuments } = useDocument();
   const [selectedFiles, setSelectedFiles] = useState<{ [key: string]: File[] }>({});
   const [dragOver, setDragOver] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   // ZIP upload mode state
   const [uploadMode, setUploadMode] = useState<'files' | 'zip'>('files');
@@ -255,6 +256,9 @@ const Upload = () => {
     }
 
     try {
+      setIsUploading(true);
+      console.log('🚀 handleSubmit: Starting upload process...');
+
       // Flatten all files with their document types
       const fileList: File[] = [];
       const documentTypesList: string[] = [];
@@ -266,12 +270,33 @@ const Upload = () => {
         });
       });
 
+      console.log(`📦 handleSubmit: Uploading ${fileList.length} files...`);
       const batch = await uploadDocuments(fileList, documentTypesList);
+      console.log(`✅ handleSubmit: Upload complete, batch ID: ${batch.id}`);
 
-      // Navigate to results immediately
-      navigate(`/scan-results/${batch.id}`);
+      // Verify batch ID before navigating
+      if (!batch || !batch.id) {
+        throw new Error('Invalid batch response - no batch ID returned');
+      }
+
+      // Navigate to results immediately - ScanResults page will handle all loading states
+      const targetPath = `/scan-results/${batch.id}`;
+      console.log(`🔄 handleSubmit: Navigating to ${targetPath}`);
+
+      try {
+        navigate(targetPath, { replace: true });
+        console.log('✅ handleSubmit: Navigation executed');
+      } catch (navError) {
+        console.error('❌ React Router navigation failed, using window.location:', navError);
+        // Fallback to window.location if navigate fails
+        window.location.href = targetPath;
+      }
     } catch (error) {
-      console.error('Upload failed:', error);
+      console.error('❌ handleSubmit: Upload failed:', error);
+      setIsUploading(false);
+      setTimeout(() => {
+        toast.error('Upload failed. Please try again.');
+      }, 0);
     }
   };
 
@@ -810,7 +835,7 @@ const Upload = () => {
       {/* Submit Button with Enhanced Animation - Files Mode */}
       {uploadMode === 'files' && Object.keys(selectedFiles).length > 0 && (
         <SubmitButton
-          loading={loading}
+          loading={isUploading}
           totalFiles={Object.values(selectedFiles).reduce((sum, files) => sum + files.length, 0)}
           onSubmit={handleSubmit}
         />

@@ -120,7 +120,9 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
   const uploadDocuments = async (files: File[], documentTypes: string[]): Promise<Batch> => {
     try {
-      setLoading(true);
+      // ✅ FIX: DON'T set loading=true - this blocks UI!
+      // Background data loading should not interfere with upload
+      console.log('📤 Starting upload...');
       const batch = await apiService.uploadDocuments(files, documentTypes);
 
       // Update batches - add new batch at the beginning
@@ -165,9 +167,9 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
         toast.error(errorMessage);
       }, 0);
       throw error;
-    } finally {
-      setLoading(false);
     }
+    // ✅ FIX: No finally block setting loading=false
+    // Upload should never block UI with loading state
   };
 
   const pollBatchStatus = async (batchId: string) => {
@@ -338,21 +340,26 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
         try {
           console.log('🔄 Loading recent batches in background (non-blocking)...');
 
-          // Load recent 15 batches (cached, fast)
-          const recentBatches = await apiService.getAllBatches(15, 0);
+          // ✅ Load only 5 most recent batches first (ultra fast!)
+          const recentBatches = await apiService.getAllBatches(5, 0);
           console.log(`✅ Loaded ${recentBatches.length} recent batches (background)`);
           setBatches(recentBatches);
 
           // Load results for recent batches only
           const recentResults = await apiService.getAllResults();
           const recentBatchIds = new Set(recentBatches.map(b => b.id));
-          const filteredResults = recentResults.filter(r => recentBatchIds.has(r.batch_id));
+
+          // ✅ FIX: Ensure recentResults is an array before filtering
+          const resultsArray = Array.isArray(recentResults) ? recentResults : [];
+          const filteredResults = resultsArray.filter(r => recentBatchIds.has(r.batch_id));
           setScanResults(filteredResults);
+
+          console.log(`✅ Loaded ${filteredResults.length} scan results (background)`);
 
           console.log('⚡ Background data load complete');
 
           // Load remaining batches if there are more (even more background)
-          if (recentBatches.length === 15) {
+          if (recentBatches.length === 5) {
             setTimeout(async () => {
               try {
                 console.log('🔄 Loading remaining batches (deep background)...');
@@ -361,7 +368,25 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
 
                 if (remainingCount > 0) {
                   console.log(`⚡ Loaded ${allBatches.length} total batches`);
-                  setBatches(allBatches);
+
+                  // ✅ FIX: Merge with existing batches to preserve newly uploaded ones
+                  setBatches(prev => {
+                    // Create a map of existing batches by ID
+                    const existingMap = new Map(prev.map(b => [b.id, b]));
+
+                    // Merge: keep existing batches, add new ones from API
+                    const merged = [...prev]; // Start with existing (includes new uploads)
+
+                    allBatches.forEach(apiBatch => {
+                      if (!existingMap.has(apiBatch.id)) {
+                        // Only add if not already in state
+                        merged.push(apiBatch);
+                      }
+                    });
+
+                    console.log(`✅ Merged batches: ${prev.length} existing + ${merged.length - prev.length} new = ${merged.length} total`);
+                    return merged;
+                  });
                 }
               } catch (bgError) {
                 console.error('Deep background load failed (non-critical):', bgError);

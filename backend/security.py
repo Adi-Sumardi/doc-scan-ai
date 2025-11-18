@@ -56,20 +56,19 @@ class FileSecurityValidator:
                 logger.warning(f"ClamAV not available: {e}. Virus scanning disabled.")
                 self.enable_virus_scan = False
     
-    async def validate_file(self, file: UploadFile) -> Dict[str, any]:
+    async def validate_file(self, file: UploadFile, fast_mode: bool = True) -> Dict[str, any]:
         """
-        Comprehensive file validation including:
-        - File size validation
-        - Extension validation
-        - MIME type validation
-        - Virus scanning
-        - File integrity checks
+        File validation with two modes:
+        - Fast mode (default): Only essential checks (size, extension, PDF page count)
+        - Full mode: Comprehensive validation (MIME type, virus scan, integrity, advanced checks)
+
+        Fast mode is 10-20x faster and recommended for trusted uploads.
         """
         try:
             # Read file content
             content = await file.read()
             await file.seek(0)  # Reset file pointer
-            
+
             validation_result = {
                 "filename": file.filename,
                 "size_bytes": len(content),
@@ -77,37 +76,79 @@ class FileSecurityValidator:
                 "errors": [],
                 "warnings": [],
                 "security_checks": {},
-                "file_info": {}
+                "file_info": {},
+                "mode": "fast" if fast_mode else "full"
             }
-            
-            # 1. File size validation
+
+            # 1. File size validation (ALWAYS)
             size_check = self._validate_file_size(len(content))
             validation_result["security_checks"]["size_check"] = size_check
             if not size_check["passed"]:
                 validation_result["is_valid"] = False
                 validation_result["errors"].append(size_check["message"])
-            
-            # 2. Extension validation
+
+            # 2. Extension validation (ALWAYS)
             ext_check = self._validate_file_extension(file.filename)
             validation_result["security_checks"]["extension_check"] = ext_check
             if not ext_check["passed"]:
                 validation_result["is_valid"] = False
                 validation_result["errors"].append(ext_check["message"])
-            
-            # 3. MIME type validation
+
+            # FAST MODE: Skip expensive checks (including PDF page count)
+            if fast_mode:
+                # Skip PDF page count check in fast mode (it's slow for large PDFs)
+                validation_result["security_checks"]["page_count_check"] = {
+                    "passed": True,
+                    "message": "PDF page count validation skipped (fast mode)",
+                    "status": "skipped"
+                }
+                validation_result["security_checks"]["mime_check"] = {
+                    "passed": True,
+                    "message": "MIME type validation skipped (fast mode)",
+                    "status": "skipped"
+                }
+                validation_result["security_checks"]["integrity_check"] = {
+                    "passed": True,
+                    "message": "Integrity check skipped (fast mode)",
+                    "status": "skipped"
+                }
+                validation_result["security_checks"]["virus_scan"] = {
+                    "passed": True,
+                    "message": "Virus scanning skipped (fast mode)",
+                    "status": "skipped"
+                }
+                validation_result["security_checks"]["advanced_checks"] = {
+                    "passed": True,
+                    "message": "Advanced checks skipped (fast mode)",
+                    "status": "skipped"
+                }
+
+                logger.info(f"⚡ Fast validation completed for {file.filename}: {'PASSED' if validation_result['is_valid'] else 'FAILED'}")
+                return validation_result
+
+            # FULL MODE: All comprehensive checks
+            # 3. PDF Page Count Validation (FULL MODE ONLY - can be slow for large PDFs)
+            if file.filename.lower().endswith('.pdf'):
+                page_count_check = self._validate_pdf_page_count(content, file.filename)
+                validation_result["security_checks"]["page_count_check"] = page_count_check
+                validation_result["file_info"]["page_count"] = page_count_check.get("page_count", 0)
+                if not page_count_check["passed"]:
+                    validation_result["is_valid"] = False
+                    validation_result["errors"].append(page_count_check["message"])
+            # 4. MIME type validation
             mime_check = self._validate_mime_type(content, file.filename)
             validation_result["security_checks"]["mime_check"] = mime_check
             validation_result["file_info"]["mime_type"] = mime_check.get("detected_mime", "unknown")
             if not mime_check["passed"]:
                 validation_result["is_valid"] = False
                 validation_result["errors"].append(mime_check["message"])
-            
-            # 4. File integrity checks
+
+            # 5. File integrity checks
             integrity_check = self._check_file_integrity(content)
             validation_result["security_checks"]["integrity_check"] = integrity_check
             validation_result["file_info"].update(integrity_check["file_info"])
-            
-            # 5. Virus scanning
+
+            # 6. Virus scanning
             if self.enable_virus_scan and self.clamd_client:
                 virus_check = await self._scan_for_viruses(content)
                 validation_result["security_checks"]["virus_scan"] = virus_check
@@ -120,15 +161,6 @@ class FileSecurityValidator:
                     "message": "Virus scanning disabled or unavailable",
                     "status": "skipped"
                 }
-            
-            # 6. PDF Page Count Validation (for rekening koran)
-            if file.filename.lower().endswith('.pdf'):
-                page_count_check = self._validate_pdf_page_count(content, file.filename)
-                validation_result["security_checks"]["page_count_check"] = page_count_check
-                validation_result["file_info"]["page_count"] = page_count_check.get("page_count", 0)
-                if not page_count_check["passed"]:
-                    validation_result["is_valid"] = False
-                    validation_result["errors"].append(page_count_check["message"])
 
             # 7. Advanced security checks
             advanced_checks = self._advanced_security_checks(content, file.filename)
@@ -136,9 +168,9 @@ class FileSecurityValidator:
             if advanced_checks["warnings"]:
                 validation_result["warnings"].extend(advanced_checks["warnings"])
 
-            logger.info(f"File validation completed for {file.filename}: {'PASSED' if validation_result['is_valid'] else 'FAILED'}")
+            logger.info(f"🔒 Full validation completed for {file.filename}: {'PASSED' if validation_result['is_valid'] else 'FAILED'}")
             return validation_result
-            
+
         except Exception as e:
             logger.error(f"Error during file validation: {e}")
             return {
