@@ -129,8 +129,11 @@ class BriAdapter(BaseBankAdapter):
         Parse transaksi dari raw text (fallback)
         Format BRI: Tanggal | Keterangan | Debet | Kredit | Saldo
         """
+        self.logger.info("📝 No table structure - using text-based extraction")
+
         text = self.extract_text_from_ocr(ocr_result)
         if not text:
+            self.logger.warning("⚠️ No text found in OCR result")
             return
 
         import re
@@ -139,6 +142,7 @@ class BriAdapter(BaseBankAdapter):
         pattern = r'(\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?)\s+(.+?)\s+([\d,.-]+(?:\.\d{2})?)\s+([\d,.-]+(?:\.\d{2})?)\s+([\d,.-]+(?:\.\d{2})?)'
 
         matches = re.finditer(pattern, text, re.MULTILINE)
+        transactions_found = 0
 
         for match in matches:
             try:
@@ -169,6 +173,11 @@ class BriAdapter(BaseBankAdapter):
                 )
 
                 self.transactions.append(transaction)
+                transactions_found += 1
 
             except Exception as e:
                 continue
+
+        self.logger.info(f"📝 Text extraction: {transactions_found} transactions found")
+        if transactions_found == 0:
+            self.logger.warning("⚠️ Text extraction failed - falling back to Smart Mapper")
