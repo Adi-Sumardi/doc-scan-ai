@@ -279,6 +279,9 @@ const Upload = () => {
         throw new Error('Invalid batch response - no batch ID returned');
       }
 
+      // Reset uploading state BEFORE navigation
+      setIsUploading(false);
+
       // Navigate to results immediately - ScanResults page will handle all loading states
       const targetPath = `/scan-results/${batch.id}`;
       console.log(`🔄 handleSubmit: Navigating to ${targetPath}`);
@@ -340,6 +343,8 @@ const Upload = () => {
     }
 
     try {
+      setIsUploading(true);
+
       const formData = new FormData();
       formData.append('file', zipFile);
       formData.append('document_type', zipDocType);
@@ -382,10 +387,14 @@ const Upload = () => {
         toast.success(`ZIP uploaded! Processing ${batch.total_files} files...`);
       }, 0);
 
+      // Reset uploading state before navigation
+      setIsUploading(false);
+
       // Navigate to results
       navigate(`/scan-results/${batch.id}`);
     } catch (error) {
       console.error('ZIP upload failed:', error);
+      setIsUploading(false);
       setTimeout(() => {
         toast.error(error instanceof Error ? error.message : 'ZIP upload failed');
       }, 0);
@@ -724,18 +733,18 @@ const Upload = () => {
                 <div className="flex justify-center pt-4">
                   <button
                     onClick={handleZipSubmit}
-                    disabled={loading}
+                    disabled={isUploading}
                     className={`relative px-8 py-4 rounded-xl font-medium text-white overflow-hidden ${
-                      loading
+                      isUploading
                         ? 'bg-gray-400 cursor-not-allowed'
                         : 'gradient-bg hover:shadow-2xl transform hover:scale-105 animate-glow'
                     } transition-all duration-300`}
                   >
-                    {!loading && (
+                    {!isUploading && (
                       <div className="absolute inset-0 bg-gradient-to-r from-purple-600 via-blue-600 to-purple-600 animate-gradient opacity-0 hover:opacity-100 transition-opacity duration-300" />
                     )}
                     <div className="relative z-10 flex items-center space-x-3">
-                      {loading ? (
+                      {isUploading ? (
                         <>
                           <div className="flex space-x-1">
                             {[...Array(3)].map((_, i) => (
@@ -746,7 +755,7 @@ const Upload = () => {
                               />
                             ))}
                           </div>
-                          <span className="animate-pulse">Processing ZIP...</span>
+                          <span className="animate-pulse">Waiting...</span>
                           <Zap className="w-5 h-5 animate-pulse" />
                         </>
                       ) : (
