@@ -46,13 +46,36 @@ const ScanResults = () => {
     console.log('🔍 ScanResults - Show Animation:', showAnimation);
   }
 
-  // Automatically refresh batch data when the component mounts
+  // Determine if we should show animation on mount
   useEffect(() => {
     if (batchId) {
+      console.log('🔄 ScanResults - Initial load, refreshing batch...');
       refreshBatch(batchId);
+      
+      // Show animation if just uploaded or if batch is processing
+      if (justUploaded) {
+        console.log('✅ ScanResults - Just uploaded, showing animation');
+        setShowAnimation(true);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batchId]); // Only re-run if batchId changes
+  
+  // Update animation state based on batch status
+  useEffect(() => {
+    if (batch) {
+      console.log('📊 ScanResults - Batch status changed:', batch.status);
+      
+      // Show animation if batch is pending or processing
+      if (batch.status === 'pending' || batch.status === 'processing') {
+        setShowAnimation(true);
+      } else if (batch.status === 'completed' && scanResults.length > 0) {
+        // Hide animation when completed AND results are loaded
+        console.log('✅ ScanResults - Completed with results, hiding animation');
+        setShowAnimation(false);
+      }
+    }
+  }, [batch?.status, scanResults.length]);
 
   // Poll for results when batch is completed but no results yet (handles delay between completion and results)
   useEffect(() => {
