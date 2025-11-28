@@ -122,7 +122,7 @@ class BriAdapter(BaseBankAdapter):
                         account_number=self.account_info.get('account_number', ''),
                         account_holder=self.account_info.get('account_holder', ''),
                         raw_data={
-                            'tanggal': cells[0].get('text', ''),
+                            'tanggal': tanggal_str,
                             'uraian': uraian,
                             'teller': teller,
                         }
