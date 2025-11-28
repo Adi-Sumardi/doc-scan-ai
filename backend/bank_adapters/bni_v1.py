@@ -120,7 +120,7 @@ class BniV1Adapter(BaseBankAdapter):
                         account_number=self.account_info.get('account_number', ''),
                         account_holder=self.account_info.get('account_holder', ''),
                         raw_data={
-                            'tgl_trans': cells[0].get('text', ''),
+                            'tgl_trans': tgl_trans_str,
                             'uraian': uraian,
                         }
                     )
