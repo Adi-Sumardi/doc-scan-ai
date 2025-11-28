@@ -138,46 +138,64 @@ class BcaSyariahAdapter(BaseBankAdapter):
                     # ✅ SAFE ACCESSOR: Parse based on exact column count (BCA Syariah bisa 9-14 kolom)
                     if len(cells) == 14:
                         # Full format (14 kolom)
-                        tgl_efektif = self.parse_date(cells[0].get('text', '').strip())
-                        tgl_transaksi = self.parse_date(cells[1].get('text', '').strip())
-                        jam_input = cells[2].get('text', '').strip()
-                        kode_transaksi = cells[3].get('text', '').strip()
-                        keterangan = cells[4].get('text', '').strip()
-                        keterangan_tambahan = cells[5].get('text', '').strip()
-                        dc_flag = cells[6].get('text', '').strip()
-                        nominal = self.clean_amount(cells[7].get('text', '').strip())
-                        saldo = self.clean_amount(cells[8].get('text', '').strip())
-                        nomor_referensi = cells[9].get('text', '').strip()
-                        status_otorisasi = cells[10].get('text', '').strip()
-                        user_input = cells[11].get('text', '').strip()
-                        user_otorisasi = cells[12].get('text', '').strip()
-                        kode_cabang = cells[13].get('text', '').strip()
+                        tgl_efektif_str = self.safe_get_cell(cells, 0)
+                        tgl_transaksi_str = self.safe_get_cell(cells, 1)
+                        jam_input = self.safe_get_cell(cells, 2)
+                        kode_transaksi = self.safe_get_cell(cells, 3)
+                        keterangan = self.safe_get_cell(cells, 4)
+                        keterangan_tambahan = self.safe_get_cell(cells, 5)
+                        dc_flag = self.safe_get_cell(cells, 6)
+                        nominal_str = self.safe_get_cell(cells, 7)
+                        saldo_str = self.safe_get_cell(cells, 8)
+                        nomor_referensi = self.safe_get_cell(cells, 9)
+                        status_otorisasi = self.safe_get_cell(cells, 10)
+                        user_input = self.safe_get_cell(cells, 11)
+                        user_otorisasi = self.safe_get_cell(cells, 12)
+                        kode_cabang = self.safe_get_cell(cells, 13)
+                        
+                        tgl_efektif = self.parse_date(tgl_efektif_str)
+                        tgl_transaksi = self.parse_date(tgl_transaksi_str)
+                        nominal = self.clean_amount(nominal_str)
+                        saldo = self.clean_amount(saldo_str)
 
-                    elif len(cells) >= 10:
+                    elif len(cells) in [10, 11, 12, 13]:
                         # Medium format (10-13 kolom)
-                        tgl_efektif = self.parse_date(cells[0].get('text', '').strip())
-                        tgl_transaksi = self.parse_date(cells[1].get('text', '').strip())
-                        jam_input = cells[2].get('text', '').strip() if len(cells) > 10 else ""
-                        kode_transaksi = cells[3].get('text', '').strip()
-                        keterangan = cells[4].get('text', '').strip()
-                        keterangan_tambahan = cells[5].get('text', '').strip() if len(cells) > 11 else ""
-                        dc_flag = cells[6].get('text', '').strip()
-                        nominal = self.clean_amount(cells[7].get('text', '').strip())
-                        saldo = self.clean_amount(cells[8].get('text', '').strip())
-                        nomor_referensi = cells[9].get('text', '').strip()
-                        kode_cabang = cells[10].get('text', '').strip() if len(cells) > 10 else ""
+                        tgl_efektif_str = self.safe_get_cell(cells, 0)
+                        tgl_transaksi_str = self.safe_get_cell(cells, 1)
+                        jam_input = self.safe_get_cell(cells, 2)
+                        kode_transaksi = self.safe_get_cell(cells, 3)
+                        keterangan = self.safe_get_cell(cells, 4)
+                        keterangan_tambahan = self.safe_get_cell(cells, 5)
+                        dc_flag = self.safe_get_cell(cells, 6)
+                        nominal_str = self.safe_get_cell(cells, 7)
+                        saldo_str = self.safe_get_cell(cells, 8)
+                        nomor_referensi = self.safe_get_cell(cells, 9)
+                        kode_cabang = self.safe_get_cell(cells, 10)
+                        
+                        tgl_efektif = self.parse_date(tgl_efektif_str)
+                        tgl_transaksi = self.parse_date(tgl_transaksi_str)
+                        nominal = self.clean_amount(nominal_str)
+                        saldo = self.clean_amount(saldo_str)
 
-                    elif len(cells) >= 9:
+                    elif len(cells) == 9:
                         # Minimal format (9 kolom): Tgl Trans | Kode | Ket | DC | Nominal | Saldo | Ref | Cabang | Jam
-                        tgl_transaksi = self.parse_date(cells[0].get('text', '').strip())
-                        kode_transaksi = cells[1].get('text', '').strip()
-                        keterangan = cells[2].get('text', '').strip()
-                        dc_flag = cells[3].get('text', '').strip()
-                        nominal = self.clean_amount(cells[4].get('text', '').strip())
-                        saldo = self.clean_amount(cells[5].get('text', '').strip())
-                        nomor_referensi = cells[6].get('text', '').strip()
-                        kode_cabang = cells[7].get('text', '').strip() if len(cells) > 7 else ""
-                        jam_input = cells[8].get('text', '').strip() if len(cells) > 8 else ""
+                        tgl_transaksi_str = self.safe_get_cell(cells, 0)
+                        kode_transaksi = self.safe_get_cell(cells, 1)
+                        keterangan = self.safe_get_cell(cells, 2)
+                        dc_flag = self.safe_get_cell(cells, 3)
+                        nominal_str = self.safe_get_cell(cells, 4)
+                        saldo_str = self.safe_get_cell(cells, 5)
+                        nomor_referensi = self.safe_get_cell(cells, 6)
+                        kode_cabang = self.safe_get_cell(cells, 7)
+                        jam_input = self.safe_get_cell(cells, 8)
+                        
+                        tgl_transaksi = self.parse_date(tgl_transaksi_str)
+                        nominal = self.clean_amount(nominal_str)
+                        saldo = self.clean_amount(saldo_str)
+                    else:
+                        # Unexpected column count, log and skip
+                        self.logger.warning(f"⚠️ BCA Syariah: Unexpected column count: {len(cells)}, expected 9-14")
+                        continue
 
                     # Use tgl_transaksi as main date, tgl_efektif as effective date
                     transaction_date = tgl_transaksi or tgl_efektif
