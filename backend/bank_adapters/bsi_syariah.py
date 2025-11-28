@@ -104,21 +104,35 @@ class BsiSyariahAdapter(BaseBankAdapter):
 
     def _parse_from_tables(self, tables: List[Dict[str, Any]]):
         """
-        Parse transaksi dari table structure
-        BSI: TrxId | Tanggal | Trx Time | D/K | Mutasi | Saldo | Keterangan
+        Parse transaksi dari tables
+        BSI bisa ada multiple format:
+        - 6 kolom: Tanggal | Trx Time | D/K | Mutasi | Saldo | Keterangan
+        - 7 kolom: TrxId | Tanggal | Trx Time | D/K | Mutasi | Saldo | Keterangan
         """
-        for table in tables:
-            if 'rows' not in table:
-                continue
+        self.logger.info(f"📊 BSI: Parsing {len(tables)} tables...")
+        
+        total_rows_processed = 0
+        total_rows_skipped = 0
+        
+        # Iterate semua tables
+        for table_idx, table in enumerate(tables):
+            rows = table.get('rows', [])
+            self.logger.info(f"  Table {table_idx + 1}: {len(rows)} rows")
 
-            # Skip header row
-            for row_idx, row in enumerate(table['rows']):
-                if row_idx == 0:  # Skip header
-                    continue
-
+            for row_idx, row in enumerate(rows):
+                total_rows_processed += 1
                 cells = row.get('cells', [])
+                
+                # Log column count for first few rows
+                if row_idx < 3:
+                    self.logger.info(f"    Row {row_idx + 1}: {len(cells)} cells")
+                    if len(cells) > 0:
+                        first_cell = self.safe_get_cell(cells, 0)
+                        self.logger.info(f"      First cell: '{first_cell[:50]}...'")
+                
                 # ✅ FIXED: Check minimum required cells for BSI
                 if len(cells) < 6:  # BSI needs at least 6 columns
+                    total_rows_skipped += 1
                     continue
 
                 try:
