@@ -81,20 +81,25 @@ class MandiriV1Adapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
-                if len(cells) < 1:  # Reduced from 6 to 1
+                # ✅ FIXED: Check minimum required cells for Mandiri V1
+                if len(cells) < 6:  # Mandiri V1 needs at least 6 columns
                     continue
 
                 try:
                     # Mandiri V1: Posting Date | Remark | Reference No | Debit | Credit | Balance
-                    posting_date = self.parse_date(cells[0].get('text', '').strip())
-                    remark = cells[1].get('text', '').strip()
-                    ref_no = cells[2].get('text', '').strip()
-                    debit = self.clean_amount(cells[3].get('text', '').strip())
-                    credit = self.clean_amount(cells[4].get('text', '').strip())
-                    balance = self.clean_amount(cells[5].get('text', '').strip())
-
-                    if not posting_date:
+                    # ✅ SAFE ACCESSOR: No more IndexError!
+                    posting_date_str = self.safe_get_cell(cells, 0)
+                    remark = self.safe_get_cell(cells, 1)
+                    ref_no = self.safe_get_cell(cells, 2)
+                    debit_str = self.safe_get_cell(cells, 3)
+                    credit_str = self.safe_get_cell(cells, 4)
+                    balance_str = self.safe_get_cell(cells, 5)
+                    
+                    # Parse date
+                    posting_date = self.parse_date(posting_date_str)
+                    
+                    # Validate essential fields
+                    if not posting_date or not balance_str:
                         continue
 
                     transaction = StandardizedTransaction(
