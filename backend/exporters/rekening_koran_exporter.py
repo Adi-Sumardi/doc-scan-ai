@@ -1715,6 +1715,7 @@ class RekeningKoranExporter(BaseExporter):
 
             wb.save(output_path)
             logger.info(f"✅ Batch Rekening Koran Excel export created: {output_path} with {len(results)} entries")
+            logger.info(f"📊 Batch Quality: {batch_summary['avg_quality']:.1%} avg, {batch_summary['high_quality_pct']:.1f}% high quality")
             return True
             
         except Exception as e:
