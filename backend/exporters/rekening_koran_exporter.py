@@ -1017,6 +1017,10 @@ class RekeningKoranExporter(BaseExporter):
                 # Determine sumber/tujuan based on transaction type
                 sumber_masuk = keterangan_formatted if kredit_formatted != '-' else '-'
                 tujuan_keluar = keterangan_formatted if debet_formatted != '-' else '-'
+                
+                # Get quality indicator
+                quality_info = trans.get('_quality', {})
+                quality_label = quality_info.get('label', '⚠️ Medium')
 
                 data_row = [
                     tanggal,
@@ -1025,7 +1029,8 @@ class RekeningKoranExporter(BaseExporter):
                     saldo_formatted,
                     sumber_masuk,
                     tujuan_keluar,
-                    keterangan_formatted
+                    keterangan_formatted,
+                    quality_label  # NEW: Quality indicator
                 ]
 
                 for col_idx, value in enumerate(data_row, start=1):
@@ -1037,7 +1042,18 @@ class RekeningKoranExporter(BaseExporter):
                     else:
                         cell.alignment = left_align
                     cell.border = border_thin
-                    cell.font = Font(size=10)
+                    
+                    # Color code quality column
+                    if col_idx == 8:  # Quality column
+                        cell.alignment = center_align
+                        if '✅' in str(value):
+                            cell.font = Font(size=10, bold=True, color="70AD47")  # Green
+                        elif '⚠️' in str(value):
+                            cell.font = Font(size=10, bold=True, color="FFC000")  # Orange
+                        else:
+                            cell.font = Font(size=10, bold=True, color="C00000")  # Red
+                    else:
+                        cell.font = Font(size=10)
 
                 row += 1
 
