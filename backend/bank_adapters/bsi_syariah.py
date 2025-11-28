@@ -176,7 +176,7 @@ class BsiSyariahAdapter(BaseBankAdapter):
                         account_holder=self.account_info.get('account_holder', ''),
                         raw_data={
                             'trx_id': trx_id,
-                            'tanggal': cells[1].get('text', '') if len(cells) >= 7 else cells[0].get('text', ''),
+                            'tanggal': tanggal_str if tanggal else '',
                             'trx_time': trx_time,
                             'dk': dk_flag,
                             'mutasi': str(mutasi),
