@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useDocument } from '../context/DocumentContext';
+import toast from 'react-hot-toast';
 import OCRMetricsDisplay from '../components/OCRMetricsDisplay';
 import ImprovedScanAnimation from '../components/ImprovedScanAnimation';
 import DocumentPreview from '../components/DocumentPreview';
