@@ -101,6 +101,11 @@ class MandiriV1Adapter(BaseBankAdapter):
                     # Validate essential fields
                     if not posting_date or not balance_str:
                         continue
+                    
+                    # Parse amounts
+                    debit = self.clean_amount(debit_str)
+                    credit = self.clean_amount(credit_str)
+                    balance = self.clean_amount(balance_str)
 
                     transaction = StandardizedTransaction(
                         transaction_date=posting_date,
