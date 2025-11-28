@@ -190,21 +190,21 @@ class CimbNiagaAdapter(BaseBankAdapter):
 
                 cells = row.get('cells', [])
 
-                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
-                if len(cells) < 1:  # Reduced from 7 to 1
+                # ✅ FIXED: Check minimum required cells for Format 1
+                if len(cells) < 7:  # Format 1 needs at least 7 columns
                     rows_skipped += 1
                     continue
 
                 try:
-                    # Column mapping untuk Format 1
-                    post_date_text = cells[1].get('text', '').strip() if len(cells) > 1 else ''
-                    eff_date_text = cells[2].get('text', '').strip() if len(cells) > 2 else ''
-                    cheque_no = cells[3].get('text', '').strip() if len(cells) > 3 else ''
-                    description = cells[4].get('text', '').strip() if len(cells) > 4 else ''
-                    debit_text = cells[5].get('text', '').strip() if len(cells) > 5 else ''
-                    credit_text = cells[6].get('text', '').strip() if len(cells) > 6 else ''
-                    balance_text = cells[7].get('text', '').strip() if len(cells) > 7 else ''
-                    ref_no = cells[8].get('text', '').strip() if len(cells) > 8 else ''
+                    # ✅ SAFE ACCESSOR: Column mapping untuk Format 1
+                    post_date_text = self.safe_get_cell(cells, 1)
+                    eff_date_text = self.safe_get_cell(cells, 2)
+                    cheque_no = self.safe_get_cell(cells, 3)
+                    description = self.safe_get_cell(cells, 4)
+                    debit_text = self.safe_get_cell(cells, 5)
+                    credit_text = self.safe_get_cell(cells, 6)
+                    balance_text = self.safe_get_cell(cells, 7)
+                    ref_no = self.safe_get_cell(cells, 8)
 
                     # Parse dates (Format 1 uses MM/DD/YY HH:MM)
                     post_date = self._parse_format_1_date(post_date_text)
