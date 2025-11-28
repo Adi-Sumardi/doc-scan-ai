@@ -24,19 +24,26 @@ import {
 const ScanResults = () => {
   const { batchId } = useParams<{ batchId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { getBatch, getScanResultsByBatch, exportResult, exportBatch, saveToGoogleDrive, refreshBatch, updateResult, loading } = useDocument();
   const [activeTab, setActiveTab] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
   const [editedData, setEditedData] = useState<any>(null);
+  const [showAnimation, setShowAnimation] = useState(false);
 
   const batch = getBatch(batchId!);
   const resultsForBatch = getScanResultsByBatch(batchId!);
   const scanResults = Array.isArray(resultsForBatch) ? resultsForBatch : [];
+  
+  // Check if just uploaded from location state
+  const justUploaded = location.state?.justUploaded;
 
   // Debug info for development only
   if (import.meta.env.DEV) {
-    console.log('Batch Data:', batch);
-    console.log('Scan Results:', scanResults);
+    console.log('🔍 ScanResults - Batch Data:', batch);
+    console.log('🔍 ScanResults - Scan Results:', scanResults);
+    console.log('🔍 ScanResults - Just Uploaded:', justUploaded);
+    console.log('🔍 ScanResults - Show Animation:', showAnimation);
   }
 
   // Automatically refresh batch data when the component mounts
