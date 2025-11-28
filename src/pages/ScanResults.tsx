@@ -192,18 +192,23 @@ const ScanResults = () => {
         </div>
       </div>
 
-      {/* Real-time OCR Processing */}
-      {batch.status === 'processing' ? (
+      {/* Real-time Scan Animation - Show when processing or just uploaded */}
+      {(showAnimation && (batch.status === 'pending' || batch.status === 'processing')) ? (
         <ImprovedScanAnimation
           batchId={batchId!}
-          onComplete={() => refreshBatch(batchId!)}
+          onComplete={() => {
+            console.log('✅ ScanResults - Animation onComplete triggered');
+            refreshBatch(batchId!);
+            // Animation will auto-hide when batch completes and results load
+          }}
           onError={(error) => {
-            console.error('Processing error:', error);
-            // You can add toast notification here
+            console.error('❌ ScanResults - Processing error:', error);
+            setShowAnimation(false);
+            toast.error('Processing failed: ' + error);
           }}
           className="mb-6"
         />
-      ) : batch.status === 'completed' ? (
+      ) : batch.status === 'completed' && scanResults.length > 0 ? (
         <div
           className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-4 md:p-6 border border-green-200"
           style={{
