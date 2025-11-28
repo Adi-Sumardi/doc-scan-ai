@@ -207,6 +207,10 @@ class BsiSyariahAdapter(BaseBankAdapter):
                 except Exception as e:
                     print(f"Error parsing BSI Syariah row: {e}")
                     continue
+        
+        # Log parsing summary
+        self.logger.info(f"📊 BSI: Processed {total_rows_processed} rows, skipped {total_rows_skipped} rows")
+        self.logger.info(f"📊 BSI: Found {len(self.transactions)} transactions")
 
     def _parse_from_text(self, ocr_result: Dict[str, Any]):
         """
