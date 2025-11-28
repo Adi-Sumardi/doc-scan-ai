@@ -232,8 +232,8 @@ class BcaSyariahAdapter(BaseBankAdapter):
                         account_number=self.account_info.get('account_number', ''),
                         account_holder=self.account_info.get('account_holder', ''),
                         raw_data={
-                            'tanggal_efektif': cells[0].get('text', '') if len(cells) >= 14 else '',
-                            'tanggal_transaksi': cells[1].get('text', '') if len(cells) >= 14 else cells[0].get('text', ''),
+                            'tanggal_efektif': tgl_efektif_str if len(cells) >= 10 else '',
+                            'tanggal_transaksi': tgl_transaksi_str if 'tgl_transaksi_str' in locals() else '',
                             'jam_input': jam_input,
                             'kode_transaksi': kode_transaksi,
                             'keterangan': keterangan,
