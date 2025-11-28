@@ -325,6 +325,212 @@ class RekeningKoranExporter(BaseExporter):
         logger.debug(f"⚠️ Date format not recognized, keeping as-is: '{date_str}'")
         return date_str
 
+    def _validate_transaction(self, trans: dict, prev_saldo: float = None) -> dict:
+        """
+        Validate transaction data quality and return quality score
+        
+        Returns:
+            {
+                'score': float (0.0 to 1.0),
+                'issues': list of issue codes,
+                'label': str ('High', 'Medium', 'Low')
+            }
+        """
+        issues = []
+        score = 1.0
+        
+        # Check 1: Valid date
+        tanggal = trans.get('tanggal', '')
+        if not tanggal or tanggal == 'N/A':
+            issues.append('missing_date')
+            score -= 0.3
+        else:
+            parsed = self._parse_date_for_sorting(tanggal)
+            if parsed == (9999, 12, 31):  # Invalid date
+                issues.append('invalid_date')
+                score -= 0.2
+        
+        # Check 2: Valid saldo
+        saldo_str = trans.get('saldo', '')
+        saldo_val = None
+        if not saldo_str or saldo_str in ['N/A', '-', '']:
+            issues.append('missing_saldo')
+            score -= 0.2
+        else:
+            try:
+                saldo_clean = self._fix_misread_amount(saldo_str)
+                saldo_val = float(saldo_clean)
+                if saldo_val < 0:
+                    issues.append('negative_saldo')
+                    score -= 0.1
+            except (ValueError, TypeError):
+                issues.append('invalid_saldo_format')
+                score -= 0.2
+        
+        # Check 3: Kredit/Debet sanity (not both present)
+        kredit = trans.get('kredit', '')
+        debet = trans.get('debet', '')
+        
+        if kredit and debet and kredit not in ['-', '', 'N/A', '0', 0] and debet not in ['-', '', 'N/A', '0', 0]:
+            issues.append('both_kredit_debet')
+            score -= 0.3
+        
+        # Check 4: At least one of kredit/debet should exist
+        if (not kredit or kredit in ['-', '', 'N/A', '0', 0]) and (not debet or debet in ['-', '', 'N/A', '0', 0]):
+            issues.append('no_mutation')
+            score -= 0.2
+        
+        # Check 5: Saldo consistency with previous transaction
+        if prev_saldo is not None and saldo_val is not None:
+            try:
+                kredit_val = float(self._fix_misread_amount(kredit)) if kredit and kredit not in ['-', '', 'N/A'] else 0
+                debet_val = float(self._fix_misread_amount(debet)) if debet and debet not in ['-', '', 'N/A'] else 0
+                
+                expected_saldo = prev_saldo + kredit_val - debet_val
+                diff = abs(expected_saldo - saldo_val)
+                
+                # Allow up to 1 Rp rounding error
+                if diff > 1:
+                    issues.append('saldo_mismatch')
+                    score -= 0.15
+            except (ValueError, TypeError):
+                pass
+        
+        # Check 6: Keterangan exists
+        keterangan = trans.get('keterangan', '')
+        if not keterangan or keterangan == 'N/A':
+            issues.append('missing_description')
+            score -= 0.05
+        
+        # Ensure score is between 0 and 1
+        score = max(0.0, min(1.0, score))
+        
+        # Determine label
+        if score >= 0.8:
+            label = '✅ High'
+        elif score >= 0.5:
+            label = '⚠️ Medium'
+        else:
+            label = '❌ Low'
+        
+        return {
+            'score': score,
+            'issues': issues,
+            'label': label
+        }
+    
+    def _remove_duplicates(self, transaksi: list) -> list:
+        """
+        Remove duplicate transactions based on fingerprint
+        
+        Args:
+            transaksi: List of transaction dicts
+            
+        Returns:
+            List with duplicates removed
+        """
+        if not transaksi or not isinstance(transaksi, list):
+            return transaksi
+        
+        seen = set()
+        unique = []
+        duplicates_removed = 0
+        
+        for trans in transaksi:
+            if not isinstance(trans, dict):
+                continue
+            
+            # Create fingerprint: date + kredit + debet + saldo
+            tanggal = trans.get('tanggal', 'N/A')
+            kredit = self._fix_misread_amount(trans.get('kredit', '')) or '0'
+            debet = self._fix_misread_amount(trans.get('debet', '')) or '0'
+            saldo = self._fix_misread_amount(trans.get('saldo', '')) or '0'
+            
+            fingerprint = f"{tanggal}_{kredit}_{debet}_{saldo}"
+            
+            if fingerprint not in seen:
+                seen.add(fingerprint)
+                unique.append(trans)
+            else:
+                duplicates_removed += 1
+                logger.warning(f"⚠️ Duplicate transaction removed: {tanggal} | Kredit: {kredit} | Debet: {debet}")
+        
+        if duplicates_removed > 0:
+            logger.info(f"✅ Removed {duplicates_removed} duplicate transactions")
+        
+        return unique
+    
+    def _calculate_summary_statistics(self, transaksi: list) -> dict:
+        """
+        Calculate summary statistics for transactions
+        
+        Returns:
+            {
+                'total_transactions': int,
+                'total_kredit': float,
+                'total_debet': float,
+                'net_change': float,
+                'avg_quality': float,
+                'high_quality_pct': float
+            }
+        """
+        if not transaksi or not isinstance(transaksi, list):
+            return {
+                'total_transactions': 0,
+                'total_kredit': 0,
+                'total_debet': 0,
+                'net_change': 0,
+                'avg_quality': 0,
+                'high_quality_pct': 0
+            }
+        
+        total_kredit = 0
+        total_debet = 0
+        quality_scores = []
+        high_quality_count = 0
+        
+        for trans in transaksi:
+            if not isinstance(trans, dict):
+                continue
+            
+            # Sum kredit
+            kredit = trans.get('kredit', '')
+            if kredit and kredit not in ['-', '', 'N/A', '0', 0]:
+                try:
+                    kredit_val = float(self._fix_misread_amount(kredit))
+                    total_kredit += kredit_val
+                except (ValueError, TypeError):
+                    pass
+            
+            # Sum debet
+            debet = trans.get('debet', '')
+            if debet and debet not in ['-', '', 'N/A', '0', 0]:
+                try:
+                    debet_val = float(self._fix_misread_amount(debet))
+                    total_debet += debet_val
+                except (ValueError, TypeError):
+                    pass
+            
+            # Collect quality scores
+            quality_info = trans.get('_quality', {})
+            if quality_info and 'score' in quality_info:
+                quality_scores.append(quality_info['score'])
+                if quality_info['score'] >= 0.8:
+                    high_quality_count += 1
+        
+        net_change = total_kredit - total_debet
+        avg_quality = sum(quality_scores) / len(quality_scores) if quality_scores else 0
+        high_quality_pct = (high_quality_count / len(transaksi) * 100) if transaksi else 0
+        
+        return {
+            'total_transactions': len(transaksi),
+            'total_kredit': total_kredit,
+            'total_debet': total_debet,
+            'net_change': net_change,
+            'avg_quality': avg_quality,
+            'high_quality_pct': high_quality_pct
+        }
+
     def _parse_date_for_sorting(self, date_str: str) -> tuple:
         """
         Parse date string to tuple (year, month, day) for sorting.
