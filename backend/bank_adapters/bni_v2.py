@@ -180,8 +180,8 @@ class BniV2Adapter(BaseBankAdapter):
                         account_number=self.account_info.get('account_number', ''),
                         account_holder=self.account_info.get('account_holder', ''),
                         raw_data={
-                            'posting_date': cells[0].get('text', '') if len(cells) >= 8 else '',
-                            'effective_date': cells[1].get('text', '') if len(cells) >= 8 else cells[0].get('text', ''),
+                            'posting_date': posting_date_str if len(cells) == 8 else '',
+                            'effective_date': effective_date_str,
                             'branch': branch,
                             'journal': journal,
                             'db_cr': db_cr,
