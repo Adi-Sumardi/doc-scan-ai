@@ -161,10 +161,16 @@ class EnhancedBankStatementProcessor:
             logger.info(f"✅ Detected bank: {adapter.BANK_NAME} ({adapter.BANK_CODE})")
 
             # Extract transactions
+            logger.info(f"📊 Parsing with {adapter.BANK_NAME} adapter...")
             transactions = adapter.parse(ocr_result)
 
             if not transactions:
                 logger.warning(f"⚠️ {adapter.BANK_NAME} adapter returned no transactions")
+                logger.warning(f"   This could mean:")
+                logger.warning(f"   1. No table structure found in OCR")
+                logger.warning(f"   2. Table parsing failed (IndexError, format mismatch)")
+                logger.warning(f"   3. All rows skipped due to validation errors")
+                logger.warning(f"   → Falling back to Smart Mapper...")
                 return {
                     'success': False,
                     'source': 'bank_adapter',
