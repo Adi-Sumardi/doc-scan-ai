@@ -1658,6 +1658,50 @@ class RekeningKoranExporter(BaseExporter):
                 transaction_row_idx += 1
 
             logger.info(f"✅ Exported {transaction_row_idx} total transactions from {len(results)} documents")
+            
+            # Add batch summary statistics section
+            row += 2  # Add spacing
+            
+            # Summary header
+            ws.merge_cells(f'A{row}:H{row}')
+            ws[f'A{row}'] = "📊 RINGKASAN BATCH"
+            ws[f'A{row}'].font = Font(bold=True, size=12, color="FFFFFF")
+            ws[f'A{row}'].fill = header_fill
+            ws[f'A{row}'].alignment = center_align
+            ws[f'A{row}'].border = border_thin
+            row += 1
+            
+            # Calculate batch summary
+            batch_summary = self._calculate_summary_statistics(all_transactions)
+            
+            # Summary data
+            summary_fill = PatternFill(start_color="f3f4f6", end_color="f3f4f6", fill_type="solid")
+            
+            summary_items = [
+                ("Total Dokumen:", f"{len(results)} dokumen"),
+                ("Total Transaksi:", f"{batch_summary['total_transactions']} transaksi"),
+                ("Total Uang Masuk:", self._format_rupiah(batch_summary['total_kredit'])),
+                ("Total Uang Keluar:", self._format_rupiah(batch_summary['total_debet'])),
+                ("Net Change:", self._format_rupiah(batch_summary['net_change'])),
+                ("Kualitas Data Rata-rata:", f"{batch_summary['avg_quality']:.1%}"),
+                ("Transaksi Berkualitas Tinggi:", f"{batch_summary['high_quality_pct']:.1f}%")
+            ]
+            
+            for label, value in summary_items:
+                ws.merge_cells(f'A{row}:C{row}')
+                ws[f'A{row}'] = label
+                ws[f'A{row}'].font = Font(bold=True, size=10)
+                ws[f'A{row}'].fill = summary_fill
+                ws[f'A{row}'].alignment = left_align
+                ws[f'A{row}'].border = border_thin
+                
+                ws.merge_cells(f'D{row}:H{row}')
+                ws[f'D{row}'] = value
+                ws[f'D{row}'].font = Font(size=10, bold=True if 'Total' in label else False)
+                ws[f'D{row}'].fill = summary_fill
+                ws[f'D{row}'].alignment = left_align
+                ws[f'D{row}'].border = border_thin
+                row += 1
 
             # Column widths
             ws.column_dimensions['A'].width = 12
