@@ -85,17 +85,30 @@ class BniV1Adapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
-                if len(cells) < 1:  # Reduced from 5 to 1
+                # ✅ FIXED: Check minimum required cells for BNI V1
+                if len(cells) < 5:  # BNI V1 needs at least 5 columns
                     continue
 
                 try:
                     # BNI V1: Tgl Trans | Uraian | Debet | Kredit | Saldo
-                    tgl_trans = self.parse_date(cells[0].get('text', '').strip())
-                    uraian = cells[1].get('text', '').strip()
-                    debet = self.clean_amount(cells[2].get('text', '').strip())
-                    kredit = self.clean_amount(cells[3].get('text', '').strip())
-                    saldo = self.clean_amount(cells[4].get('text', '').strip())
+                    # ✅ SAFE ACCESSOR: No more IndexError!
+                    tgl_trans_str = self.safe_get_cell(cells, 0)
+                    uraian = self.safe_get_cell(cells, 1)
+                    debet_str = self.safe_get_cell(cells, 2)
+                    kredit_str = self.safe_get_cell(cells, 3)
+                    saldo_str = self.safe_get_cell(cells, 4)
+                    
+                    # Parse date
+                    tgl_trans = self.parse_date(tgl_trans_str)
+                    
+                    # Validate essential fields
+                    if not tgl_trans or not saldo_str:
+                        continue
+                    
+                    # Parse amounts
+                    debet = self.clean_amount(debet_str)
+                    kredit = self.clean_amount(kredit_str)
+                    saldo = self.clean_amount(saldo_str)
 
                     if not tgl_trans:
                         continue
