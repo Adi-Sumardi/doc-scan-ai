@@ -1476,7 +1476,7 @@ class RekeningKoranExporter(BaseExporter):
             row = 1
             
             # Batch info
-            ws.merge_cells(f'A{row}:G{row}')
+            ws.merge_cells(f'A{row}:H{row}')
             ws[f'A{row}'] = f"🏦 BATCH MUTASI BANK: {batch_id} | Total: {len(results)} | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             ws[f'A{row}'].font = Font(bold=True, size=12, color="FFFFFF")
             ws[f'A{row}'].fill = header_fill
