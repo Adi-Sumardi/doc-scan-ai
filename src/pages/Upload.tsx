@@ -353,6 +353,9 @@ const Upload = () => {
 
     try {
       setIsUploading(true);
+      
+      // Show uploading toast
+      const uploadToast = toast.loading(`Uploading ZIP file...`);
 
       const formData = new FormData();
       formData.append('file', zipFile);
@@ -371,6 +374,7 @@ const Upload = () => {
       });
 
       if (!response.ok) {
+        toast.dismiss(uploadToast);
         const error = await response.json();
 
         // Handle specific error codes
@@ -392,15 +396,22 @@ const Upload = () => {
       }
 
       const batch = await response.json();
-      setTimeout(() => {
-        toast.success(`ZIP uploaded! Processing ${batch.total_files} files...`);
-      }, 0);
+      
+      // Dismiss upload toast
+      toast.dismiss(uploadToast);
+      
+      // Show success toast
+      toast.success(`ZIP uploaded! Processing ${batch.total_files} files...`, { duration: 2000 });
 
-      // Reset uploading state before navigation
-      setIsUploading(false);
-
-      // Navigate to results
-      navigate(`/scan-results/${batch.id}`);
+      // Navigate to scan results IMMEDIATELY
+      navigate(`/scan-results/${batch.id}`, {
+        replace: true,
+        state: { 
+          justUploaded: true, 
+          totalFiles: batch.total_files,
+          isZip: true
+        }
+      });
     } catch (error) {
       console.error('ZIP upload failed:', error);
       setIsUploading(false);
