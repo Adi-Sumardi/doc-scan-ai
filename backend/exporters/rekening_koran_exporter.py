@@ -1126,6 +1126,17 @@ class RekeningKoranExporter(BaseExporter):
 
             sumber_masuk = keterangan_formatted if kredit_formatted != '-' else '-'
             tujuan_keluar = keterangan_formatted if debet_formatted != '-' else '-'
+            
+            # Validate single transaction
+            single_trans = {
+                'tanggal': tanggal,
+                'kredit': kredit,
+                'debet': debet,
+                'saldo': saldo,
+                'keterangan': keterangan
+            }
+            quality_info = self._validate_transaction(single_trans)
+            quality_label = quality_info.get('label', '⚠️ Medium')
 
             data_row = [
                 tanggal,  # ✅ Use completed date instead of raw
@@ -1134,7 +1145,8 @@ class RekeningKoranExporter(BaseExporter):
                 saldo_formatted,
                 sumber_masuk,
                 tujuan_keluar,
-                keterangan_formatted
+                keterangan_formatted,
+                quality_label
             ]
 
             for col_idx, value in enumerate(data_row, start=1):
@@ -1142,10 +1154,19 @@ class RekeningKoranExporter(BaseExporter):
                 cell.fill = data_fill
                 if col_idx in [2, 3, 4]:
                     cell.alignment = right_align
+                elif col_idx == 8:  # Quality column
+                    cell.alignment = center_align
+                    if '✅' in str(value):
+                        cell.font = Font(size=10, bold=True, color="70AD47")
+                    elif '⚠️' in str(value):
+                        cell.font = Font(size=10, bold=True, color="FFC000")
+                    else:
+                        cell.font = Font(size=10, bold=True, color="C00000")
                 else:
                     cell.alignment = left_align
                 cell.border = border_thin
-                cell.font = Font(size=10)
+                if col_idx != 8:
+                    cell.font = Font(size=10)
 
         # Auto-adjust column widths
         ws.column_dimensions['A'].width = 12  # Tanggal
