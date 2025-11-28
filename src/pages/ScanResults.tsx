@@ -209,11 +209,11 @@ const ScanResults = () => {
           }}
           className="mb-6"
         />
-      ) : batch.status === 'completed' && scanResults.length > 0 ? (
+      ) : batch.status === 'completed' && scanResults.length > 0 && !showAnimation ? (
         <div
           className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-4 md:p-6 border border-green-200"
           style={{
-            animation: 'fadeInUp 0.8s ease-out, scaleIn 0.8s ease-out'
+            animation: 'fadeInUp 0.5s ease-out, scaleIn 0.5s ease-out'
           }}
         >
           <div className="flex items-center space-x-3 mb-4">
