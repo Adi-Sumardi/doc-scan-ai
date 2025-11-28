@@ -86,8 +86,8 @@ class PermataBankAdapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
-                if len(cells) < 1:  # Reduced from 7 to 1
+                # ✅ FIXED: Check minimum required cells for Permata
+                if len(cells) < 7:  # Permata needs at least 7 columns
                     continue
 
                 try:
@@ -102,29 +102,44 @@ class PermataBankAdapter(BaseBankAdapter):
                     credit = Decimal('0.00')
                     total = Decimal('0.00')
 
-                    # Parse based on column count
-                    if len(cells) >= 10:
+                    # ✅ SAFE ACCESSOR: Parse based on exact column count
+                    if len(cells) == 10:
                         # Full format: Post Date | Eff Date | Trans Code | Cheque | Ref | Cust No | Desc | Debit | Credit | Total
-                        post_date = self.parse_date(cells[0].get('text', '').strip())
-                        eff_date = self.parse_date(cells[1].get('text', '').strip())
-                        transaction_code = cells[2].get('text', '').strip()
-                        cheque_number = cells[3].get('text', '').strip()
-                        ref_no = cells[4].get('text', '').strip()
-                        customer_no = cells[5].get('text', '').strip()
-                        description = cells[6].get('text', '').strip()
-                        debit = self.clean_amount(cells[7].get('text', '').strip())
-                        credit = self.clean_amount(cells[8].get('text', '').strip())
-                        total = self.clean_amount(cells[9].get('text', '').strip())
+                        post_date_str = self.safe_get_cell(cells, 0)
+                        eff_date_str = self.safe_get_cell(cells, 1)
+                        transaction_code = self.safe_get_cell(cells, 2)
+                        cheque_number = self.safe_get_cell(cells, 3)
+                        ref_no = self.safe_get_cell(cells, 4)
+                        customer_no = self.safe_get_cell(cells, 5)
+                        description = self.safe_get_cell(cells, 6)
+                        debit_str = self.safe_get_cell(cells, 7)
+                        credit_str = self.safe_get_cell(cells, 8)
+                        total_str = self.safe_get_cell(cells, 9)
+                        
+                        post_date = self.parse_date(post_date_str)
+                        eff_date = self.parse_date(eff_date_str)
+                        debit = self.clean_amount(debit_str)
+                        credit = self.clean_amount(credit_str)
+                        total = self.clean_amount(total_str)
 
-                    elif len(cells) >= 7:
+                    elif len(cells) == 7:
                         # Simplified: Eff Date | Trans Code | Desc | Debit | Credit | Total | Ref
-                        eff_date = self.parse_date(cells[0].get('text', '').strip())
-                        transaction_code = cells[1].get('text', '').strip()
-                        description = cells[2].get('text', '').strip()
-                        debit = self.clean_amount(cells[3].get('text', '').strip())
-                        credit = self.clean_amount(cells[4].get('text', '').strip())
-                        total = self.clean_amount(cells[5].get('text', '').strip())
-                        ref_no = cells[6].get('text', '').strip() if len(cells) > 6 else ""
+                        eff_date_str = self.safe_get_cell(cells, 0)
+                        transaction_code = self.safe_get_cell(cells, 1)
+                        description = self.safe_get_cell(cells, 2)
+                        debit_str = self.safe_get_cell(cells, 3)
+                        credit_str = self.safe_get_cell(cells, 4)
+                        total_str = self.safe_get_cell(cells, 5)
+                        ref_no = self.safe_get_cell(cells, 6)
+                        
+                        eff_date = self.parse_date(eff_date_str)
+                        debit = self.clean_amount(debit_str)
+                        credit = self.clean_amount(credit_str)
+                        total = self.clean_amount(total_str)
+                    else:
+                        # Unexpected column count, log and skip
+                        self.logger.warning(f"⚠️ Permata: Unexpected column count: {len(cells)}, expected 7 or 10")
+                        continue
 
                     # Use eff_date as main transaction date
                     transaction_date = eff_date or post_date
