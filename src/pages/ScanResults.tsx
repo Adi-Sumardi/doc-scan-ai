@@ -248,12 +248,12 @@ const ScanResults = () => {
         </div>
       ) : null}
 
-      {/* Results */}
-      {scanResults.length > 0 && (
+      {/* Results - Only show when not showing animation */}
+      {scanResults.length > 0 && !showAnimation && (
         <div
           className="bg-white rounded-lg shadow-sm border"
           style={{
-            animation: 'fadeInUp 1s ease-out 0.3s both'
+            animation: 'fadeInUp 0.6s ease-out, scaleIn 0.6s ease-out'
           }}
         >
           <div className="p-6 border-b">
