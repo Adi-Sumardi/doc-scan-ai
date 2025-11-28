@@ -110,8 +110,8 @@ class BniV2Adapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
-                if len(cells) < 1:  # Reduced from 6 to 1
+                # ✅ FIXED: Check minimum required cells for BNI V2
+                if len(cells) < 6:  # BNI V2 needs at least 6 columns
                     continue
 
                 try:
@@ -124,25 +124,39 @@ class BniV2Adapter(BaseBankAdapter):
                     db_cr = ""
                     balance = Decimal('0.00')
 
-                    if len(cells) >= 8:
+                    # ✅ SAFE ACCESSOR: Parse based on exact column count
+                    if len(cells) == 8:
                         # Full format: Post Date | Eff Date | Branch | Journal | Desc | Amount | DB/CR | Balance
-                        posting_date = self.parse_date(cells[0].get('text', '').strip())
-                        effective_date = self.parse_date(cells[1].get('text', '').strip())
-                        branch = cells[2].get('text', '').strip()
-                        journal = cells[3].get('text', '').strip()
-                        description = cells[4].get('text', '').strip()
-                        amount = self.clean_amount(cells[5].get('text', '').strip())
-                        db_cr = cells[6].get('text', '').strip()
-                        balance = self.clean_amount(cells[7].get('text', '').strip())
+                        posting_date_str = self.safe_get_cell(cells, 0)
+                        effective_date_str = self.safe_get_cell(cells, 1)
+                        branch = self.safe_get_cell(cells, 2)
+                        journal = self.safe_get_cell(cells, 3)
+                        description = self.safe_get_cell(cells, 4)
+                        amount_str = self.safe_get_cell(cells, 5)
+                        db_cr = self.safe_get_cell(cells, 6)
+                        balance_str = self.safe_get_cell(cells, 7)
+                        
+                        posting_date = self.parse_date(posting_date_str)
+                        effective_date = self.parse_date(effective_date_str)
+                        amount = self.clean_amount(amount_str)
+                        balance = self.clean_amount(balance_str)
 
-                    elif len(cells) >= 6:
+                    elif len(cells) == 6:
                         # Simplified: Date | Desc | Amount | DB/CR | Balance | Journal
-                        effective_date = self.parse_date(cells[0].get('text', '').strip())
-                        description = cells[1].get('text', '').strip()
-                        amount = self.clean_amount(cells[2].get('text', '').strip())
-                        db_cr = cells[3].get('text', '').strip()
-                        balance = self.clean_amount(cells[4].get('text', '').strip())
-                        journal = cells[5].get('text', '').strip() if len(cells) > 5 else ""
+                        effective_date_str = self.safe_get_cell(cells, 0)
+                        description = self.safe_get_cell(cells, 1)
+                        amount_str = self.safe_get_cell(cells, 2)
+                        db_cr = self.safe_get_cell(cells, 3)
+                        balance_str = self.safe_get_cell(cells, 4)
+                        journal = self.safe_get_cell(cells, 5)
+                        
+                        effective_date = self.parse_date(effective_date_str)
+                        amount = self.clean_amount(amount_str)
+                        balance = self.clean_amount(balance_str)
+                    else:
+                        # Unexpected column count, log and skip
+                        self.logger.warning(f"⚠️ BNI V2: Unexpected column count: {len(cells)}, expected 6 or 8")
+                        continue
 
                     # Use effective date as main transaction date
                     transaction_date = effective_date or posting_date
