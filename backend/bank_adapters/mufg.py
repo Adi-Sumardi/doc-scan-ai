@@ -176,8 +176,8 @@ class MufgBankAdapter(BaseBankAdapter):
                         account_number=self.account_info.get('account_number', ''),
                         account_holder=self.account_info.get('account_holder', ''),
                         raw_data={
-                            'booking_date': cells[0].get('text', '') if len(cells) >= 8 else '',
-                            'value_date': cells[1].get('text', '') if len(cells) >= 8 else '',
+                            'booking_date': booking_date_str if 'booking_date_str' in locals() else '',
+                            'value_date': value_date_str if 'value_date_str' in locals() else '',
                             'transaction_type': transaction_type,
                             'customer_reference': customer_ref,
                             'bank_reference': bank_ref,
