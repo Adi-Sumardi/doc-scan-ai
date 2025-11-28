@@ -1176,6 +1176,7 @@ class RekeningKoranExporter(BaseExporter):
         ws.column_dimensions['E'].width = 30  # Sumber Uang Masuk
         ws.column_dimensions['F'].width = 30  # Tujuan Uang Keluar
         ws.column_dimensions['G'].width = 30  # Keterangan
+        ws.column_dimensions['H'].width = 14  # Quality (NEW)
         
         ws.row_dimensions[3].height = 40
     
