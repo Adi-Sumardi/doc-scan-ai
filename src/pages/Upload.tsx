@@ -259,6 +259,9 @@ const Upload = () => {
       setIsUploading(true);
       console.log('🚀 handleSubmit: Starting upload process...');
 
+      // Show uploading toast
+      const uploadToast = toast.loading(`Uploading files...`);
+
       // Flatten all files with their document types
       const fileList: File[] = [];
       const documentTypesList: string[] = [];
@@ -276,24 +279,30 @@ const Upload = () => {
 
       // Verify batch ID before navigating
       if (!batch || !batch.id) {
+        toast.dismiss(uploadToast);
         throw new Error('Invalid batch response - no batch ID returned');
       }
 
-      // Reset uploading state BEFORE navigation
-      setIsUploading(false);
+      // Dismiss upload toast
+      toast.dismiss(uploadToast);
+      
+      // Show success toast
+      toast.success(`Upload complete! Starting AI processing...`, { duration: 2000 });
 
-      // Navigate to results immediately - ScanResults page will handle all loading states
+      // Navigate to scan results IMMEDIATELY - animation will start there
       const targetPath = `/scan-results/${batch.id}`;
       console.log(`🔄 handleSubmit: Navigating to ${targetPath}`);
 
-      try {
-        navigate(targetPath, { replace: true });
-        console.log('✅ handleSubmit: Navigation executed');
-      } catch (navError) {
-        console.error('❌ React Router navigation failed, using window.location:', navError);
-        // Fallback to window.location if navigate fails
-        window.location.href = targetPath;
-      }
+      // Use replace: true to prevent back button issues
+      navigate(targetPath, { 
+        replace: true,
+        state: { 
+          justUploaded: true, 
+          totalFiles: fileList.length 
+        }
+      });
+      console.log('✅ handleSubmit: Navigation executed');
+
     } catch (error) {
       console.error('❌ handleSubmit: Upload failed:', error);
       setIsUploading(false);
