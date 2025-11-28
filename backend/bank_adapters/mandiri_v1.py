@@ -120,7 +120,7 @@ class MandiriV1Adapter(BaseBankAdapter):
                         account_number=self.account_info.get('account_number', ''),
                         account_holder=self.account_info.get('account_holder', ''),
                         raw_data={
-                            'posting_date': cells[0].get('text', ''),
+                            'posting_date': posting_date_str,
                             'remark': remark,
                             'reference_no': ref_no,
                         }
