@@ -112,8 +112,8 @@ class BsiSyariahAdapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
-                if len(cells) < 1:  # Reduced from 6 to 1
+                # ✅ FIXED: Check minimum required cells for BSI
+                if len(cells) < 6:  # BSI needs at least 6 columns
                     continue
 
                 try:
@@ -125,24 +125,37 @@ class BsiSyariahAdapter(BaseBankAdapter):
                     saldo = Decimal('0.00')
                     keterangan = ""
 
-                    if len(cells) >= 7:
+                    # ✅ SAFE ACCESSOR: Use exact column count check
+                    if len(cells) == 7:
                         # Full format: TrxId | Tanggal | Trx Time | D/K | Mutasi | Saldo | Keterangan
-                        trx_id = cells[0].get('text', '').strip()
-                        tanggal = self.parse_date(cells[1].get('text', '').strip())
-                        trx_time = cells[2].get('text', '').strip()
-                        dk_flag = cells[3].get('text', '').strip()
-                        mutasi = self.clean_amount(cells[4].get('text', '').strip())
-                        saldo = self.clean_amount(cells[5].get('text', '').strip())
-                        keterangan = cells[6].get('text', '').strip()
+                        trx_id = self.safe_get_cell(cells, 0)
+                        tanggal_str = self.safe_get_cell(cells, 1)
+                        trx_time = self.safe_get_cell(cells, 2)
+                        dk_flag = self.safe_get_cell(cells, 3)
+                        mutasi_str = self.safe_get_cell(cells, 4)
+                        saldo_str = self.safe_get_cell(cells, 5)
+                        keterangan = self.safe_get_cell(cells, 6)
+                        
+                        tanggal = self.parse_date(tanggal_str)
+                        mutasi = self.clean_amount(mutasi_str)
+                        saldo = self.clean_amount(saldo_str)
 
-                    elif len(cells) >= 6:
+                    elif len(cells) == 6:
                         # Simplified: Tanggal | Trx Time | D/K | Mutasi | Saldo | Keterangan
-                        tanggal = self.parse_date(cells[0].get('text', '').strip())
-                        trx_time = cells[1].get('text', '').strip()
-                        dk_flag = cells[2].get('text', '').strip()
-                        mutasi = self.clean_amount(cells[3].get('text', '').strip())
-                        saldo = self.clean_amount(cells[4].get('text', '').strip())
-                        keterangan = cells[5].get('text', '').strip()
+                        tanggal_str = self.safe_get_cell(cells, 0)
+                        trx_time = self.safe_get_cell(cells, 1)
+                        dk_flag = self.safe_get_cell(cells, 2)
+                        mutasi_str = self.safe_get_cell(cells, 3)
+                        saldo_str = self.safe_get_cell(cells, 4)
+                        keterangan = self.safe_get_cell(cells, 5)
+                        
+                        tanggal = self.parse_date(tanggal_str)
+                        mutasi = self.clean_amount(mutasi_str)
+                        saldo = self.clean_amount(saldo_str)
+                    else:
+                        # Unexpected column count, log and skip
+                        self.logger.warning(f"⚠️ BSI: Unexpected column count: {len(cells)}, expected 6 or 7")
+                        continue
 
                     if not tanggal:
                         continue
