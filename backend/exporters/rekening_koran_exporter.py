@@ -1575,9 +1575,33 @@ class RekeningKoranExporter(BaseExporter):
                     }
                     all_transactions.append(single_trans)
 
+            # Remove duplicates from all transactions
+            logger.info(f"🔍 Checking for duplicates in {len(all_transactions)} transactions...")
+            original_count = len(all_transactions)
+            all_transactions = self._remove_duplicates(all_transactions)
+            if len(all_transactions) < original_count:
+                logger.info(f"✅ Removed {original_count - len(all_transactions)} duplicate transactions from batch")
+            
             # Sort ALL transactions globally by date
             logger.info(f"📅 Sorting {len(all_transactions)} total transactions globally...")
             all_transactions = self._sort_transactions_by_month(all_transactions)
+            
+            # Validate all transactions and add quality scores
+            logger.info(f"✅ Validating {len(all_transactions)} transactions...")
+            prev_saldo = None
+            for trans in all_transactions:
+                # Get current saldo for next iteration
+                try:
+                    current_saldo = float(self._fix_misread_amount(trans.get('saldo', 0)))
+                except:
+                    current_saldo = None
+                
+                # Validate transaction
+                quality_info = self._validate_transaction(trans, prev_saldo)
+                trans['_quality'] = quality_info
+                
+                # Update prev_saldo for next iteration
+                prev_saldo = current_saldo
 
             # Now render all sorted transactions
             for trans in all_transactions:
