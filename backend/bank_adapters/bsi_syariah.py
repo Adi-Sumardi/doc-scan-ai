@@ -205,8 +205,15 @@ class BsiSyariahAdapter(BaseBankAdapter):
                     self.transactions.append(transaction)
 
                 except Exception as e:
-                    print(f"Error parsing BSI Syariah row: {e}")
+                    self.logger.warning(f"⚠️ BSI: Error parsing row {row_idx + 1}: {e}")
+                    total_rows_skipped += 1
                     continue
+        
+        # Log parsing summary
+        self.logger.info(f"📊 BSI Parsing Summary:")
+        self.logger.info(f"   Total rows processed: {total_rows_processed}")
+        self.logger.info(f"   Rows skipped: {total_rows_skipped}")
+        self.logger.info(f"   Transactions extracted: {len(self.transactions)}")
         
         # Log parsing summary
         self.logger.info(f"📊 BSI: Processed {total_rows_processed} rows, skipped {total_rows_skipped} rows")
