@@ -120,8 +120,8 @@ class MandiriV2Adapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
-                if len(cells) < 1:  # Reduced from 7 to 1
+                # ✅ FIXED: Check minimum required cells for Mandiri V2
+                if len(cells) < 5:  # Mandiri V2 needs at least 5 columns
                     continue
 
                 try:
@@ -134,24 +134,37 @@ class MandiriV2Adapter(BaseBankAdapter):
                     amount = Decimal('0.00')
                     saldo = Decimal('0.00')
 
-                    if len(cells) >= 8:
+                    # ✅ SAFE ACCESSOR: Parse based on exact column count
+                    if len(cells) == 8:
                         # Full format: Nama | Nomer Rek | Tgl | Ket Kode | Jenis | Remark | Amount | Saldo
-                        nama = cells[0].get('text', '').strip()
-                        nomer_rekening = cells[1].get('text', '').strip()
-                        tgl_trans = self.parse_date(cells[2].get('text', '').strip())
-                        ket_kode = cells[3].get('text', '').strip()
-                        jenis_trans = cells[4].get('text', '').strip()
-                        remark = cells[5].get('text', '').strip()
-                        amount = self.clean_amount(cells[6].get('text', '').strip())
-                        saldo = self.clean_amount(cells[7].get('text', '').strip())
+                        nama = self.safe_get_cell(cells, 0)
+                        nomer_rekening = self.safe_get_cell(cells, 1)
+                        tgl_trans_str = self.safe_get_cell(cells, 2)
+                        ket_kode = self.safe_get_cell(cells, 3)
+                        jenis_trans = self.safe_get_cell(cells, 4)
+                        remark = self.safe_get_cell(cells, 5)
+                        amount_str = self.safe_get_cell(cells, 6)
+                        saldo_str = self.safe_get_cell(cells, 7)
+                        
+                        tgl_trans = self.parse_date(tgl_trans_str)
+                        amount = self.clean_amount(amount_str)
+                        saldo = self.clean_amount(saldo_str)
 
-                    elif len(cells) >= 5:
+                    elif len(cells) == 5:
                         # Simplified: Tgl | Ket Kode | Remark | Amount | Saldo
-                        tgl_trans = self.parse_date(cells[0].get('text', '').strip())
-                        ket_kode = cells[1].get('text', '').strip()
-                        remark = cells[2].get('text', '').strip()
-                        amount = self.clean_amount(cells[3].get('text', '').strip())
-                        saldo = self.clean_amount(cells[4].get('text', '').strip())
+                        tgl_trans_str = self.safe_get_cell(cells, 0)
+                        ket_kode = self.safe_get_cell(cells, 1)
+                        remark = self.safe_get_cell(cells, 2)
+                        amount_str = self.safe_get_cell(cells, 3)
+                        saldo_str = self.safe_get_cell(cells, 4)
+                        
+                        tgl_trans = self.parse_date(tgl_trans_str)
+                        amount = self.clean_amount(amount_str)
+                        saldo = self.clean_amount(saldo_str)
+                    else:
+                        # Unexpected column count, log and skip
+                        self.logger.warning(f"⚠️ Mandiri V2: Unexpected column count: {len(cells)}, expected 5 or 8")
+                        continue
 
                     if not tgl_trans:
                         continue
