@@ -85,18 +85,31 @@ class BriAdapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
-                if len(cells) < 1:  # Reduced from 6 to 1
+                # ✅ FIXED: Check minimum required cells for BRI
+                if len(cells) < 6:  # BRI needs at least 6 columns
                     continue
 
                 try:
                     # BRI: Tanggal Transaksi | Uraian Transaksi | Teller | Debet | Kredit | Saldo
-                    tanggal = self.parse_date(cells[0].get('text', '').strip())
-                    uraian = cells[1].get('text', '').strip()
-                    teller = cells[2].get('text', '').strip()
-                    debet = self.clean_amount(cells[3].get('text', '').strip())
-                    kredit = self.clean_amount(cells[4].get('text', '').strip())
-                    saldo = self.clean_amount(cells[5].get('text', '').strip())
+                    # ✅ SAFE ACCESSOR: No more IndexError!
+                    tanggal_str = self.safe_get_cell(cells, 0)
+                    uraian = self.safe_get_cell(cells, 1)
+                    teller = self.safe_get_cell(cells, 2)
+                    debet_str = self.safe_get_cell(cells, 3)
+                    kredit_str = self.safe_get_cell(cells, 4)
+                    saldo_str = self.safe_get_cell(cells, 5)
+                    
+                    # Parse date
+                    tanggal = self.parse_date(tanggal_str)
+                    
+                    # Validate essential fields
+                    if not tanggal or not saldo_str:
+                        continue
+                    
+                    # Parse amounts
+                    debet = self.clean_amount(debet_str)
+                    kredit = self.clean_amount(kredit_str)
+                    saldo = self.clean_amount(saldo_str)
 
                     if not tanggal:
                         continue
