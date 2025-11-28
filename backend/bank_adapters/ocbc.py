@@ -100,18 +100,28 @@ class OcbcBankAdapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
-                if len(cells) < 1:  # Reduced from 6 to 1
+                # ✅ FIXED: Check minimum required cells for OCBC
+                if len(cells) < 6:  # OCBC needs at least 6 columns
                     continue
 
                 try:
                     # OCBC format: Tgl Trans | Tgl Valuta | Uraian | Debet | Kredit | Saldo
-                    tgl_trans = self.parse_date(cells[0].get('text', '').strip())
-                    tgl_valuta = self.parse_date(cells[1].get('text', '').strip())
-                    uraian = cells[2].get('text', '').strip()
-                    debet = self.clean_amount(cells[3].get('text', '').strip())
-                    kredit = self.clean_amount(cells[4].get('text', '').strip())
-                    saldo = self.clean_amount(cells[5].get('text', '').strip())
+                    # ✅ SAFE ACCESSOR: No more IndexError!
+                    tgl_trans_str = self.safe_get_cell(cells, 0)
+                    tgl_valuta_str = self.safe_get_cell(cells, 1)
+                    uraian = self.safe_get_cell(cells, 2)
+                    debet_str = self.safe_get_cell(cells, 3)
+                    kredit_str = self.safe_get_cell(cells, 4)
+                    saldo_str = self.safe_get_cell(cells, 5)
+                    
+                    # Parse dates
+                    tgl_trans = self.parse_date(tgl_trans_str)
+                    tgl_valuta = self.parse_date(tgl_valuta_str)
+                    
+                    # Parse amounts
+                    debet = self.clean_amount(debet_str)
+                    kredit = self.clean_amount(kredit_str)
+                    saldo = self.clean_amount(saldo_str)
 
                     # Use tgl_trans as main transaction date
                     transaction_date = tgl_trans or tgl_valuta
