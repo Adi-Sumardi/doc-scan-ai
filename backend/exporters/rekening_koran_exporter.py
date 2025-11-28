@@ -37,7 +37,7 @@ class RekeningKoranExporter(BaseExporter):
 
     def __init__(self):
         super().__init__("rekening_koran")
-        # Columns specific to Rekening Koran
+        # Columns specific to Rekening Koran (with Quality indicator)
         self.columns = [
             "Tanggal",
             "Nilai Uang Masuk",
@@ -45,7 +45,8 @@ class RekeningKoranExporter(BaseExporter):
             "Saldo",
             "Sumber Uang Masuk",
             "Tujuan Uang Keluar",
-            "Keterangan"
+            "Keterangan",
+            "Quality"  # NEW: Data quality indicator
         ]
 
     def _format_rupiah(self, value) -> str:
