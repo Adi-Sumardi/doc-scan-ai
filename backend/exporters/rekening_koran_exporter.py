@@ -772,6 +772,32 @@ class RekeningKoranExporter(BaseExporter):
             # Sort transactions by date (month ascending)
             if structured.get('transaksi'):
                 structured['transaksi'] = self._sort_transactions_by_month(structured['transaksi'])
+                
+                # Remove duplicates
+                original_count = len(structured['transaksi'])
+                structured['transaksi'] = self._remove_duplicates(structured['transaksi'])
+                if len(structured['transaksi']) < original_count:
+                    logger.info(f"📊 Removed {original_count - len(structured['transaksi'])} duplicates")
+                
+                # Validate transactions and add quality scores
+                prev_saldo = None
+                for trans in structured['transaksi']:
+                    # Get current saldo for next iteration
+                    try:
+                        current_saldo = float(self._fix_misread_amount(trans.get('saldo', 0)))
+                    except:
+                        current_saldo = None
+                    
+                    # Validate transaction
+                    quality_info = self._validate_transaction(trans, prev_saldo)
+                    trans['_quality'] = quality_info
+                    
+                    # Update prev_saldo for next iteration
+                    prev_saldo = current_saldo
+                
+                # Calculate summary
+                summary = self._calculate_summary_statistics(structured['transaksi'])
+                logger.info(f"📊 Quality Summary: Avg={summary['avg_quality']:.1%}, High Quality={summary['high_quality_pct']:.1f}%")
 
         logger.info(f"✅ Rekening Koran Smart Mapper data converted to structured format with {len(structured.get('transaksi', []))} transactions")
 
