@@ -263,7 +263,7 @@ class BsiSyariahAdapter(BaseBankAdapter):
                 self.transactions.append(transaction)
                 transactions_found += 1
 
-            except Exception as e:
+            except Exception:
                 continue
 
         self.logger.info(f"📝 Text extraction: {transactions_found} transactions found")
