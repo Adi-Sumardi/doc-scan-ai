@@ -111,9 +111,6 @@ class BriAdapter(BaseBankAdapter):
                     kredit = self.clean_amount(kredit_str)
                     saldo = self.clean_amount(saldo_str)
 
-                    if not tanggal:
-                        continue
-
                     transaction = StandardizedTransaction(
                         transaction_date=tanggal,
                         description=uraian,
