@@ -140,8 +140,8 @@ class OcbcBankAdapter(BaseBankAdapter):
                         account_number=self.account_info.get('account_number', ''),
                         account_holder=self.account_info.get('account_holder', ''),
                         raw_data={
-                            'tgl_trans': cells[0].get('text', ''),
-                            'tgl_valuta': cells[1].get('text', ''),
+                            'tgl_trans': tgl_trans_str,
+                            'tgl_valuta': tgl_valuta_str,
                             'uraian': uraian,
                         }
                     )
