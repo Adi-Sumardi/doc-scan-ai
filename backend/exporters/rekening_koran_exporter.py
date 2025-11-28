@@ -1616,6 +1616,10 @@ class RekeningKoranExporter(BaseExporter):
                 # Determine sumber/tujuan
                 sumber_masuk = keterangan_formatted if kredit_formatted != '-' else '-'
                 tujuan_keluar = keterangan_formatted if debet_formatted != '-' else '-'
+                
+                # Get quality indicator
+                quality_info = trans.get('_quality', {})
+                quality_label = quality_info.get('label', '⚠️ Medium')
 
                 data_row = [
                     tanggal,
@@ -1624,7 +1628,8 @@ class RekeningKoranExporter(BaseExporter):
                     saldo_formatted,
                     sumber_masuk,
                     tujuan_keluar,
-                    keterangan_formatted
+                    keterangan_formatted,
+                    quality_label  # NEW: Quality indicator
                 ]
 
                 fill = data_fill_1 if transaction_row_idx % 2 == 0 else data_fill_2
@@ -1635,10 +1640,19 @@ class RekeningKoranExporter(BaseExporter):
                     # Right align for numeric columns
                     if col_idx in [2, 3, 4]:
                         cell.alignment = right_align
+                    elif col_idx == 8:  # Quality column
+                        cell.alignment = center_align
+                        if '✅' in str(value):
+                            cell.font = Font(size=10, bold=True, color="70AD47")
+                        elif '⚠️' in str(value):
+                            cell.font = Font(size=10, bold=True, color="FFC000")
+                        else:
+                            cell.font = Font(size=10, bold=True, color="C00000")
                     else:
                         cell.alignment = left_align
                     cell.border = border_thin
-                    cell.font = Font(size=10)
+                    if col_idx != 8:
+                        cell.font = Font(size=10)
 
                 row += 1
                 transaction_row_idx += 1
