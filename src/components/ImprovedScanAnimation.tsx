@@ -223,10 +223,12 @@ const ImprovedScanAnimation: React.FC<ImprovedScanAnimationProps> = ({
     };
 
     // Initial poll
+    console.log('🚀 [ImprovedScanAnimation] Starting initial poll...');
     pollBatchStatus();
 
-    // Poll every 1 second
-    pollingIntervalRef.current = setInterval(pollBatchStatus, 1000);
+    // Poll every 500ms for faster updates (more responsive)
+    pollingIntervalRef.current = setInterval(pollBatchStatus, 500);
+    console.log('⏱️ [ImprovedScanAnimation] Polling interval set to 500ms');
 
     return () => {
       if (pollingIntervalRef.current) {
