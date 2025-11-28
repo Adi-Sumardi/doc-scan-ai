@@ -110,9 +110,6 @@ class BniV1Adapter(BaseBankAdapter):
                     kredit = self.clean_amount(kredit_str)
                     saldo = self.clean_amount(saldo_str)
 
-                    if not tgl_trans:
-                        continue
-
                     transaction = StandardizedTransaction(
                         transaction_date=tgl_trans,
                         description=uraian,
