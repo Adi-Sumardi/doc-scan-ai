@@ -87,8 +87,8 @@ class MufgBankAdapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
-                if len(cells) < 1:  # Reduced from 5 to 1
+                # ✅ FIXED: Check minimum required cells for MUFG
+                if len(cells) < 5:  # MUFG needs at least 5 columns
                     continue
 
                 try:
@@ -103,30 +103,58 @@ class MufgBankAdapter(BaseBankAdapter):
                     bank_ref = ""
                     detail = ""
 
-                    # Parse based on column count
-                    if len(cells) >= 8:
-                        # Full format: Booking | Value | Debit | Credit | Balance | Type | CustRef | BankRef | Detail
-                        booking_date = self.parse_date(cells[0].get('text', '').strip())
-                        value_date = self.parse_date(cells[1].get('text', '').strip())
-                        debit = self.clean_amount(cells[2].get('text', '').strip())
-                        credit = self.clean_amount(cells[3].get('text', '').strip())
-                        balance = self.clean_amount(cells[4].get('text', '').strip())
-                        transaction_type = cells[5].get('text', '').strip()
-                        customer_ref = cells[6].get('text', '').strip()
+                    # ✅ SAFE ACCESSOR: Parse based on exact column count
+                    if len(cells) >= 9:
+                        # Full format with Detail: Booking | Value | Debit | Credit | Balance | Type | CustRef | BankRef | Detail
+                        booking_date_str = self.safe_get_cell(cells, 0)
+                        value_date_str = self.safe_get_cell(cells, 1)
+                        debit_str = self.safe_get_cell(cells, 2)
+                        credit_str = self.safe_get_cell(cells, 3)
+                        balance_str = self.safe_get_cell(cells, 4)
+                        transaction_type = self.safe_get_cell(cells, 5)
+                        customer_ref = self.safe_get_cell(cells, 6)
+                        bank_ref = self.safe_get_cell(cells, 7)
+                        detail = self.safe_get_cell(cells, 8)
+                        
+                        booking_date = self.parse_date(booking_date_str)
+                        value_date = self.parse_date(value_date_str)
+                        debit = self.clean_amount(debit_str)
+                        credit = self.clean_amount(credit_str)
+                        balance = self.clean_amount(balance_str)
 
-                        if len(cells) >= 9:
-                            bank_ref = cells[7].get('text', '').strip()
-                            detail = cells[8].get('text', '').strip()
-                        else:
-                            detail = cells[7].get('text', '').strip()
+                    elif len(cells) == 8:
+                        # Full format without Detail: Booking | Value | Debit | Credit | Balance | Type | CustRef | BankRef
+                        booking_date_str = self.safe_get_cell(cells, 0)
+                        value_date_str = self.safe_get_cell(cells, 1)
+                        debit_str = self.safe_get_cell(cells, 2)
+                        credit_str = self.safe_get_cell(cells, 3)
+                        balance_str = self.safe_get_cell(cells, 4)
+                        transaction_type = self.safe_get_cell(cells, 5)
+                        customer_ref = self.safe_get_cell(cells, 6)
+                        detail = self.safe_get_cell(cells, 7)  # BankRef becomes Detail
+                        
+                        booking_date = self.parse_date(booking_date_str)
+                        value_date = self.parse_date(value_date_str)
+                        debit = self.clean_amount(debit_str)
+                        credit = self.clean_amount(credit_str)
+                        balance = self.clean_amount(balance_str)
 
-                    elif len(cells) >= 5:
+                    elif len(cells) == 5:
                         # Simplified format: Date | Debit | Credit | Balance | Detail
-                        booking_date = self.parse_date(cells[0].get('text', '').strip())
-                        debit = self.clean_amount(cells[1].get('text', '').strip())
-                        credit = self.clean_amount(cells[2].get('text', '').strip())
-                        balance = self.clean_amount(cells[3].get('text', '').strip())
-                        detail = cells[4].get('text', '').strip()
+                        booking_date_str = self.safe_get_cell(cells, 0)
+                        debit_str = self.safe_get_cell(cells, 1)
+                        credit_str = self.safe_get_cell(cells, 2)
+                        balance_str = self.safe_get_cell(cells, 3)
+                        detail = self.safe_get_cell(cells, 4)
+                        
+                        booking_date = self.parse_date(booking_date_str)
+                        debit = self.clean_amount(debit_str)
+                        credit = self.clean_amount(credit_str)
+                        balance = self.clean_amount(balance_str)
+                    else:
+                        # Unexpected column count, log and skip
+                        self.logger.warning(f"⚠️ MUFG: Unexpected column count: {len(cells)}, expected 5, 8, or 9+")
+                        continue
 
                     # Use booking date as main transaction date, value date as effective date
                     transaction_date = booking_date or value_date
