@@ -265,19 +265,19 @@ class CimbNiagaAdapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
-                if len(cells) < 1:  # Reduced from 5 to 1
+                # ✅ FIXED: Check minimum required cells for Format 2
+                if len(cells) < 6:  # Format 2 needs at least 6 columns (without cheque_no)
                     continue
 
                 try:
-                    # Column mapping untuk Format 2
-                    txn_date_text = cells[0].get('text', '').strip() if len(cells) > 0 else ''
-                    val_date_text = cells[1].get('text', '').strip() if len(cells) > 1 else ''
-                    description = cells[2].get('text', '').strip() if len(cells) > 2 else ''
-                    cheque_no = cells[3].get('text', '').strip() if len(cells) > 3 else ''
-                    debit_text = cells[4].get('text', '').strip() if len(cells) > 4 else ''
-                    credit_text = cells[5].get('text', '').strip() if len(cells) > 5 else ''
-                    balance_text = cells[6].get('text', '').strip() if len(cells) > 6 else ''
+                    # ✅ SAFE ACCESSOR: Column mapping untuk Format 2
+                    txn_date_text = self.safe_get_cell(cells, 0)
+                    val_date_text = self.safe_get_cell(cells, 1)
+                    description = self.safe_get_cell(cells, 2)
+                    cheque_no = self.safe_get_cell(cells, 3)
+                    debit_text = self.safe_get_cell(cells, 4)
+                    credit_text = self.safe_get_cell(cells, 5)
+                    balance_text = self.safe_get_cell(cells, 6)
 
                     # Parse dates (Format 2 uses DD/MM, need to infer year)
                     txn_date = self._parse_format_2_date(txn_date_text)
