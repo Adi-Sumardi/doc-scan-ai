@@ -164,8 +164,8 @@ class PermataBankAdapter(BaseBankAdapter):
                         account_number=self.account_info.get('account_number', ''),
                         account_holder=self.account_info.get('account_holder', ''),
                         raw_data={
-                            'post_date': cells[0].get('text', '') if len(cells) >= 10 else '',
-                            'eff_date': cells[1].get('text', '') if len(cells) >= 10 else cells[0].get('text', ''),
+                            'post_date': post_date_str if len(cells) == 10 else '',
+                            'eff_date': eff_date_str,
                             'transaction_code': transaction_code,
                             'cheque_number': cheque_number,
                             'ref_no': ref_no,
