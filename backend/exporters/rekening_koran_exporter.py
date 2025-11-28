@@ -1667,6 +1667,7 @@ class RekeningKoranExporter(BaseExporter):
             ws.column_dimensions['E'].width = 30
             ws.column_dimensions['F'].width = 30
             ws.column_dimensions['G'].width = 30
+            ws.column_dimensions['H'].width = 14  # Quality column
 
             wb.save(output_path)
             logger.info(f"✅ Batch Rekening Koran Excel export created: {output_path} with {len(results)} entries")
