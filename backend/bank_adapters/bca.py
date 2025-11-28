@@ -129,17 +129,24 @@ class BcaAdapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
-                if len(cells) < 1:  # Reduced from 5 to 1
+                # ✅ FIXED: Check minimum required cells for BCA
+                if len(cells) < 5:  # BCA needs at least 5 columns
                     continue
 
                 try:
                     # BCA: Tanggal | Keterangan | CBG | Mutasi | Saldo
-                    tanggal_str = cells[0].get('text', '').strip()
-                    keterangan = cells[1].get('text', '').strip()
-                    cbg = cells[2].get('text', '').strip()
-                    mutasi_str = cells[3].get('text', '').strip()
-                    saldo = self.clean_amount(cells[4].get('text', '').strip())
+                    # ✅ SAFE ACCESSOR: No more IndexError!
+                    tanggal_str = self.safe_get_cell(cells, 0)
+                    keterangan = self.safe_get_cell(cells, 1)
+                    cbg = self.safe_get_cell(cells, 2)
+                    mutasi_str = self.safe_get_cell(cells, 3)
+                    saldo_str = self.safe_get_cell(cells, 4)
+                    
+                    # Validate essential fields
+                    if not tanggal_str or not saldo_str:
+                        continue
+                    
+                    saldo = self.clean_amount(saldo_str)
 
                     # Parse tanggal (harus lengkap dengan tahun)
                     tanggal = self.parse_date(tanggal_str, formats=[
