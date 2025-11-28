@@ -164,25 +164,30 @@ const ImprovedScanAnimation: React.FC<ImprovedScanAnimationProps> = ({
 
         // Handle completion
         if (batch.status === 'completed' && !hasCompletedRef.current) {
+          console.log('🎉 [ImprovedScanAnimation] Batch COMPLETED! Triggering success sequence...');
           hasCompletedRef.current = true;
           setShowSuccess(true);
           setOverallProgress(100);
 
           // Clear polling
           if (pollingIntervalRef.current) {
+            console.log('⏹️ [ImprovedScanAnimation] Stopping polling...');
             clearInterval(pollingIntervalRef.current);
             pollingIntervalRef.current = null;
           }
 
-          // Fade out and call onComplete
+          // Show success for 1.5 seconds then fade out and call onComplete
+          console.log('✨ [ImprovedScanAnimation] Starting success display...');
           setTimeout(() => {
+            console.log('🌅 [ImprovedScanAnimation] Starting fade out...');
             setIsFadingOut(true);
             setTimeout(() => {
+              console.log('✅ [ImprovedScanAnimation] Calling onComplete callback...');
               if (onComplete) {
                 onComplete();
               }
-            }, 600);
-          }, 2000);
+            }, 500); // Reduced from 600ms to 500ms for faster transition
+          }, 1500); // Reduced from 2000ms to 1500ms
         }
 
         // Handle error
