@@ -294,6 +294,31 @@ class BaseBankAdapter(ABC):
         """
         return [trans.to_dict() for trans in self.transactions]
 
+    def safe_get_cell(self, cells: List, index: int, default: str = '') -> str:
+        """
+        Safely get cell value by index
+        Returns default if index out of bounds
+        
+        This is critical for handling:
+        - Synthetic tables (1 cell per row)
+        - Partially parsed tables
+        - OCR errors that result in missing cells
+        
+        Args:
+            cells: List of cell dictionaries
+            index: Index to access
+            default: Default value if index out of bounds
+            
+        Returns:
+            Cell text or default value
+        """
+        try:
+            if index < len(cells) and cells[index]:
+                return cells[index].get('text', '').strip()
+        except (IndexError, TypeError, AttributeError):
+            pass
+        return default
+
     def get_summary(self) -> Dict[str, Any]:
         """
         Get ringkasan transaksi
