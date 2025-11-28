@@ -20,12 +20,17 @@ class BsiSyariahAdapter(BaseBankAdapter):
     DETECTION_KEYWORDS = [
         "BANK SYARIAH INDONESIA",
         "BSI SYARIAH",
+        "BSI",
         "PT BSI",
         "PT. BSI",
+        "PT BANK SYARIAH INDONESIA",
+        "REKENING KORAN BSI",
+        "MUTASI REKENING BSI",
         "TRX TIME",
         "TRXID",
         "TRX ID",
-        "D/K",
+        "D/K",  # Unique BSI column
+        "DEBET/KREDIT",
     ]
 
     def parse(self, ocr_result: Dict[str, Any]) -> List[StandardizedTransaction]:
