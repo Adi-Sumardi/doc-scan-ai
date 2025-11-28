@@ -114,8 +114,8 @@ class BcaSyariahAdapter(BaseBankAdapter):
                     continue
 
                 cells = row.get('cells', [])
-                # ✅ FIX: Be lenient for synthetic tables (1 cell per line)
-                if len(cells) < 1:  # Reduced from 9 to 1
+                # ✅ FIXED: Check minimum required cells for BCA Syariah
+                if len(cells) < 9:  # BCA Syariah needs at least 9 columns
                     continue
 
                 try:
@@ -135,8 +135,8 @@ class BcaSyariahAdapter(BaseBankAdapter):
                     user_otorisasi = ""
                     kode_cabang = ""
 
-                    # Parse based on column count (BCA Syariah bisa 9-14 kolom)
-                    if len(cells) >= 14:
+                    # ✅ SAFE ACCESSOR: Parse based on exact column count (BCA Syariah bisa 9-14 kolom)
+                    if len(cells) == 14:
                         # Full format (14 kolom)
                         tgl_efektif = self.parse_date(cells[0].get('text', '').strip())
                         tgl_transaksi = self.parse_date(cells[1].get('text', '').strip())
