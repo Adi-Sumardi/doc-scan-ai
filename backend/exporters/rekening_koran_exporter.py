@@ -227,6 +227,18 @@ class RekeningKoranExporter(BaseExporter):
             'DEC': '12', 'DESEMBER': '12', 'DECEMBER': '12', 'DES': '12'
         }
 
+        # Pattern 0: Already complete DD/MM/YYYY HH:MM:SS (with time)
+        match = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})\s+(\d{1,2}):(\d{2}):?(\d{2})?$', date_str)
+        if match:
+            day = match.group(1).zfill(2)
+            month = match.group(2).zfill(2)
+            year_full = match.group(3)
+            hour = match.group(4).zfill(2)
+            minute = match.group(5).zfill(2)
+            second = match.group(6).zfill(2) if match.group(6) else '00'
+            completed = f"{day}/{month}/{year_full} {hour}:{minute}:{second}"
+            return completed
+
         # Pattern 1: Already complete DD/MM/YYYY
         match = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', date_str)
         if match:
@@ -287,6 +299,32 @@ class RekeningKoranExporter(BaseExporter):
             day = match.group(3).zfill(2)
             completed = f"{day}/{month}/{year_iso}"
             logger.debug(f"📅 Date converted from ISO: '{original_date}' → '{completed}'")
+            return completed
+
+        # Pattern 6b: ISO format with time YYYY-MM-DD HH:MM:SS → DD/MM/YYYY HH:MM:SS
+        match = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2}):?(\d{2})?$', date_str)
+        if match:
+            year_iso = match.group(1)
+            month = match.group(2).zfill(2)
+            day = match.group(3).zfill(2)
+            hour = match.group(4).zfill(2)
+            minute = match.group(5).zfill(2)
+            second = match.group(6).zfill(2) if match.group(6) else '00'
+            completed = f"{day}/{month}/{year_iso} {hour}:{minute}:{second}"
+            logger.debug(f"📅 Date+time converted from ISO: '{original_date}' → '{completed}'")
+            return completed
+
+        # Pattern 6c: ISO format with T separator YYYY-MM-DDTHH:MM:SS → DD/MM/YYYY HH:MM:SS
+        match = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})T(\d{1,2}):(\d{2}):?(\d{2})?', date_str)
+        if match:
+            year_iso = match.group(1)
+            month = match.group(2).zfill(2)
+            day = match.group(3).zfill(2)
+            hour = match.group(4).zfill(2)
+            minute = match.group(5).zfill(2)
+            second = match.group(6).zfill(2) if match.group(6) else '00'
+            completed = f"{day}/{month}/{year_iso} {hour}:{minute}:{second}"
+            logger.debug(f"📅 Date+time converted from ISO T-format: '{original_date}' → '{completed}'")
             return completed
 
         # Pattern 7: "DD MONTH_NAME YYYY" (e.g., "15 agustus 2025", "1 JANUARI 2025")

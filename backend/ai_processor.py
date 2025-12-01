@@ -357,73 +357,42 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
                     if not raw_response:
                         logger.warning("⚠️ No raw OCR response available for Smart Mapper")
         elif document_type == 'rekening_koran':
-            # Get OCR metadata for enhanced processing
-            # Note: ocr_metadata is already set from chunking or single processing above
+            # ============================================================
+            # SIMPLIFIED REKENING KORAN PROCESSING
+            # ============================================================
+            # NEW FLOW: Google Document AI (OCR) → Claude AI → Excel
+            # NO MORE: Bank detection, bank adapters, rule-based parsing
+            # ============================================================
+
+            logger.info("=" * 60)
+            logger.info("🏦 REKENING KORAN - SIMPLIFIED CLAUDE AI PROCESSING")
+            logger.info("=" * 60)
+
+            # Get OCR metadata
             if not ocr_metadata:
                 ocr_metadata = ocr_processor.get_last_ocr_metadata()
 
-            # Build OCR result structure for bank adapters
-            # ✅ CRITICAL FIX: Extract tables from Google Document AI raw_response.pages[].tables
-            tables = []
-            if ocr_metadata:
-                raw_response = ocr_metadata.get('raw_response')
-                logger.info(f"   🔍 DEBUG: ocr_metadata exists, raw_response type: {type(raw_response)}")
-                if raw_response and isinstance(raw_response, dict):
-                    # Tables are in raw_response.pages[].tables (Google Document AI format)
-                    pages = raw_response.get('pages', [])
-                    logger.info(f"   🔍 DEBUG: Found {len(pages)} pages in raw_response")
-                    for i, page in enumerate(pages, 1):
-                        if isinstance(page, dict) and 'tables' in page:
-                            page_tables = page.get('tables', [])
-                            logger.info(f"   🔍 DEBUG: Page {i} has {len(page_tables)} tables")
-                            if isinstance(page_tables, list):
-                                tables.extend(page_tables)
-                        else:
-                            logger.info(f"   🔍 DEBUG: Page {i} - no 'tables' key (keys: {list(page.keys())[:5] if isinstance(page, dict) else 'not a dict'})")
+            # Get raw_response for Smart Mapper
+            ocr_meta_dict = ocr_metadata if isinstance(ocr_metadata, dict) else {}
+            raw_response = ocr_meta_dict.get('raw_response')
 
-                    logger.info(f"   📊 Total extracted: {len(tables)} tables from Google Document AI response (non-chunked)")
-                else:
-                    logger.warning(f"   ⚠️ raw_response is None or not a dict")
-            else:
-                logger.warning(f"   ⚠️ No ocr_metadata available")
+            # 🔍 DEBUG: Check what we have
+            logger.info(f"🔍 DEBUG - ocr_metadata type: {type(ocr_metadata)}")
+            logger.info(f"🔍 DEBUG - ocr_metadata keys: {list(ocr_meta_dict.keys()) if ocr_meta_dict else 'None'}")
+            logger.info(f"🔍 DEBUG - raw_response available: {raw_response is not None}")
+            logger.info(f"🔍 DEBUG - HAS_SMART_MAPPER: {HAS_SMART_MAPPER}")
 
-            ocr_result = {
-                'text': extracted_text,
-                'tables': tables,  # ← Now has actual tables from Google Document AI!
-                'raw_response': ocr_metadata.get('raw_response') if ocr_metadata else None
-            }
+            # Parse rekening koran (now returns raw text for Smart Mapper)
+            extracted_data = await parser.parse_rekening_koran(extracted_text)
 
-            # Use Enhanced Hybrid Processor (Bank Adapters + Smart Mapper)
-            logger.info("🏦 Processing Rekening Koran with Enhanced Hybrid Processor")
-            extracted_data = await parser.parse_rekening_koran(
-                extracted_text,
-                ocr_result=ocr_result,
-                ocr_metadata=ocr_metadata,
-                page_offset=0  # No offset for non-chunked files
-            )
-
-            # If enhanced processor returned structured data, we're done!
-            if extracted_data and extracted_data.get('transactions'):
-                logger.info(f"✅ Enhanced processor returned {len(extracted_data.get('transactions', []))} transactions")
-                # Merge any Cloud AI structured fields if available
-                if ocr_metadata:
-                    cloud_fields = ocr_metadata.get('extracted_fields', {})
-                    if cloud_fields:
-                        logger.info("✅ Merging structured data from Google Document AI for Rekening Koran")
-                        if 'extracted_content' not in extracted_data:
-                            extracted_data['extracted_content'] = {}
-                        extracted_data['extracted_content']['structured_fields'] = cloud_fields
-
-            # Fallback: If enhanced processor failed, try Smart Mapper only
-            elif HAS_SMART_MAPPER and smart_mapper_service and isinstance(extracted_data, dict):
-                logger.warning("⚠️ Enhanced processor failed, trying Smart Mapper fallback...")
-                logger.info("✅ Smart Mapper conditions met, loading template...")
+            # ALWAYS use Smart Mapper (Claude AI) for Rekening Koran
+            if HAS_SMART_MAPPER and smart_mapper_service:
+                logger.info("🤖 Using Claude AI (Smart Mapper) for universal bank statement extraction")
                 template = smart_mapper_service.load_template(document_type)
-                ocr_meta_dict = ocr_metadata if isinstance(ocr_metadata, dict) else {}
-                raw_response = ocr_meta_dict.get('raw_response')
-                logger.info(f"🔍 DEBUG: template={template is not None}, raw_response={raw_response is not None}")
+                logger.info(f"🔍 DEBUG - template loaded: {template is not None}")
+
                 if template and raw_response:
-                    logger.info("🤖 Applying Smart Mapper GPT-4o for Rekening Koran")
+                    logger.info("📋 Template loaded, calling Claude AI...")
                     mapped = smart_mapper_service.map_document(
                         doc_type=document_type,
                         document_json=raw_response,
@@ -432,17 +401,29 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
                         fallback_fields=extracted_data.get('structured_data'),
                     )
                     if mapped:
-                        logger.info("✅ Smart Mapper Rekening Koran successful!")
+                        logger.info("✅ Claude AI extraction successful!")
                         extracted_data.setdefault('structured_data', {})
                         extracted_data['structured_data']['smart_mapper'] = mapped
                         extracted_data['smart_mapped'] = mapped
+                        logger.info(f"🔍 DEBUG - smart_mapped added to extracted_data, keys now: {list(extracted_data.keys())}")
+
+                        # Update transactions if extracted
+                        if mapped.get('transactions'):
+                            extracted_data['transactions'] = mapped['transactions']
+                            logger.info(f"   📊 Extracted {len(mapped['transactions'])} transactions")
                     else:
-                        logger.warning("⚠️ Smart Mapper Rekening Koran returned no data")
+                        logger.warning("⚠️ Claude AI returned no data (mapped is None/empty)")
                 else:
                     if not template:
                         logger.warning(f"⚠️ No template found for {document_type}")
                     if not raw_response:
-                        logger.warning("⚠️ No raw OCR response available for Smart Mapper")
+                        logger.warning("⚠️ No raw OCR response available - CANNOT CALL CLAUDE AI!")
+            else:
+                logger.warning("⚠️ Smart Mapper not available, returning raw OCR text only")
+
+            # 🔍 DEBUG: Final check before returning
+            logger.info(f"🔍 DEBUG - FINAL extracted_data keys: {list(extracted_data.keys())}")
+            logger.info(f"🔍 DEBUG - FINAL has smart_mapped: {'smart_mapped' in extracted_data}")
         elif document_type == 'invoice':
             extracted_data = parser.parse_invoice(extracted_text)
             # Merge structured fields from Google Document AI if available

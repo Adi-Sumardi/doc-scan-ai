@@ -38,7 +38,7 @@
       "flexible": true,
       "notes": "PENTING: Ekstrak SEMUA transaksi yang terlihat dalam tabel mutasi. Setiap baris dalam tabel = 1 transaksi. Jangan skip transaksi apapun! Even if there are 100+ rows, extract ALL of them!",
       "fields": [
-        {"name": "tanggal", "label": "Tanggal", "required": false, "format": "flexible", "notes": "Tanggal transaksi. Format bisa: 'DD/MM/YYYY', 'DD-MM-YYYY', 'DD MMM', 'DD/MM', '01 JAN', '01 JAN 2025', dll. Kolom ini biasanya di kolom paling kiri tabel."},
+        {"name": "tanggal", "label": "Tanggal", "required": false, "format": "DD/MM/YYYY", "notes": "⚠️ OUTPUT FORMAT STANDAR: DD/MM/YYYY (contoh: 29/08/2025). Jika ada waktu, gunakan DD/MM/YYYY HH:MM:SS (contoh: 29/08/2025 07:42:52). KONVERSI dari format lain: YYYY-MM-DD → DD/MM/YYYY, DD-MM-YYYY → DD/MM/YYYY, DD MMM YYYY → DD/MM/YYYY. Kolom ini biasanya di kolom paling kiri tabel."},
         {"name": "keterangan", "label": "Keterangan", "required": false, "notes": "⚠️ CRITICAL JSON FORMATTING: Deskripsi transaksi. Cari kolom dengan header: 'Keterangan', 'Description', 'Remarks', 'Details', 'Transaction Details', 'Uraian', 'Deskripsi'. Bisa berisi: 'TRANSFER', 'ATM WITHDRAWAL', 'BIAYA ADM', 'SETORAN TUNAI', 'KLIRING', 'BUNGA', dll. ⚠️ IMPORTANT: If keterangan has multiple lines or special characters (newlines, tabs, quotes), you MUST properly escape them in JSON! Replace actual newlines with space ' ' or use escaped newline '\\n'. For example: 'TRSF E-BANKING DB 0107/FTSCY/WS95051 8800000.00 PETTY CASH' (all in one line with spaces). DO NOT include literal line breaks in the JSON string value!"},
         {"name": "kredit", "label": "Kredit/Uang Masuk", "required": false, "format": "currency", "notes": "Uang masuk. Cari kolom: 'Kredit', 'Credit', 'CR', 'Mutasi Kredit', 'Pemasukan', 'Masuk', 'Deposit', 'Incoming'. Kosongkan jika tidak ada nilai. Format: '1.234.567' atau '1234567'"},
         {"name": "debet", "label": "Debet/Uang Keluar", "required": false, "format": "currency", "notes": "Uang keluar. Cari kolom: 'Debet', 'Debit', 'DB', 'Mutasi Debet', 'Pengeluaran', 'Keluar', 'Withdrawal', 'Outgoing'. Kosongkan jika tidak ada nilai."},
@@ -107,17 +107,18 @@
       "description": ["Keterangan", "Description", "Remarks", "Details", "Uraian", "Transaction Details", "Keterangan Transaksi", "KETERANGAN", "Deskripsi"],
       "debit_out": ["Debet", "Debit", "DB", "Mutasi Debet", "Pengeluaran", "Keluar", "Withdrawal", "Penarikan"],
       "credit_in": ["Kredit", "Credit", "CR", "Mutasi Kredit", "Pemasukan", "Masuk", "Deposit", "Setoran"],
-      "mutation": ["Mutasi", "Mutation", "Amount", "Jumlah"],
+      "mutation": ["Mutasi", "Mutation", "Amount", "Jumlah", "Currency Amount"],
       "balance": ["Saldo", "Balance", "Saldo Akhir", "Running Balance", "Bal", "SALDO", "Saldo Buku"],
-      "reference": ["Referensi", "Reference", "Ref", "No. Ref", "Trace", "Ref No"],
-      "branch": ["CBG", "Cabang", "Branch", "Cab", "Kode Cabang"]
+      "reference": ["Referensi", "Reference", "Ref", "No. Ref", "Trace", "Ref No", "FT Number", "FT No"],
+      "branch": ["CBG", "Cabang", "Branch", "Cab", "Kode Cabang"],
+      "db_cr_flag": ["DB CR", "DB/CR", "D/C", "Type", "Tipe", "Jenis"]
     },
 
     "currency_handling": "⚠️⚠️⚠️ SUPER CRITICAL NUMBER PARSING - READ CAREFULLY: When you see a number like '953,628,332.69', this is US/International format where COMMA = thousand separator and DOT = decimal point. Step-by-step process: STEP 1: Find the DOT (period/decimal point). If there is a DOT, DELETE everything from the dot onwards including the dot itself. '953,628,332.69' → DELETE '.69' → '953,628,332'. STEP 2: Now remove all commas. '953,628,332' → '953628332'. FINAL OUTPUT: '953628332'. ⚠️ WRONG EXAMPLE (DO NOT DO THIS): '953,628,332.69' → '95362833269' ← THIS IS WRONG! You removed separators but kept the decimal digits 69, making it 10x larger! ⚠️ RIGHT EXAMPLE: '953,628,332.69' → DELETE '.69' first → '953,628,332' → remove commas → '953628332' ✓ CORRECT! More examples: '932,867,188.61' → DELETE '.61' → '932,867,188' → '932867188', '1,234,567.89' → DELETE '.89' → '1,234,567' → '1234567'.",
 
     "empty_values": "If cell is empty, blank, or shows '-' or '0,00', use empty string ''. Don't use 'N/A', 'null', or '0' for empty currency fields.",
 
-    "date_parsing": "Accept ANY date format you see: 'DD/MM/YYYY', 'DD-MM-YYYY', 'DD/MM', 'DD MMM', 'DD MMM YYYY', '01 JAN 2025', 'Jan 01'. Keep original format - don't try to standardize.",
+    "date_parsing": "⚠️ OUTPUT FORMAT WAJIB: DD/MM/YYYY (contoh: 29/08/2025). Jika ada waktu: DD/MM/YYYY HH:MM:SS (contoh: 29/08/2025 07:42:52). KONVERSI: 'YYYY-MM-DD' → 'DD/MM/YYYY', 'YYYY-MM-DD HH:MM:SS' → 'DD/MM/YYYY HH:MM:SS', 'DD-MM-YYYY' → 'DD/MM/YYYY', '01 JAN 2025' → '01/01/2025'.",
 
     "balance_direction": "Some banks show balance going DOWN as you scroll (newest first), others show balance going UP (oldest first). Both are valid. Just extract in the order you see.",
 
@@ -192,10 +193,24 @@
     },
 
     "BSI": {
-      "identification": "Look for 'Bank Syariah Indonesia', 'BSI', green BSI logo",
-      "table_columns": "Tanggal | Keterangan | Debet | Kredit | Saldo",
-      "key_feature": "May use Islamic banking terminology",
-      "extraction_tip": "Standard layout"
+      "market_share": "~8% (largest Islamic bank in Indonesia)",
+      "identification": "Look for 'Bank Syariah Indonesia', 'BSI', 'PT BANK SYARIAH INDONESIA TBK', green BSI logo with Islamic star pattern",
+      "account_format": "10 digits: '4441000777' or similar format",
+      "table_columns": "Date | FT Number | Description | Currency Amount | DB CR | Balance",
+      "key_feature": "⚠️ BSI has UNIQUE format! Uses single 'Currency Amount' column with separate 'DB CR' flag column instead of separate Debet/Kredit columns. The 'DB CR' column shows 'DB' for debit (keluar) or 'CR' for credit (masuk).",
+      "date_format": "Input: YYYY-MM-DD HH:MM:SS → Output: DD/MM/YYYY HH:MM:SS (e.g., '2024-11-01 07:42:52' → '01/11/2024 07:42:52')",
+      "extraction_tip": "⚠️ CRITICAL BSI EXTRACTION: 1) Look for 'FT' reference number column (e.g., 'FT24306GLSHZ'), 2) The 'Currency Amount' column contains the transaction value, 3) Check 'DB CR' column: if 'DB' → put value in debet field, if 'CR' → put value in kredit field. 4) ⚠️ DATE CONVERSION: BSI uses 'YYYY-MM-DD HH:MM:SS' format, you MUST convert to 'DD/MM/YYYY HH:MM:SS'. Example: '2024-11-01 07:42:52' → '01/11/2024 07:42:52'.",
+      "reference_format": "FT number format: 'FT24306GLSHZ', 'FT2430674MQZ' - always starts with 'FT' followed by numbers and letters",
+      "keterangan_handling": "Description may include: 'Transfer Keluar', 'TRSF RTGS', 'Pembelian', 'Transfer Masuk', 'Buku Bunga/Equivalen Bonus', 'Pendebetan', etc.",
+      "islamic_terminology": "May use Islamic banking terms like 'Equivalen Bonus' instead of 'Bunga' (interest), 'Bagi Hasil' for profit sharing",
+      "column_mapping": {
+        "Date": "tanggal",
+        "FT Number": "referensi",
+        "Description": "keterangan",
+        "Currency Amount": "Check DB CR column to determine if debet or kredit",
+        "DB CR": "Flag indicator - 'DB' means debet, 'CR' means kredit",
+        "Balance": "saldo"
+      }
     },
 
     "Danamon": {
@@ -219,7 +234,8 @@
     "flexibility_first": "⚠️ MOST IMPORTANT RULE: Flexibility and completeness are MORE important than perfection. Extract what you can, even if incomplete. Better to extract partial data than fail completely.",
     "normalize_account_number": false,
     "currency_format": "Accept any format: 'Rp 1.234.567', '1,234,567.89', '1234567', '-1234567'. Output as plain numbers only.",
-    "allowed_date_formats": ["DD/MM/YYYY", "DD-MM-YYYY", "YYYY-MM-DD", "DD MMM YYYY", "DD/MM", "DD MMM", "ANY FORMAT"],
+    "allowed_date_formats": ["DD/MM/YYYY", "DD/MM/YYYY HH:MM:SS"],
+    "date_output_note": "⚠️ WAJIB: Output tanggal HARUS dalam format DD/MM/YYYY atau DD/MM/YYYY HH:MM:SS. Konversi dari format lain ke format ini!",
     "transaction_validation": "Extract ALL transactions even if some fields are missing. It's OK if kredit, debet, or saldo is empty for some rows.",
     "balance_calculation": "Don't validate balance math - just extract what's shown. Different banks calculate differently.",
     "missing_data_ok": "If bank name, account number, or period is unclear, use your best guess or leave empty. Don't fail extraction."

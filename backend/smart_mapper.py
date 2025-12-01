@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Tuple
 
 from config import settings
 
@@ -44,8 +46,14 @@ class SmartMapper:
 
         # Claude AI Configuration (specifically for Rekening Koran)
         self.claude_api_key = os.getenv("CLAUDE_API_KEY")
-        self.claude_model = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20241022")
-        self.claude_max_tokens = int(os.getenv("CLAUDE_MAX_TOKENS", "8000"))
+        self.claude_model = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
+        # ✅ FIX: Increased from 8000 to 32000 to handle large bank statements
+        self.claude_max_tokens = int(os.getenv("CLAUDE_MAX_TOKENS", "32000"))
+
+        # 🚀 Parallel Processing Configuration for multi-page rekening koran
+        # Max concurrent workers to avoid rate limits (Claude Sonnet: ~50 RPM)
+        self.max_parallel_pages = int(os.getenv("SMART_MAPPER_MAX_PARALLEL_PAGES", "3"))
+        self.parallel_enabled = os.getenv("SMART_MAPPER_PARALLEL_ENABLED", "true").lower() in {"1", "true", "yes"}
 
         if self.provider not in SUPPORTED_PROVIDERS:
             logger.error(f"❌ Unsupported Smart Mapper provider: {self.provider}")
@@ -67,7 +75,11 @@ class SmartMapper:
 
         logger.info(f"🤖 Smart Mapper configured: provider={self.provider}, model={self.model}, enabled={self.enabled}")
         if self.claude_api_key:
-            logger.info(f"🧠 Claude AI configured for Rekening Koran: model={self.claude_model}")
+            logger.info(f"🧠 Claude AI configured for Rekening Koran: model={self.claude_model}, max_tokens={self.claude_max_tokens}")
+        if self.parallel_enabled:
+            logger.info(f"🚀 Parallel processing ENABLED: max {self.max_parallel_pages} concurrent pages")
+        else:
+            logger.info(f"📄 Parallel processing DISABLED: sequential mode")
 
     # ------------------------------------------------------------------
     # Lazy loading properties for AI clients with retry logic
@@ -350,54 +362,126 @@ class SmartMapper:
 
             # Process remaining pages (transactions only)
             full_document_text = document_json.get("text", "")
+            remaining_pages = total_pages - 1
 
-            for page_idx in range(1, total_pages):
-                page_num = page_idx + 1
+            if remaining_pages > 0:
+                # 🚀 PARALLEL PROCESSING: Process pages 2-N concurrently
+                if self.parallel_enabled and remaining_pages >= 2:
+                    logger.info(f"🚀 PARALLEL MODE: Processing {remaining_pages} remaining pages with {self.max_parallel_pages} concurrent workers")
 
-                # ✅ FIX: Extract text segments that belong to this specific page
-                # Google Document AI stores text with page references
-                logger.info(f"📄 Processing page {page_num}/{total_pages} (transactions only) for {bank_name}...")
+                    # Prepare page tasks
+                    page_tasks = []
+                    for page_idx in range(1, total_pages):
+                        page_num = page_idx + 1
+                        page_text = self._extract_text_for_page(
+                            full_document_text,
+                            pages[page_idx],
+                            document_json
+                        )
+                        context_text = f"Bank: {bank_name}\nContinuation page {page_num}\n\n{page_text}"
+                        page_json = {
+                            "text": context_text,
+                            "pages": [pages[page_idx]],
+                            "entities": []
+                        }
+                        page_tasks.append((page_idx, page_num, page_json))
 
-                page_text = self._extract_text_for_page(
-                    full_document_text,
-                    pages[page_idx],
-                    document_json
-                )
+                    # Process with ThreadPoolExecutor
+                    page_results: Dict[int, Optional[Dict[str, Any]]] = {}
 
-                # Add bank context to text
-                context_text = f"Bank: {bank_name}\nContinuation page {page_num}\n\n{page_text}"
+                    with ThreadPoolExecutor(max_workers=self.max_parallel_pages) as executor:
+                        # Submit all tasks
+                        future_to_page = {
+                            executor.submit(
+                                self._process_single_page,
+                                page_json=task[2],
+                                doc_type=doc_type,
+                                template=template,
+                                extracted_fields=None,
+                                fallback_fields=None,
+                                include_metadata=False,
+                                page_number=task[1],
+                                bank_context=bank_name
+                            ): task[1]  # page_num as identifier
+                            for task in page_tasks
+                        }
 
-                page_json = {
-                    "text": context_text,
-                    "pages": [pages[page_idx]],
-                    "entities": []  # No entities needed for continuation
-                }
+                        # Collect results as they complete
+                        for future in as_completed(future_to_page):
+                            page_num = future_to_page[future]
+                            try:
+                                result = future.result()
+                                page_results[page_num] = result
+                                if result and "transactions" in result:
+                                    tx_count = len(result.get("transactions", []))
+                                    logger.info(f"✅ Page {page_num}: {tx_count} transactions extracted (parallel)")
+                                else:
+                                    logger.warning(f"⚠️ Page {page_num} returned no transactions (parallel)")
+                            except Exception as exc:
+                                logger.error(f"❌ Page {page_num} failed: {exc}")
+                                page_results[page_num] = None
 
-                # DEBUG: Check page structure
-                page_tables = pages[page_idx].get("tables", []) if isinstance(pages[page_idx], dict) else []
-                page_lines = pages[page_idx].get("lines", []) if isinstance(pages[page_idx], dict) else []
-                page_paragraphs = pages[page_idx].get("paragraphs", []) if isinstance(pages[page_idx], dict) else []
+                    # Merge results in page order (important for correct sequence)
+                    for page_num in sorted(page_results.keys()):
+                        page_result = page_results[page_num]
+                        if page_result and "transactions" in page_result:
+                            page_transactions = page_result["transactions"]
+                            if isinstance(page_transactions, list):
+                                all_transactions.extend(page_transactions)
 
-                logger.info(f"   📊 Page {page_num} structure: {len(page_tables)} tables, {len(page_lines)} lines, {len(page_paragraphs)} paragraphs")
-                logger.info(f"   📝 Context text length: {len(context_text)} characters")
-                page_result = self._process_single_page(
-                    page_json=page_json,
-                    doc_type=doc_type,
-                    template=template,
-                    extracted_fields=None,
-                    fallback_fields=None,
-                    include_metadata=False,
-                    page_number=page_num,
-                    bank_context=bank_name  # Pass bank info
-                )
+                    logger.info(f"🚀 Parallel processing complete: {len(all_transactions)} total transactions")
 
-                if page_result and "transactions" in page_result:
-                    page_transactions = page_result["transactions"]
-                    if isinstance(page_transactions, list):
-                        all_transactions.extend(page_transactions)
-                        logger.info(f"✅ Page {page_num}: {len(page_transactions)} transactions extracted")
                 else:
-                    logger.warning(f"⚠️ Page {page_num} returned no transactions")
+                    # Sequential processing for single remaining page or when parallel disabled
+                    logger.info(f"📄 SEQUENTIAL MODE: Processing {remaining_pages} remaining pages one by one")
+
+                    for page_idx in range(1, total_pages):
+                        page_num = page_idx + 1
+
+                        # ✅ FIX: Extract text segments that belong to this specific page
+                        # Google Document AI stores text with page references
+                        logger.info(f"📄 Processing page {page_num}/{total_pages} (transactions only) for {bank_name}...")
+
+                        page_text = self._extract_text_for_page(
+                            full_document_text,
+                            pages[page_idx],
+                            document_json
+                        )
+
+                        # Add bank context to text
+                        context_text = f"Bank: {bank_name}\nContinuation page {page_num}\n\n{page_text}"
+
+                        page_json = {
+                            "text": context_text,
+                            "pages": [pages[page_idx]],
+                            "entities": []  # No entities needed for continuation
+                        }
+
+                        # DEBUG: Check page structure
+                        page_tables = pages[page_idx].get("tables", []) if isinstance(pages[page_idx], dict) else []
+                        page_lines = pages[page_idx].get("lines", []) if isinstance(pages[page_idx], dict) else []
+                        page_paragraphs = pages[page_idx].get("paragraphs", []) if isinstance(pages[page_idx], dict) else []
+
+                        logger.info(f"   📊 Page {page_num} structure: {len(page_tables)} tables, {len(page_lines)} lines, {len(page_paragraphs)} paragraphs")
+                        logger.info(f"   📝 Context text length: {len(context_text)} characters")
+                        page_result = self._process_single_page(
+                            page_json=page_json,
+                            doc_type=doc_type,
+                            template=template,
+                            extracted_fields=None,
+                            fallback_fields=None,
+                            include_metadata=False,
+                            page_number=page_num,
+                            bank_context=bank_name  # Pass bank info
+                        )
+
+                        if page_result and "transactions" in page_result:
+                            page_transactions = page_result["transactions"]
+                            if isinstance(page_transactions, list):
+                                all_transactions.extend(page_transactions)
+                                logger.info(f"✅ Page {page_num}: {len(page_transactions)} transactions extracted")
+                        else:
+                            logger.warning(f"⚠️ Page {page_num} returned no transactions")
 
             # Update merged result with all transactions
             merged_result["transactions"] = all_transactions
@@ -1029,7 +1113,10 @@ class SmartMapper:
         return None
 
     def _invoke_claude_direct(self, payload_text: str, instructions: str) -> Optional[str]:
-        """Invoke Claude API directly (dedicated for Rekening Koran)"""
+        """Invoke Claude API directly (dedicated for Rekening Koran) - WITH STREAMING
+
+        Uses streaming to handle long-running operations (>10 min) required by Anthropic SDK.
+        """
         # ✅ FIX: Use property instead of direct access - triggers lazy loading
         if not self.claude_client:
             logger.warning("⚠️ Claude client not initialized, falling back to primary provider")
@@ -1043,8 +1130,13 @@ class SmartMapper:
                 if attempt > 0:
                     logger.info(f"🔄 Retry attempt {attempt + 1}/{max_retries}")
 
-                logger.info(f"🧠 Calling Claude API with model: {self.claude_model}")
-                response = self.claude_client.messages.create(
+                logger.info(f"🧠 Calling Claude API with STREAMING, model: {self.claude_model}")
+
+                # ✅ FIX: Use streaming to avoid "Streaming is required for operations > 10 min" error
+                content_parts = []
+                stop_reason = None
+
+                with self.claude_client.messages.stream(
                     model=self.claude_model,
                     max_tokens=self.claude_max_tokens,
                     temperature=self.temperature,
@@ -1059,11 +1151,17 @@ class SmartMapper:
                             ],
                         }
                     ],
-                )
+                ) as stream:
+                    for text in stream.text_stream:
+                        content_parts.append(text)
 
-                if response and getattr(response, "content", None):
-                    # Check stop_reason for truncation
-                    stop_reason = getattr(response, "stop_reason", None)
+                    # Get final message for stop_reason
+                    final_message = stream.get_final_message()
+                    stop_reason = getattr(final_message, "stop_reason", None)
+
+                content = "".join(content_parts) if content_parts else None
+
+                if content:
                     logger.info(f"🏁 Stop reason: {stop_reason}")
 
                     # ✅ FIX: Check if response was truncated - return None instead of partial
@@ -1077,13 +1175,7 @@ class SmartMapper:
                     elif stop_reason != "end_turn":
                         logger.warning(f"⚠️ Unusual stop reason: {stop_reason}")
 
-                    parts = []
-                    for item in response.content:
-                        if getattr(item, "type", "") == "text":
-                            parts.append(getattr(item, "text", ""))
-
-                    content = "".join(parts) if parts else None
-                    logger.info(f"✅ Claude response received: {len(content) if content else 0} characters")
+                    logger.info(f"✅ Claude STREAMING response received: {len(content)} characters")
                     return content
                 return None
 

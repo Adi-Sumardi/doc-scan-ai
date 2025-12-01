@@ -27,7 +27,9 @@ class UserResponse(BaseModel):
 
 class Token(BaseModel):
     access_token: str
+    refresh_token: Optional[str] = None
     token_type: str
+    expires_in: Optional[int] = None  # Token expiry in seconds
 
 class TokenData(BaseModel):
     username: Optional[str] = None

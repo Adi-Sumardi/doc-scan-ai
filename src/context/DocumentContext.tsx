@@ -477,14 +477,28 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       let filename: string;
       
       const result = scanResults.find(r => r.id === resultId);
-      const baseFilename = result?.original_filename?.split('.')[0] || result?.filename?.split('.')[0] || 'document';
-      
+      let baseFilename = result?.original_filename?.split('.')[0] || result?.filename?.split('.')[0] || 'document';
+
+      // Clean filename - remove "debug", "test", etc. and make it professional
+      baseFilename = baseFilename
+        .replace(/[-_]?debug[-_]?/gi, '')  // Remove "debug"
+        .replace(/[-_]?test[-_]?/gi, '')   // Remove "test"
+        .replace(/[-_]?temp[-_]?/gi, '')   // Remove "temp"
+        .replace(/[-_]+/g, '_')            // Normalize separators
+        .replace(/^_|_$/g, '');            // Remove leading/trailing underscores
+
+      // If filename becomes empty after cleaning, use default
+      if (!baseFilename) baseFilename = 'rekening_koran';
+
+      // Add timestamp for uniqueness
+      const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
       if (format === 'excel') {
         blob = await apiService.exportResultExcel(resultId);
-        filename = `${baseFilename}_extracted.xlsx`;
+        filename = `${baseFilename}_${timestamp}.xlsx`;
       } else {
         blob = await apiService.exportResultPdf(resultId);
-        filename = `${baseFilename}_extracted.pdf`;
+        filename = `${baseFilename}_${timestamp}.pdf`;
       }
       
       apiService.downloadFile(blob, filename);
@@ -505,7 +519,8 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
     try {
       setLoading(true);
       const blob = await apiService.exportBatch(batchId, format);
-      const filename = `batch_${batchId.slice(-8)}_results.${format === 'excel' ? 'xlsx' : 'pdf'}`;
+      const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const filename = `rekening_koran_batch_${timestamp}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
 
       apiService.downloadFile(blob, filename);
       setTimeout(() => {

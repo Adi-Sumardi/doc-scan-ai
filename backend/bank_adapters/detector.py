@@ -27,6 +27,10 @@ class BankDetector:
     # Registry semua adapters
     # PENTING: ORDER MATTERS! Yang lebih spesifik harus di-check dulu
     ADAPTERS = [
+        # ✅ BSI harus di ATAS BCA karena BSI punya keyword lebih spesifik
+        # dan BCA sering muncul di transfer descriptions (e.g., "TRANSFER DR BCA")
+        BsiSyariahAdapter,
+
         # Mandiri V2 sebelum V1 (V2 punya keywords lebih spesifik)
         MandiriV2Adapter,
         MandiriV1Adapter,
@@ -47,7 +51,6 @@ class BankDetector:
         PermataBankAdapter,
         BriAdapter,
         OcbcBankAdapter,
-        BsiSyariahAdapter,
     ]
 
     @classmethod

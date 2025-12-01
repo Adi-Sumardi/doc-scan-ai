@@ -213,88 +213,46 @@ class IndonesianTaxDocumentParser:
 
     async def parse_rekening_koran(self, text: str, ocr_result: Dict[str, Any] = None, ocr_metadata: Dict[str, Any] = None, page_offset: int = 0) -> Dict[str, Any]:
         """
-        Parse Rekening Koran using Enhanced Hybrid Processor
+        Parse Rekening Koran - SIMPLIFIED FLOW
 
-        Strategy:
-        1. Bank Adapters (pattern matching - reliable for known banks)
-        2. Smart Mapper (AI extraction - flexible for all formats)
-        3. Intelligent merger (best of both worlds)
+        ✅ NEW ARCHITECTURE (Simple & Reliable):
+        Google Document AI (OCR) → Claude AI (Smart Mapper) → Excel Export
+
+        ❌ OLD ARCHITECTURE (Complex & Error-prone):
+        OCR → Bank Detector → Bank Adapter → Rule Parser → Smart Mapper Fallback
+
+        Why simplified:
+        1. Bank detection often fails (BSI detected as BCA due to transfer descriptions)
+        2. Bank adapters need constant maintenance (12 adapters for different formats)
+        3. Rule-based parsing is brittle - format changes break it
+        4. Claude AI is smart enough to handle ALL bank formats universally
 
         Args:
-            text: Raw OCR text
-            ocr_result: Full OCR result with tables (for bank adapters)
-            ocr_metadata: OCR metadata (for Smart Mapper)
+            text: Raw OCR text from Google Document AI
+            ocr_result: Full OCR result with tables
+            ocr_metadata: OCR metadata with raw_response
 
         Returns:
-            Structured data with transactions
+            Raw text response ready for Smart Mapper (Claude AI)
         """
         try:
-            # Try NEW hybrid processor first (Strategy 2 + 5) - 90% token savings!
-            try:
-                import asyncio
-                from hybrid_processor_integration import process_bank_statement_hybrid
+            logger.info("=" * 60)
+            logger.info("🏦 REKENING KORAN - SIMPLIFIED PROCESSING")
+            logger.info("=" * 60)
+            logger.info("📋 Flow: Google Document AI → Claude AI → Excel")
+            logger.info("   ✅ Skip bank detection (error-prone)")
+            logger.info("   ✅ Skip bank adapters (high maintenance)")
+            logger.info("   ✅ Let Claude AI handle all formats universally")
 
-                if ocr_result:
-                    logger.info("🚀 Using NEW Hybrid Processor (Strategy 2 + 5)")
-                    logger.info("   💰 Expected token savings: 90-96%")
-                    if page_offset > 0:
-                        logger.info(f"   📄 Page offset: {page_offset} (chunk processing)")
-
-                    # Await async function directly (we're already in async context)
-                    result = await process_bank_statement_hybrid(ocr_result, ocr_metadata, page_offset)
-
-                    if result and result.get('transactions'):
-                        logger.info(f"✅ Hybrid processor success: {len(result['transactions'])} transactions")
-
-                        # Log token savings
-                        metadata = result.get('processing_metadata', {})
-                        if metadata:
-                            logger.info(f"   📊 Rule-based: {metadata.get('rule_based_percentage', 0):.1f}%")
-                            logger.info(f"   🤖 GPT usage: {metadata.get('gpt_usage_percentage', 0):.1f}%")
-                            logger.info(f"   💰 Token savings: {metadata.get('token_savings_percentage', 0):.1f}%")
-
-                        return result
-                    else:
-                        logger.warning("⚠️ Hybrid processor returned no transactions, trying legacy...")
-
-            except ImportError as e:
-                logger.warning(f"⚠️ Hybrid processor not available: {e}, trying legacy...")
-            except Exception as e:
-                logger.error(f"❌ Hybrid processor error: {e}, trying legacy...")
-                import traceback
-                logger.error(traceback.format_exc())
-
-            # Fallback to legacy enhanced processor
-            try:
-                from enhanced_bank_processor import process_bank_statement_enhanced
-
-                if ocr_result:
-                    logger.info("🔄 Using Legacy Enhanced Bank Statement Processor")
-                    result = process_bank_statement_enhanced(ocr_result, ocr_metadata)
-
-                    if result and result.get('transactions'):
-                        logger.info(f"✅ Legacy processor success: {len(result['transactions'])} transactions")
-                        return result
-                    else:
-                        logger.warning("⚠️ Legacy processor returned no transactions, falling back...")
-                else:
-                    logger.warning("⚠️ No OCR result provided, cannot use bank adapters")
-
-            except ImportError:
-                logger.warning("⚠️ Legacy enhanced processor not available, using fallback")
-            except Exception as e:
-                logger.error(f"❌ Legacy enhanced processor error: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
-
-            # Final Fallback: Return raw text for Smart Mapper
-            logger.info("📝 Final Fallback: Returning raw text response for Smart Mapper")
+            # Return raw text for Smart Mapper to process
+            # Smart Mapper (Claude AI) will be called by ai_processor.py
+            logger.info(f"📝 Returning {len(text)} chars for Claude AI processing")
             return self._create_raw_text_response(text, "Rekening Koran")
 
         except Exception as e:
-            logger.error(f"❌ Error parsing Rekening Koran: {e}")
-            return self._get_empty_rekening_result()
-    
+            logger.error(f"❌ Error in parse_rekening_koran: {e}")
+            return self._create_raw_text_response(text, "Rekening Koran")
+
     def _extract_rekening_data_ai(self, full_text: str, lines: list, result: dict):
         """AI-powered Rekening Koran data extraction with transaction analysis"""
         

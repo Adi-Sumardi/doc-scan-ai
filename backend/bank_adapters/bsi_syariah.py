@@ -18,19 +18,16 @@ class BsiSyariahAdapter(BaseBankAdapter):
     BANK_CODE = "BSI_SYARIAH"
 
     DETECTION_KEYWORDS = [
+        # Primary keywords - paling unik untuk BSI
         "BANK SYARIAH INDONESIA",
+        "BSI BANK SYARIAH",
         "BSI SYARIAH",
-        "BSI",
         "PT BSI",
         "PT. BSI",
-        "PT BANK SYARIAH INDONESIA",
-        "REKENING KORAN BSI",
-        "MUTASI REKENING BSI",
         "TRX TIME",
         "TRXID",
         "TRX ID",
-        "D/K",  # Unique BSI column
-        "DEBET/KREDIT",
+        "D/K",
     ]
 
     def parse(self, ocr_result: Dict[str, Any]) -> List[StandardizedTransaction]:
