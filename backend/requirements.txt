@@ -109,3 +109,4 @@ anthropic==0.71.0                     # For Claude-based field extraction (upgra
 # Uncomment for production:
 # gunicorn==21.2.0           # Production WSGI server
 # supervisor==4.2.5          # Process management
+psutil==7.1.3
