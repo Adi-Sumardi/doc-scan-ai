@@ -248,12 +248,26 @@ class SmartMapper:
             return None
 
         try:
+            # ✅ NEW: Validate input size BEFORE processing
+            is_valid, reason = self._validate_input_size(document_json, doc_type)
+            
             # ⚠️ PER-PAGE STRATEGY: Process rekening koran page by page
             if doc_type == "rekening_koran":
                 pages = document_json.get("pages", [])
-                if isinstance(pages, list) and len(pages) > 1:
-                    # Multi-page rekening koran - process per page
-                    logger.info(f"📄 Multi-page rekening koran detected: {len(pages)} pages")
+                page_count = len(pages) if isinstance(pages, list) else 0
+                
+                # Trigger per-page processing if:
+                # 1. Multi-page document (>1 page)
+                # 2. OR input size validation failed
+                should_use_per_page = (page_count > 1) or (not is_valid)
+                
+                if should_use_per_page:
+                    if not is_valid:
+                        logger.warning(f"⚠️ Input size validation failed: {reason}")
+                        logger.warning(f"⚠️ Forcing PER-PAGE PROCESSING to prevent OOM")
+                    else:
+                        logger.info(f"📄 Multi-page rekening koran detected: {page_count} pages")
+                    
                     logger.info(f"📄 Using PER-PAGE PROCESSING - each page processed separately")
                     return self._map_document_per_page(
                         doc_type=doc_type,
