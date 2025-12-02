@@ -314,17 +314,24 @@ class PDFChunker:
             chunk_extracted = chunk.get('extracted_data', {})
             chunk_raw = chunk_extracted.get('raw_response', {})
 
+            # ✅ DEBUG: Log what we're getting from each chunk
+            logger.info(f"   🔍 Chunk {idx}: extracted_data type = {type(chunk_extracted)}, has raw_response = {bool(chunk_raw)}")
+
             if isinstance(chunk_raw, dict):
                 # Collect pages from each chunk
                 chunk_pages = chunk_raw.get('pages', [])
                 if chunk_pages:
                     all_pages.extend(chunk_pages)
                     logger.info(f"   📊 Chunk {idx}: Added {len(chunk_pages)} pages to merged raw_response")
+                else:
+                    logger.warning(f"   ⚠️ Chunk {idx}: No pages found in raw_response")
 
                 # Also collect tables
                 chunk_tables = chunk.get('tables', [])
                 if chunk_tables:
                     all_tables.extend(chunk_tables)
+            else:
+                logger.warning(f"   ⚠️ Chunk {idx}: raw_response is not a dict (type: {type(chunk_raw)})")
 
         # Build merged raw_response
         if all_pages:
