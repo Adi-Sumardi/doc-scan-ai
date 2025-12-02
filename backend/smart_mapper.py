@@ -618,6 +618,64 @@ class SmartMapper:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+    def _validate_input_size(self, document_json: Dict[str, Any], doc_type: str) -> tuple[bool, str]:
+        """
+        ✅ NEW: Validate input size to prevent OOM and token limit issues
+        
+        Returns:
+            (is_valid, reason) - is_valid=False triggers chunking fallback
+        """
+        try:
+            # Count pages
+            pages = document_json.get("pages", [])
+            page_count = len(pages) if isinstance(pages, list) else 0
+            
+            # Estimate transactions (for rekening koran)
+            estimated_transactions = 0
+            if doc_type == "rekening_koran":
+                # Estimate: 150 transactions per page (conservative)
+                estimated_transactions = page_count * 150
+                
+                # Check transaction count threshold
+                if estimated_transactions > 1500:  # More than 10 pages worth
+                    reason = f"Too many estimated transactions: {estimated_transactions} (>{1500})"
+                    logger.warning(f"⚠️ INPUT SIZE VALIDATION FAILED: {reason}")
+                    logger.warning(f"⚠️ Page count: {page_count} pages")
+                    logger.warning(f"⚠️ Triggering per-page processing fallback...")
+                    return False, reason
+            
+            # Check page count threshold
+            if page_count > 10:  # More than 10 pages
+                reason = f"Too many pages: {page_count} (>10)"
+                logger.warning(f"⚠️ INPUT SIZE VALIDATION FAILED: {reason}")
+                logger.warning(f"⚠️ Triggering per-page processing fallback...")
+                return False, reason
+            
+            # Estimate JSON size
+            import sys
+            json_size_bytes = sys.getsizeof(json.dumps(document_json))
+            json_size_mb = json_size_bytes / (1024 * 1024)
+            
+            # Check JSON size threshold (50MB limit for safety)
+            if json_size_mb > 50:
+                reason = f"JSON too large: {json_size_mb:.1f}MB (>50MB)"
+                logger.warning(f"⚠️ INPUT SIZE VALIDATION FAILED: {reason}")
+                logger.warning(f"⚠️ Triggering per-page processing fallback...")
+                return False, reason
+            
+            logger.info(f"✅ Input size validation passed:")
+            logger.info(f"   Pages: {page_count}")
+            if doc_type == "rekening_koran":
+                logger.info(f"   Est. transactions: {estimated_transactions}")
+            logger.info(f"   JSON size: {json_size_mb:.1f}MB")
+            
+            return True, "OK"
+            
+        except Exception as e:
+            logger.error(f"❌ Input size validation error: {e}")
+            # On error, be conservative and return False
+            return False, f"Validation error: {str(e)}"
+    
     def _build_payload(
         self,
         document_json: Dict[str, Any],
