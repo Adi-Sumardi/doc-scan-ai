@@ -198,6 +198,17 @@ async def process_with_chunking(file_path: str, document_type: str) -> tuple:
         # Extract merged text and metadata
         merged_text = merged.get('raw_text', '') or merged.get('extracted_text', '')
 
+        # ✅ FIX: Extract raw_response with better fallback logic
+        raw_response = merged.get('extracted_data', {}).get('raw_response', {})
+        if not raw_response:
+            # Fallback: try to get from top-level merged dict
+            raw_response = merged.get('raw_response', {})
+        
+        logger.info(f"🔍 DEBUG - Merged raw_response available: {raw_response is not None}")
+        if raw_response and isinstance(raw_response, dict):
+            pages_count = len(raw_response.get('pages', []))
+            logger.info(f"🔍 DEBUG - Merged raw_response has {pages_count} pages")
+
         # Build metadata structure compatible with main flow
         merged_metadata = {
             'text': merged_text,
@@ -206,7 +217,7 @@ async def process_with_chunking(file_path: str, document_type: str) -> tuple:
             'engine_used': f'Google Document AI (Chunked: {len(chunk_results)} chunks)',
             'quality_score': 90.0,
             'processing_time': 0,
-            'raw_response': merged.get('extracted_data', {}).get('raw_response', {})
+            'raw_response': raw_response  # ✅ Use extracted raw_response
         }
 
         logger.info(f"✅ Merge complete: {len(merged_text)} total characters")
