@@ -233,15 +233,27 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
                     from config import settings
                     chunk_enabled = settings.enable_page_chunking
                     chunk_threshold = settings.pdf_chunk_size
-                except:
+                    logger.info(f"⚙️ Chunking config: enabled={chunk_enabled}, threshold={chunk_threshold}")
+                except Exception as config_error:
                     chunk_enabled = True
-                    chunk_threshold = 15
+                    chunk_threshold = 8  # ✅ FIXED: Use 8 instead of 15 as fallback
+                    logger.warning(f"⚠️ Failed to load config, using defaults: threshold={chunk_threshold}")
+                    logger.warning(f"   Error: {config_error}")
 
+                # ✅ CRITICAL: Log decision logic
+                logger.info(f"🔍 Chunking decision: page_count({page_count}) > threshold({chunk_threshold}) = {page_count > chunk_threshold}")
+                
                 if chunk_enabled and page_count > chunk_threshold:
                     needs_chunking = True
-                    logger.info(f"📚 File needs chunking ({page_count} pages > {chunk_threshold} threshold)")
+                    logger.info(f"✅ CHUNKING WILL BE USED ({page_count} pages > {chunk_threshold} threshold)")
+                    logger.info(f"   Expected chunks: ~{(page_count + chunk_threshold - 1) // chunk_threshold}")
+                    logger.info(f"   Est. transactions per chunk: ~{chunk_threshold * 150}")
+                else:
+                    logger.info(f"❌ CHUNKING SKIPPED (enabled={chunk_enabled}, {page_count} <= {chunk_threshold})")
             except Exception as e:
-                logger.warning(f"⚠️ Could not determine page count: {e}")
+                logger.error(f"❌ Could not determine page count: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
 
         if needs_chunking:
             logger.info(f"📚 Processing with CHUNKING: {page_count} pages")
