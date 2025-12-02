@@ -1,20 +1,12 @@
 """Configuration management using Pydantic Settings"""
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings
 from typing import Optional
 import os
 
 
 class Settings(BaseSettings):
     """Application settings with environment variable support"""
-    
-    # ✅ FIX #1: Pydantic v2 - Use model_config instead of nested Config class
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore"  # ✅ Ignore extra fields that are not defined
-    )
     
     # Database
     database_url: str = "sqlite:///./tax_documents.db"
