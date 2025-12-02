@@ -126,28 +126,42 @@ async def process_with_chunking(file_path: str, document_type: str) -> tuple:
 
                 # Build OCR result for this chunk (needed for enhanced_bank_processor)
                 tables = []
+                raw_response_data = {}
+                
                 if chunk_ocr_metadata:
                     raw_response = chunk_ocr_metadata.get('raw_response')
                     if raw_response and isinstance(raw_response, dict):
+                        raw_response_data = raw_response  # ✅ Store for chunk_result
                         pages = raw_response.get('pages', [])
+                        logger.info(f"   📊 Chunk {i}: raw_response has {len(pages)} pages")
+                        
                         for page in pages:
                             if isinstance(page, dict) and 'tables' in page:
                                 page_tables = page.get('tables', [])
                                 if isinstance(page_tables, list):
                                     tables.extend(page_tables)
 
-                        logger.info(f"   📊 Chunk {i}: Extracted {len(tables)} tables")
+                        logger.info(f"   📊 Chunk {i}: Extracted {len(tables)} tables from {len(pages)} pages")
+                    else:
+                        logger.warning(f"   ⚠️ Chunk {i}: No valid raw_response from OCR")
+                else:
+                    logger.warning(f"   ⚠️ Chunk {i}: No OCR metadata available")
 
                 # Create chunk result with proper structure
                 chunk_result = {
                     'raw_text': chunk_text,
                     'extracted_text': chunk_text,
                     'extracted_data': {
-                        'raw_response': chunk_ocr_metadata.get('raw_response') if chunk_ocr_metadata else {}
+                        'raw_response': raw_response_data  # ✅ Use validated raw_response
                     },
                     'chunk_info': chunk_info,
                     'tables': tables
                 }
+                
+                # ✅ DEBUG: Verify chunk_result structure
+                logger.info(f"   🔍 Chunk {i}: chunk_result has extracted_data.raw_response = {bool(raw_response_data)}")
+                if raw_response_data and isinstance(raw_response_data, dict):
+                    logger.info(f"   🔍 Chunk {i}: raw_response_data has {len(raw_response_data.get('pages', []))} pages")
 
                 chunk_results.append(chunk_result)
 
