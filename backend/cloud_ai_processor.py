@@ -308,7 +308,11 @@ class CloudAIProcessor:
                 # ✅ Create synthetic tables from lines for better Claude processing
                 self._create_synthetic_tables_from_lines(raw_response_dict)
 
-            return CloudOCRResult(
+            # ✅ CRITICAL: Clear large variables before return to free memory
+            del document_content  # Free file content from memory
+            logger.info(f"🧹 Cleared document_content from memory ({file_size_mb:.1f}MB)")
+            
+            result_obj = CloudOCRResult(
                 raw_text=raw_text,
                 confidence=avg_confidence * 100,
                 service_used="Google Document AI",
@@ -319,8 +323,16 @@ class CloudAIProcessor:
                 language_detected=document.pages[0].detected_languages[0].language_code if document.pages and document.pages[0].detected_languages else "id"
             )
             
+            # ✅ CRITICAL: Force garbage collection after processing
+            gc.collect()
+            logger.info(f"🧹 Garbage collection complete - memory freed")
+            
+            return result_obj
+            
         except Exception as e:
             logger.error(f"❌ Google processing failed: {e}")
+            # ✅ Clean up on error too
+            gc.collect()
             raise Exception(f"Google Document AI processing failed: {e}")
     
     async def _REMOVED_process_with_aws(self, file_path: str) -> CloudOCRResult:
