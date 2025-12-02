@@ -102,6 +102,12 @@ async def process_with_chunking(file_path: str, document_type: str) -> tuple:
             logger.info(f"📁 File: {Path(chunk_info['path']).name}")
 
             try:
+                # ✅ MEMORY MONITORING: Log memory before chunk processing
+                import psutil
+                process = psutil.Process()
+                mem_before = process.memory_info().rss / (1024 * 1024)  # MB
+                logger.info(f"💾 Memory before chunk {i}: {mem_before:.1f} MB")
+                
                 # Extract text from chunk using OCR
                 chunk_text = await ocr_processor.extract_text(chunk_info['path'])
 
@@ -110,6 +116,10 @@ async def process_with_chunking(file_path: str, document_type: str) -> tuple:
                     continue
 
                 logger.info(f"✅ Extracted {len(chunk_text)} characters from chunk {i}")
+                
+                # ✅ MEMORY MONITORING: Log memory after OCR
+                mem_after_ocr = process.memory_info().rss / (1024 * 1024)  # MB
+                logger.info(f"💾 Memory after OCR: {mem_after_ocr:.1f} MB (delta: +{mem_after_ocr - mem_before:.1f} MB)")
 
                 # Get OCR metadata for this chunk
                 chunk_ocr_metadata = ocr_processor.get_last_ocr_metadata()
