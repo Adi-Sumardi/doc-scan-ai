@@ -409,9 +409,14 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
             logger.info("🏦 REKENING KORAN - SIMPLIFIED CLAUDE AI PROCESSING")
             logger.info("=" * 60)
 
-            # Get OCR metadata - for chunked processing, ocr_metadata comes from merged chunks
-            if not ocr_metadata:
+            # ✅ FIX: For chunked processing, ocr_metadata is already set from merged chunks
+            # For non-chunked processing, get from ocr_processor
+            # DO NOT override ocr_metadata if it's already set (from chunking)
+            if ocr_metadata is None or not isinstance(ocr_metadata, dict):
+                logger.info("📄 Non-chunked processing - getting OCR metadata from processor")
                 ocr_metadata = ocr_processor.get_last_ocr_metadata()
+            else:
+                logger.info("📚 Chunked processing - using merged OCR metadata")
 
             # Get raw_response for Smart Mapper
             ocr_meta_dict = ocr_metadata if isinstance(ocr_metadata, dict) else {}
