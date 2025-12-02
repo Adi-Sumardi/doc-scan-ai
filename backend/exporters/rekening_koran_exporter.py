@@ -1078,25 +1078,39 @@ class RekeningKoranExporter(BaseExporter):
 
         extracted_data = result.get('extracted_data', result)  # Fallback to result itself if no extracted_data
 
-        # DEBUG: Log what keys are available
-        logger.info(f"🔍 Excel Export - Available keys: {list(extracted_data.keys())}")
-        logger.info(f"🔍 Excel Export - Has smart_mapped: {'smart_mapped' in extracted_data}")
-        logger.info(f"🔍 Excel Export - Has transactions: {'transactions' in extracted_data}")
+        # ✅ ENHANCED DEBUG: Log comprehensive structure info
+        logger.info("=" * 80)
+        logger.info("🔍 EXCEL EXPORT DEBUG - DATA STRUCTURE ANALYSIS")
+        logger.info("=" * 80)
+        logger.info(f"📊 Result type: {type(result)}")
+        logger.info(f"📊 Result keys: {list(result.keys()) if isinstance(result, dict) else 'N/A'}")
+        logger.info(f"📊 Extracted_data type: {type(extracted_data)}")
+        logger.info(f"📊 Extracted_data keys: {list(extracted_data.keys()) if isinstance(extracted_data, dict) else 'N/A'}")
+        logger.info(f"📊 Has smart_mapped: {'smart_mapped' in extracted_data if isinstance(extracted_data, dict) else False}")
+        logger.info(f"📊 Has transactions: {'transactions' in extracted_data if isinstance(extracted_data, dict) else False}")
 
-        if 'smart_mapped' in extracted_data:
+        if isinstance(extracted_data, dict) and 'smart_mapped' in extracted_data:
             smart_mapped_data = extracted_data['smart_mapped']
-            logger.info(f"🔍 Excel Export - smart_mapped type: {type(smart_mapped_data)}")
+            logger.info(f"📊 smart_mapped type: {type(smart_mapped_data)}")
             if isinstance(smart_mapped_data, dict):
-                logger.info(f"🔍 Excel Export - smart_mapped keys: {list(smart_mapped_data.keys())}")
+                logger.info(f"📊 smart_mapped keys: {list(smart_mapped_data.keys())}")
                 if 'transactions' in smart_mapped_data:
-                    logger.info(f"🔍 Excel Export - smart_mapped transactions count: {len(smart_mapped_data.get('transactions', []))}")
+                    txn_list = smart_mapped_data.get('transactions', [])
+                    logger.info(f"📊 smart_mapped.transactions count: {len(txn_list) if isinstance(txn_list, list) else 'Not a list'}")
+        
+        if isinstance(extracted_data, dict) and 'transactions' in extracted_data:
+            txn_list = extracted_data.get('transactions', [])
+            logger.info(f"📊 extracted_data.transactions count: {len(txn_list) if isinstance(txn_list, list) else 'Not a list'}")
+        
+        logger.info("=" * 80)
 
         # Priority: smart_mapped > flat structure with transactions > structured_data > raw data
         structured = None
 
-        if 'smart_mapped' in extracted_data and extracted_data['smart_mapped']:
+        if isinstance(extracted_data, dict) and 'smart_mapped' in extracted_data and extracted_data['smart_mapped']:
+            logger.info("🔄 Attempting to convert smart_mapped data...")
             structured = self._convert_smart_mapped_to_structured(extracted_data['smart_mapped'])
-            logger.info("✅ Using smart_mapped data for Rekening Koran Excel")
+            logger.info(f"✅ Converted smart_mapped data - transaksi count: {len(structured.get('transaksi', []))}")
 
         if not structured or not structured.get('transaksi'):
             # Try flat structure with transactions at root level
