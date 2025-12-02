@@ -81,9 +81,14 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
-# Helper function to get upload directory
+# Helper functions to get directories
 def get_upload_dir() -> str:
     """Get upload directory path, create if not exists"""
-    import os
     os.makedirs(settings.upload_dir, exist_ok=True)
     return settings.upload_dir
+
+
+def get_results_dir() -> str:
+    """Get results directory path, create if not exists"""
+    os.makedirs(settings.results_dir, exist_ok=True)
+    return settings.results_dir
