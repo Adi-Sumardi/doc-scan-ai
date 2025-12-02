@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     # ✅ NEW: Smart Mapper chunking for large documents
     smart_mapper_page_threshold: int = 5  # Process 5 pages max per Claude request (5 × 150 = 750 txns)
     smart_mapper_chunk_overlap: int = 1  # Overlap 1 page between chunks for continuity
+    
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        case_sensitive = False
+        extra = "ignore"  # ✅ FIX #1: Ignore extra fields
 
 
 # Global settings instance
