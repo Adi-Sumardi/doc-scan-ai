@@ -1,12 +1,20 @@
 """Configuration management using Pydantic Settings"""
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 import os
 
 
 class Settings(BaseSettings):
     """Application settings with environment variable support"""
+    
+    # ✅ FIX #1: Pydantic v2 - Use model_config instead of nested Config class
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore"  # ✅ Ignore extra fields that are not defined
+    )
     
     # Database
     database_url: str = "sqlite:///./tax_documents.db"
@@ -20,6 +28,7 @@ class Settings(BaseSettings):
     
     # Upload settings
     upload_dir: str = "./uploads"
+    results_dir: str = "./results"  # ✅ FIX #2: Added results_dir
     max_upload_size: int = 10 * 1024 * 1024  # 10 MB default
     
     # OCR settings
@@ -66,11 +75,6 @@ class Settings(BaseSettings):
     # ✅ NEW: Smart Mapper chunking for large documents
     smart_mapper_page_threshold: int = 5  # Process 5 pages max per Claude request (5 × 150 = 750 txns)
     smart_mapper_chunk_overlap: int = 1  # Overlap 1 page between chunks for continuity
-    
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
 
 
 # Global settings instance
