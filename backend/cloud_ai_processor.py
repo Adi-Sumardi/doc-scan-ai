@@ -12,6 +12,7 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 import json
 import mimetypes
+import gc  # ✅ NEW: For memory management
 
 from dotenv import load_dotenv
 
