@@ -84,11 +84,13 @@ class Settings(BaseSettings):
     # CORS settings
     cors_origins_list: List[str] = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"]
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-        extra = "ignore"  # ✅ FIX #1: Ignore extra fields
+    # Pydantic v2 model_config (replaces inner class Config)
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "case_sensitive": False,
+        "extra": "ignore"  # ✅ FIX: Ignore extra fields from .env
+    }
 
 
 # Global settings instance

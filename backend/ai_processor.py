@@ -150,12 +150,13 @@ async def process_with_chunking(file_path: str, document_type: str) -> tuple:
                 }
 
                 chunk_results.append(chunk_result)
-                
+
                 # ✅ CRITICAL: Clear large variables after processing chunk
                 del chunk_text
-                if chunk_ocr_metadata and 'raw_response' in chunk_ocr_metadata:
-                    # Keep only essential data, clear large raw_response
-                    logger.info(f"🧹 Clearing chunk {i} raw_response from memory")
+                # ✅ FIX: Do NOT delete raw_response here - it's needed for Claude AI
+                # The raw_response is stored in chunk_result['extracted_data']['raw_response']
+                # and will be merged in pdf_chunker.merge_extracted_data()
+                logger.info(f"📦 Chunk {i} raw_response preserved for Claude AI merge")
                 
                 # ✅ CRITICAL: Force garbage collection after each chunk
                 import gc
@@ -408,7 +409,7 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
             logger.info("🏦 REKENING KORAN - SIMPLIFIED CLAUDE AI PROCESSING")
             logger.info("=" * 60)
 
-            # Get OCR metadata
+            # Get OCR metadata - for chunked processing, ocr_metadata comes from merged chunks
             if not ocr_metadata:
                 ocr_metadata = ocr_processor.get_last_ocr_metadata()
 
@@ -420,6 +421,8 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
             logger.info(f"🔍 DEBUG - ocr_metadata type: {type(ocr_metadata)}")
             logger.info(f"🔍 DEBUG - ocr_metadata keys: {list(ocr_meta_dict.keys()) if ocr_meta_dict else 'None'}")
             logger.info(f"🔍 DEBUG - raw_response available: {raw_response is not None}")
+            if raw_response and isinstance(raw_response, dict):
+                logger.info(f"🔍 DEBUG - raw_response has {len(raw_response.get('pages', []))} pages")
             logger.info(f"🔍 DEBUG - HAS_SMART_MAPPER: {HAS_SMART_MAPPER}")
 
             # Parse rekening koran (now returns raw text for Smart Mapper)
