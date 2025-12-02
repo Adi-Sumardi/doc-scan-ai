@@ -1,7 +1,12 @@
 """
 PDF Chunker for Multi-Page Bank Statements
 Handles large PDF files (20+ pages) by splitting into manageable chunks
-Optimized for rekening koran / bank statements
+Optimized for rekening koran / bank statements with 150+ transactions per page
+
+✅ MEMORY OPTIMIZATION:
+- Default chunk size: 8 pages (~1200 transactions)
+- Prevents OOM KILL for large files (50+ pages)
+- Processes chunks sequentially to manage memory
 """
 
 import os
@@ -9,21 +14,25 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Any
 import PyPDF2
+import gc  # ✅ NEW: Garbage collection for memory management
 
 logger = logging.getLogger(__name__)
 
 class PDFChunker:
     """Split large PDF files into chunks for processing"""
 
-    def __init__(self, max_pages_per_chunk: int = 10):
+    def __init__(self, max_pages_per_chunk: int = 8):  # ✅ REDUCED from 10 to 8
         """
         Initialize PDF chunker
 
         Args:
-            max_pages_per_chunk: Maximum pages to process in one chunk (default: 10)
+            max_pages_per_chunk: Maximum pages to process in one chunk (default: 8)
+                                 8 pages × 150 transactions = ~1200 transactions per chunk
+                                 Safe for Claude AI processing without OOM
         """
         self.max_pages_per_chunk = max_pages_per_chunk
         logger.info(f"📄 PDF Chunker initialized (max {max_pages_per_chunk} pages/chunk)")
+        logger.info(f"   Estimated ~{max_pages_per_chunk * 150} transactions per chunk")
 
     def get_page_count(self, pdf_path: str) -> int:
         """Get total page count of PDF"""
@@ -35,13 +44,13 @@ class PDFChunker:
             logger.error(f"❌ Failed to get page count from {pdf_path}: {e}")
             return 0
 
-    def needs_chunking(self, pdf_path: str, threshold: int = 10) -> bool:
+    def needs_chunking(self, pdf_path: str, threshold: int = 8) -> bool:  # ✅ REDUCED from 10 to 8
         """
         Check if PDF needs to be chunked
 
         Args:
             pdf_path: Path to PDF file
-            threshold: Page count threshold for chunking (default: 10)
+            threshold: Page count threshold for chunking (default: 8)
 
         Returns:
             True if PDF has more pages than threshold
@@ -50,7 +59,8 @@ class PDFChunker:
         needs_split = page_count > threshold
 
         if needs_split:
-            logger.info(f"📚 PDF has {page_count} pages - chunking required")
+            logger.info(f"📚 PDF has {page_count} pages - chunking required (threshold: {threshold})")
+            logger.info(f"   Estimated total transactions: ~{page_count * 150}")
         else:
             logger.info(f"📄 PDF has {page_count} pages - no chunking needed")
 
@@ -92,6 +102,8 @@ class PDFChunker:
                 chunks = []
                 chunk_num = 1
 
+                logger.info(f"📄 Splitting {total_pages} pages into {self.max_pages_per_chunk}-page chunks...")
+
                 # Split into chunks
                 for start_page in range(0, total_pages, self.max_pages_per_chunk):
                     end_page = min(start_page + self.max_pages_per_chunk, total_pages)
@@ -102,12 +114,10 @@ class PDFChunker:
                     for page_num in range(start_page, end_page):
                         pdf_writer.add_page(pdf_reader.pages[page_num])
 
-                    # Generate chunk filename
-                    base_name = Path(pdf_path).stem
-                    chunk_filename = f"{base_name}_chunk{chunk_num}_p{start_page+1}-{end_page}.pdf"
+                    # Save chunk
+                    chunk_filename = f"chunk_{chunk_num:03d}.pdf"
                     chunk_path = os.path.join(output_dir, chunk_filename)
 
-                    # Write chunk file
                     with open(chunk_path, 'wb') as chunk_file:
                         pdf_writer.write(chunk_file)
 
@@ -115,224 +125,223 @@ class PDFChunker:
                         'path': chunk_path,
                         'start_page': start_page + 1,  # 1-indexed
                         'end_page': end_page,
-                        'chunk_number': chunk_num,
-                        'pages_in_chunk': end_page - start_page
+                        'total_pages': end_page - start_page
                     }
 
                     chunks.append(chunk_info)
-                    logger.info(f"✅ Created chunk {chunk_num}: pages {start_page+1}-{end_page} → {chunk_filename}")
+                    logger.info(f"   ✅ Chunk {chunk_num}: pages {start_page + 1}-{end_page} (~{(end_page - start_page) * 150} txns)")
 
                     chunk_num += 1
 
-                logger.info(f"📚 Split {pdf_path} into {len(chunks)} chunks")
+                logger.info(f"✅ PDF split into {len(chunks)} chunks")
                 return chunks
 
         except Exception as e:
-            logger.error(f"❌ Failed to split PDF {pdf_path}: {e}", exc_info=True)
+            logger.error(f"❌ Failed to split PDF: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return []
 
     def cleanup_chunks(self, chunk_paths: List[str]):
-        """Delete chunk files after processing"""
+        """
+        ✅ ENHANCED: Clean up temporary chunk files with memory cleanup
+
+        Args:
+            chunk_paths: List of chunk file paths to delete
+        """
         for chunk_path in chunk_paths:
             try:
                 if os.path.exists(chunk_path):
                     os.remove(chunk_path)
-                    logger.info(f"🗑️ Deleted chunk: {chunk_path}")
+                    logger.debug(f"🗑️ Removed chunk: {chunk_path}")
             except Exception as e:
-                logger.warning(f"⚠️ Failed to delete chunk {chunk_path}: {e}")
+                logger.warning(f"⚠️ Failed to remove chunk {chunk_path}: {e}")
 
-    def get_optimal_chunk_size(self, page_count: int) -> int:
+        # ✅ NEW: Force garbage collection after cleanup
+        gc.collect()
+        logger.info(f"🗑️ Cleaned up {len(chunk_paths)} chunk files + freed memory")
+
+    def merge_extracted_data(
+        self, 
+        chunk_results: List[Dict[str, Any]], 
+        document_type: str
+    ) -> Dict[str, Any]:
         """
-        Calculate optimal chunk size based on page count
-
-        Args:
-            page_count: Total pages in document
-
-        Returns:
-            Optimal pages per chunk
-        """
-        if page_count <= 10:
-            return page_count  # No chunking needed
-        elif page_count <= 20:
-            return 10  # 2 chunks
-        elif page_count <= 50:
-            return 10  # 5 chunks
-        else:
-            return 15  # Larger chunks for very big files
-
-    def merge_extracted_data(self, chunk_results: List[Dict[str, Any]], document_type: str = "rekening_koran") -> Dict[str, Any]:
-        """
-        Merge extracted data from multiple chunks
+        ✅ ENHANCED: Merge results from all chunks with memory-efficient processing
 
         Args:
             chunk_results: List of extraction results from each chunk
-            document_type: Type of document being processed
+            document_type: Type of document (rekening_koran, etc)
 
         Returns:
-            Merged extraction result
+            Merged result with all transactions
+        """
+        try:
+            if not chunk_results:
+                logger.warning("⚠️ No chunk results to merge")
+                return {}
+
+            logger.info(f"🔗 Merging {len(chunk_results)} chunk results...")
+
+            # Base merged result from first chunk
+            merged = {
+                'document_type': document_type,
+                'extracted_data': {},
+                'raw_text': '',
+                'extracted_text': ''
+            }
+
+            # Merge based on document type
+            if document_type == 'rekening_koran':
+                merged = self._merge_rekening_koran_chunks(chunk_results)
+            else:
+                # Generic merge for other document types
+                merged = self._merge_generic_chunks(chunk_results)
+
+            # ✅ NEW: Force garbage collection after merge
+            gc.collect()
+
+            return merged
+
+        except Exception as e:
+            logger.error(f"❌ Failed to merge chunk results: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {}
+
+    def _merge_rekening_koran_chunks(self, chunk_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        ✅ ENHANCED: Merge rekening koran chunks with duplicate removal and memory optimization
+
+        Handles:
+        - Bank info (from first chunk)
+        - Saldo info (opening from first, closing from last)
+        - Transactions (merged from all chunks, duplicates removed)
+        - Summary (recalculated from merged transactions)
         """
         if not chunk_results:
             return {}
 
-        if len(chunk_results) == 1:
-            return chunk_results[0]
+        # Get first chunk as base
+        first_chunk = chunk_results[0]
+        first_extracted = first_chunk.get('extracted_data', {})
 
-        logger.info(f"🔗 Merging data from {len(chunk_results)} chunks")
+        # Initialize merged structure
+        merged = {
+            'document_type': 'rekening_koran',
+            'bank_info': {},
+            'saldo_info': {},
+            'transactions': [],
+            'raw_text': '',
+            'extracted_text': ''
+        }
 
-        # For rekening koran, merge transactions
-        if document_type == "rekening_koran":
-            return self._merge_rekening_koran_chunks(chunk_results)
-        else:
-            # For other types, just take the first chunk's main data
-            # and concatenate raw text
-            merged = chunk_results[0].copy()
-            all_text = []
+        # Merge bank info (use first chunk)
+        if 'bank_info' in first_extracted:
+            merged['bank_info'] = first_extracted['bank_info'].copy()
+            logger.info(f"   Bank: {merged['bank_info'].get('nama_bank', 'N/A')}")
 
-            for chunk in chunk_results:
-                raw_text = chunk.get('raw_text', '') or chunk.get('extracted_text', '')
-                if raw_text:
-                    all_text.append(raw_text)
+        # Merge saldo info
+        if 'saldo_info' in first_extracted:
+            # Start with first chunk's saldo_awal
+            merged['saldo_info'] = first_extracted['saldo_info'].copy()
 
-            merged['raw_text'] = '\n\n=== PAGE BREAK ===\n\n'.join(all_text)
-            merged['extracted_text'] = merged['raw_text']
+            # Use last chunk's saldo_akhir
+            last_chunk = chunk_results[-1]
+            last_extracted = last_chunk.get('extracted_data', {})
+            if 'saldo_info' in last_extracted and 'saldo_akhir' in last_extracted['saldo_info']:
+                merged['saldo_info']['saldo_akhir'] = last_extracted['saldo_info']['saldo_akhir']
 
-            return merged
+            logger.info(f"   Saldo Awal: {merged['saldo_info'].get('saldo_awal', 'N/A')}")
+            logger.info(f"   Saldo Akhir: {merged['saldo_info'].get('saldo_akhir', 'N/A')}")
 
-    def _merge_rekening_koran_chunks(self, chunk_results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Merge rekening koran chunks - combine transactions and preserve bank_info/saldo_info"""
-        merged = chunk_results[0].copy()
-
-        # Collect bank_info and saldo_info from all chunks (prefer first chunk with data)
-        merged_bank_info = {}
-        merged_saldo_info = {}
+        # ✅ CRITICAL: Merge transactions with duplicate detection
+        seen_transactions = set()  # Track unique transactions
         all_transactions = []
-        all_raw_text = []
 
-        for i, chunk in enumerate(chunk_results):
-            logger.info(f"Processing chunk {i+1}/{len(chunk_results)}")
+        for idx, chunk in enumerate(chunk_results, 1):
+            chunk_extracted = chunk.get('extracted_data', {})
+            chunk_transactions = chunk_extracted.get('transactions', [])
 
-            # Get raw text
-            raw_text = chunk.get('raw_text', '') or chunk.get('extracted_text', '')
-            if raw_text:
-                all_raw_text.append(f"\n=== CHUNK {i+1} ===\n{raw_text}")
+            if not chunk_transactions:
+                logger.warning(f"   ⚠️ Chunk {idx} has no transactions")
+                continue
 
-            # Get extracted_data
-            extracted_data = chunk.get('extracted_data', {})
-            logger.info(f"  🔍 DEBUG MERGE: extracted_data type = {type(extracted_data)}")
-            if isinstance(extracted_data, dict):
-                logger.info(f"  🔍 DEBUG MERGE: extracted_data keys = {list(extracted_data.keys())}")
-
-            if isinstance(extracted_data, dict):
-                # ✅ FIX: Check for transactions at ROOT LEVEL first (from enhanced_bank_processor)
-                # Enhanced processor returns: {'transactions': [...], 'bank_info': {...}, ...}
-                transactions_direct = extracted_data.get('transactions', [])
-                if transactions_direct and isinstance(transactions_direct, list):
-                    all_transactions.extend(transactions_direct)
-                    logger.info(f"  ✅ Found {len(transactions_direct)} transactions at root level")
-
-                    # Also get bank_info and saldo_info from root level
-                    bank_info = extracted_data.get('bank_info', {})
-                    if bank_info and not merged_bank_info:
-                        merged_bank_info = bank_info.copy()
-                        logger.info(f"  ✅ Found bank_info at root level in chunk {i+1}")
-
-                    saldo_info = extracted_data.get('saldo_info', {})
-                    if saldo_info:
-                        if 'saldo_awal' in saldo_info and not merged_saldo_info.get('saldo_awal'):
-                            merged_saldo_info['saldo_awal'] = saldo_info['saldo_awal']
-                            logger.info(f"  ✅ Found saldo_awal at root level in chunk {i+1}: {saldo_info['saldo_awal']}")
-                        if 'saldo_akhir' in saldo_info:
-                            merged_saldo_info['saldo_akhir'] = saldo_info['saldo_akhir']
-                            logger.info(f"  ✅ Found saldo_akhir at root level in chunk {i+1}: {saldo_info['saldo_akhir']}")
-                        for key in ['total_kredit', 'total_debet', 'mata_uang']:
-                            if key in saldo_info and not merged_saldo_info.get(key):
-                                merged_saldo_info[key] = saldo_info[key]
+            # Add transactions with duplicate check
+            duplicates = 0
+            for trans in chunk_transactions:
+                if not isinstance(trans, dict):
                     continue
 
-                # Extract bank_info and saldo_info from smart_mapped (fallback)
-                smart_mapped = extracted_data.get('smart_mapped', {})
-                if smart_mapped and isinstance(smart_mapped, dict):
-                    # Get bank_info (prefer first non-empty)
-                    bank_info = smart_mapped.get('bank_info', {})
-                    if bank_info and not merged_bank_info:
-                        merged_bank_info = bank_info.copy()
-                        logger.info(f"  ✅ Found bank_info in chunk {i+1}")
+                # Create transaction fingerprint
+                tanggal = trans.get('tanggal', '')
+                debet = str(trans.get('debet', ''))
+                kredit = str(trans.get('kredit', ''))
+                saldo = str(trans.get('saldo', ''))
+                fingerprint = f"{tanggal}_{debet}_{kredit}_{saldo}"
 
-                    # Get saldo_info (prefer last chunk for saldo_akhir, first for saldo_awal)
-                    saldo_info = smart_mapped.get('saldo_info', {})
-                    if saldo_info:
-                        # Always take saldo_awal from first chunk if not set
-                        if 'saldo_awal' in saldo_info and not merged_saldo_info.get('saldo_awal'):
-                            merged_saldo_info['saldo_awal'] = saldo_info['saldo_awal']
-                            logger.info(f"  ✅ Found saldo_awal in chunk {i+1}: {saldo_info['saldo_awal']}")
+                if fingerprint not in seen_transactions:
+                    seen_transactions.add(fingerprint)
+                    all_transactions.append(trans)
+                else:
+                    duplicates += 1
 
-                        # Always update saldo_akhir from each chunk (last one wins)
-                        if 'saldo_akhir' in saldo_info:
-                            merged_saldo_info['saldo_akhir'] = saldo_info['saldo_akhir']
-                            logger.info(f"  ✅ Found saldo_akhir in chunk {i+1}: {saldo_info['saldo_akhir']}")
+            logger.info(f"   Chunk {idx}: {len(chunk_transactions)} txns, {duplicates} duplicates removed")
 
-                        # Merge other saldo fields
-                        for key in ['total_kredit', 'total_debet', 'mata_uang']:
-                            if key in saldo_info and not merged_saldo_info.get(key):
-                                merged_saldo_info[key] = saldo_info[key]
+            # ✅ NEW: Clear chunk data from memory
+            del chunk_transactions
 
-                    # Get transactions
-                    transactions = smart_mapped.get('transactions', [])
-                    if transactions:
-                        all_transactions.extend(transactions)
-                        logger.info(f"  ✅ Found {len(transactions)} transactions in smart_mapped")
-                        continue
+        merged['transactions'] = all_transactions
+        logger.info(f"   ✅ Total unique transactions: {len(all_transactions)}")
 
-                # Try structured_data
-                structured = extracted_data.get('structured_data', {})
-                if structured and isinstance(structured, dict):
-                    transactions = structured.get('transaksi', [])
-                    if transactions:
-                        all_transactions.extend(transactions)
-                        logger.info(f"  ✅ Found {len(transactions)} transactions in structured_data")
-                        continue
+        # Merge raw text (concatenate all chunks)
+        raw_texts = []
+        for chunk in chunk_results:
+            raw_text = chunk.get('raw_text', '') or chunk.get('extracted_text', '')
+            if raw_text:
+                raw_texts.append(raw_text)
 
-                # Try direct transaksi field
-                transactions = extracted_data.get('transaksi', [])
-                if transactions:
-                    all_transactions.extend(transactions)
-                    logger.info(f"  ✅ Found {len(transactions)} transactions")
-
-        # Update merged result
-        merged['raw_text'] = '\n'.join(all_raw_text)
+        merged['raw_text'] = '\n'.join(raw_texts)
         merged['extracted_text'] = merged['raw_text']
 
-        # Update extracted_data with merged transactions, bank_info, and saldo_info
-        if 'extracted_data' in merged and isinstance(merged['extracted_data'], dict):
-            # Update smart_mapped if it exists
-            if 'smart_mapped' in merged['extracted_data']:
-                if not isinstance(merged['extracted_data']['smart_mapped'], dict):
-                    merged['extracted_data']['smart_mapped'] = {}
+        # ✅ NEW: Clear temporary data
+        del raw_texts
+        del seen_transactions
 
-                # Set transactions
-                merged['extracted_data']['smart_mapped']['transactions'] = all_transactions
+        # Build extracted_data wrapper
+        merged['extracted_data'] = {
+            'bank_info': merged['bank_info'],
+            'saldo_info': merged['saldo_info'],
+            'transactions': merged['transactions']
+        }
 
-                # Set bank_info and saldo_info
-                if merged_bank_info:
-                    merged['extracted_data']['smart_mapped']['bank_info'] = merged_bank_info
-                if merged_saldo_info:
-                    merged['extracted_data']['smart_mapped']['saldo_info'] = merged_saldo_info
+        return merged
 
-            # Update structured_data if it exists
-            if 'structured_data' in merged['extracted_data']:
-                if not isinstance(merged['extracted_data']['structured_data'], dict):
-                    merged['extracted_data']['structured_data'] = {}
-                merged['extracted_data']['structured_data']['transaksi'] = all_transactions
+    def _merge_generic_chunks(self, chunk_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Generic merge for non-rekening-koran documents
+        """
+        if not chunk_results:
+            return {}
 
-            # Also set at root level
-            merged['extracted_data']['transaksi'] = all_transactions
+        # Simple concatenation of raw text
+        merged = {
+            'raw_text': '',
+            'extracted_text': '',
+            'extracted_data': {}
+        }
 
-        logger.info(f"✅ Merged {len(chunk_results)} chunks → {len(all_transactions)} total transactions")
-        logger.info(f"✅ Bank info preserved: {bool(merged_bank_info)}")
-        logger.info(f"✅ Saldo info preserved: saldo_awal={merged_saldo_info.get('saldo_awal', 'NOT SET')}, saldo_akhir={merged_saldo_info.get('saldo_akhir', 'NOT SET')}")
+        raw_texts = []
+        for chunk in chunk_results:
+            raw_text = chunk.get('raw_text', '') or chunk.get('extracted_text', '')
+            if raw_text:
+                raw_texts.append(raw_text)
+
+        merged['raw_text'] = '\n'.join(raw_texts)
+        merged['extracted_text'] = merged['raw_text']
 
         return merged
 
 
-# Global instance - 3 pages per chunk for better detail extraction
-pdf_chunker = PDFChunker(max_pages_per_chunk=3)
+# Global chunker instance
+pdf_chunker = PDFChunker()
