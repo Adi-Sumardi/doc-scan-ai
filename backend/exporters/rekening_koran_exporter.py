@@ -840,7 +840,199 @@ class RekeningKoranExporter(BaseExporter):
         logger.info(f"✅ Rekening Koran Smart Mapper data converted to structured format with {len(structured.get('transaksi', []))} transactions")
 
         return structured
-    
+
+    def _build_structured_from_flat(self, extracted_data: dict) -> dict:
+        """
+        Convert flat data structure (transactions at root level) to structured format.
+        This handles data from Claude AI / enhanced_bank_processor that has:
+        - bank_info: {...}
+        - saldo_info: {...}
+        - transactions: [...]
+        at the root level instead of inside smart_mapped.
+
+        Supports all Indonesian banks: BCA, Mandiri, BNI, BRI, BSI, CIMB, OCBC, Permata, MUFG, etc.
+        """
+        if not extracted_data or not isinstance(extracted_data, dict):
+            return {}
+
+        structured = {}
+
+        # Extract bank info from root level
+        bank_info = extracted_data.get('bank_info', {}) or {}
+        structured['nama_bank'] = (
+            bank_info.get('nama_bank') or
+            bank_info.get('bank_name') or
+            bank_info.get('bank') or
+            extracted_data.get('nama_bank') or
+            extracted_data.get('bank_name') or
+            'N/A'
+        )
+        structured['nomor_rekening'] = (
+            bank_info.get('nomor_rekening') or
+            bank_info.get('account_number') or
+            bank_info.get('no_rekening') or
+            extracted_data.get('nomor_rekening') or
+            extracted_data.get('account_number') or
+            'N/A'
+        )
+        structured['nama_pemilik'] = (
+            bank_info.get('nama_pemilik') or
+            bank_info.get('account_holder') or
+            bank_info.get('nama') or
+            bank_info.get('nama_nasabah') or
+            extracted_data.get('nama_pemilik') or
+            extracted_data.get('account_holder') or
+            'N/A'
+        )
+        structured['periode'] = (
+            bank_info.get('periode') or
+            bank_info.get('period') or
+            bank_info.get('statement_period') or
+            extracted_data.get('periode') or
+            extracted_data.get('period') or
+            'N/A'
+        )
+        structured['jenis_rekening'] = bank_info.get('jenis_rekening') or bank_info.get('account_type') or ''
+        structured['cabang'] = bank_info.get('cabang') or bank_info.get('branch') or ''
+        structured['alamat'] = bank_info.get('alamat') or bank_info.get('address') or ''
+
+        # Extract year from periode for completing dates
+        year = self._extract_year_from_periode(structured['periode'])
+        if year:
+            logger.info(f"✅ _build_structured_from_flat: Extracted year from periode: {year}")
+
+        # Extract saldo info from root level
+        saldo_info = extracted_data.get('saldo_info', {}) or {}
+        structured['saldo_awal'] = self._fix_misread_amount(
+            saldo_info.get('saldo_awal') or
+            saldo_info.get('opening_balance') or
+            saldo_info.get('balance_awal') or
+            extracted_data.get('saldo_awal') or
+            extracted_data.get('opening_balance') or
+            ''
+        )
+        structured['saldo_akhir'] = self._fix_misread_amount(
+            saldo_info.get('saldo_akhir') or
+            saldo_info.get('closing_balance') or
+            saldo_info.get('ending_balance') or
+            saldo_info.get('balance_akhir') or
+            extracted_data.get('saldo_akhir') or
+            extracted_data.get('closing_balance') or
+            ''
+        )
+        structured['saldo'] = structured['saldo_akhir']  # Alias
+        structured['total_kredit'] = self._fix_misread_amount(
+            saldo_info.get('total_kredit') or
+            saldo_info.get('total_credit') or
+            extracted_data.get('total_kredit') or
+            ''
+        )
+        structured['total_debet'] = self._fix_misread_amount(
+            saldo_info.get('total_debet') or
+            saldo_info.get('total_debit') or
+            extracted_data.get('total_debet') or
+            ''
+        )
+
+        # Extract transactions from root level
+        transactions = extracted_data.get('transactions', []) or extracted_data.get('transaksi', [])
+        if transactions and isinstance(transactions, list):
+            structured['transaksi'] = []
+            for trans in transactions:
+                if isinstance(trans, dict):
+                    # Handle 'mutasi' field (some banks use single column with +/-)
+                    mutasi = trans.get('mutasi') or trans.get('mutation') or ''
+                    kredit = trans.get('kredit') or trans.get('credit') or ''
+                    debet = trans.get('debet') or trans.get('debit') or ''
+
+                    # If mutasi exists and kredit/debet are empty, parse mutasi
+                    if mutasi and not kredit and not debet:
+                        mutasi_clean = str(mutasi).replace('Rp', '').replace('IDR', '').replace(',', '').replace('.', '').strip()
+                        if mutasi_clean.startswith('+'):
+                            kredit = mutasi_clean.replace('+', '')
+                        elif mutasi_clean.startswith('-'):
+                            debet = mutasi_clean.replace('-', '')
+                        elif mutasi_clean:
+                            try:
+                                val = float(mutasi_clean)
+                                if val > 0:
+                                    kredit = mutasi_clean
+                                else:
+                                    debet = str(abs(val))
+                            except:
+                                kredit = mutasi
+
+                    # Get transaction date and complete with year if needed
+                    tanggal_raw = (
+                        trans.get('tanggal') or
+                        trans.get('date') or
+                        trans.get('transaction_date') or
+                        trans.get('tanggal_transaksi') or
+                        'N/A'
+                    )
+                    tanggal_complete = self._complete_date_with_year(tanggal_raw, year) if year else tanggal_raw
+
+                    # Build transaction item with bank-agnostic field mapping
+                    transaction_item = {
+                        'tanggal': tanggal_complete,
+                        'keterangan': (
+                            trans.get('keterangan') or
+                            trans.get('description') or
+                            trans.get('remarks') or
+                            trans.get('details') or
+                            trans.get('uraian') or
+                            trans.get('uraian_transaksi') or
+                            'N/A'
+                        ),
+                        'kredit': self._fix_misread_amount(kredit) if kredit else '',
+                        'debet': self._fix_misread_amount(debet) if debet else '',
+                        'saldo': self._fix_misread_amount(
+                            trans.get('saldo') or
+                            trans.get('balance') or
+                            trans.get('running_balance') or
+                            trans.get('saldo_akhir') or
+                            ''
+                        ),
+                        'referensi': (
+                            trans.get('referensi') or
+                            trans.get('reference') or
+                            trans.get('ref') or
+                            trans.get('no_ref') or
+                            ''
+                        ),
+                        'cabang': trans.get('cabang') or trans.get('branch') or trans.get('teller') or ''
+                    }
+                    structured['transaksi'].append(transaction_item)
+
+            # Sort transactions by date (month ascending)
+            if structured.get('transaksi'):
+                structured['transaksi'] = self._sort_transactions_by_month(structured['transaksi'])
+
+                # Remove duplicates
+                original_count = len(structured['transaksi'])
+                structured['transaksi'] = self._remove_duplicates(structured['transaksi'])
+                if len(structured['transaksi']) < original_count:
+                    logger.info(f"📊 _build_structured_from_flat: Removed {original_count - len(structured['transaksi'])} duplicates")
+
+                # Validate transactions and add quality scores
+                prev_saldo = None
+                for trans in structured['transaksi']:
+                    try:
+                        current_saldo = float(self._fix_misread_amount(trans.get('saldo', 0)))
+                    except:
+                        current_saldo = None
+                    quality_info = self._validate_transaction(trans, prev_saldo)
+                    trans['_quality'] = quality_info
+                    prev_saldo = current_saldo
+
+                # Calculate summary
+                summary = self._calculate_summary_statistics(structured['transaksi'])
+                logger.info(f"📊 _build_structured_from_flat Quality Summary: Avg={summary['avg_quality']:.1%}, High Quality={summary['high_quality_pct']:.1f}%")
+
+        logger.info(f"✅ _build_structured_from_flat: Converted flat data to structured format with {len(structured.get('transaksi', []))} transactions")
+
+        return structured
+
     def export_to_excel(self, result: Dict[str, Any], output_path: str) -> bool:
         """Export single Rekening Koran to Excel with structured table format"""
         try:
@@ -878,13 +1070,18 @@ class RekeningKoranExporter(BaseExporter):
         left_align = Alignment(horizontal='left', vertical='center', wrap_text=True)
         right_align = Alignment(horizontal='right', vertical='center', wrap_text=False)
 
-        # Get structured data with Smart Mapper priority
-        extracted_data = result.get('extracted_data', {})
+        # ===== FLEXIBLE DATA EXTRACTION =====
+        # Handle multiple input formats:
+        # 1. {'extracted_data': {...}} - wrapped format from API
+        # 2. Direct data with smart_mapped/transactions at root
+        # 3. Just transactions array
+
+        extracted_data = result.get('extracted_data', result)  # Fallback to result itself if no extracted_data
 
         # DEBUG: Log what keys are available
-        logger.info(f"🔍 Excel Export - Available keys in extracted_data: {list(extracted_data.keys())}")
+        logger.info(f"🔍 Excel Export - Available keys: {list(extracted_data.keys())}")
         logger.info(f"🔍 Excel Export - Has smart_mapped: {'smart_mapped' in extracted_data}")
-        logger.info(f"🔍 Excel Export - Has structured_data: {'structured_data' in extracted_data}")
+        logger.info(f"🔍 Excel Export - Has transactions: {'transactions' in extracted_data}")
 
         if 'smart_mapped' in extracted_data:
             smart_mapped_data = extracted_data['smart_mapped']
@@ -894,43 +1091,29 @@ class RekeningKoranExporter(BaseExporter):
                 if 'transactions' in smart_mapped_data:
                     logger.info(f"🔍 Excel Export - smart_mapped transactions count: {len(smart_mapped_data.get('transactions', []))}")
 
-        # Priority: smart_mapped > flat structure > structured_data > extracted_data itself
+        # Priority: smart_mapped > flat structure with transactions > structured_data > raw data
+        structured = None
+
         if 'smart_mapped' in extracted_data and extracted_data['smart_mapped']:
             structured = self._convert_smart_mapped_to_structured(extracted_data['smart_mapped'])
             logger.info("✅ Using smart_mapped data for Rekening Koran Excel")
-        elif 'transactions' in extracted_data and isinstance(extracted_data.get('transactions'), list):
-            # Handle flat structure from enhanced_bank_processor
-            # Extract fields from nested bank_info and saldo_info to root level
-            structured = extracted_data.copy()
-            bank_info = extracted_data.get('bank_info', {})
-            saldo_info = extracted_data.get('saldo_info', {})
 
-            # Flatten bank_info fields to root level
-            structured['nama_bank'] = bank_info.get('nama_bank', '') or bank_info.get('bank_name', '')
-            structured['nomor_rekening'] = bank_info.get('nomor_rekening', '') or bank_info.get('account_number', '')
-            structured['nama_pemilik'] = bank_info.get('nama_pemilik', '') or bank_info.get('account_holder', '')
-            structured['periode'] = bank_info.get('periode', '') or bank_info.get('period', '')
-            structured['jenis_rekening'] = bank_info.get('jenis_rekening', '') or bank_info.get('account_type', '')
-            structured['cabang'] = bank_info.get('cabang', '') or bank_info.get('branch', '')
-            structured['alamat'] = bank_info.get('alamat', '') or bank_info.get('address', '')
+        if not structured or not structured.get('transaksi'):
+            # Try flat structure with transactions at root level
+            if 'transactions' in extracted_data and isinstance(extracted_data.get('transactions'), list) and len(extracted_data.get('transactions', [])) > 0:
+                # Handle flat structure from Claude AI / enhanced_bank_processor
+                structured = self._build_structured_from_flat(extracted_data)
+                logger.info("✅ Using flat structure (transactions at root) for Rekening Koran Excel")
+                logger.info(f"   📝 transactions count: {len(structured.get('transaksi', []))}")
 
-            # Flatten saldo_info fields to root level
-            structured['saldo_awal'] = saldo_info.get('saldo_awal', '') or saldo_info.get('opening_balance', '')
-            structured['saldo_akhir'] = saldo_info.get('saldo_akhir', '') or saldo_info.get('closing_balance', '') or saldo_info.get('ending_balance', '')
-            structured['saldo'] = structured['saldo_akhir']  # Alias
-            structured['total_kredit'] = saldo_info.get('total_kredit', '') or saldo_info.get('total_credit', '')
-            structured['total_debet'] = saldo_info.get('total_debet', '') or saldo_info.get('total_debit', '')
-            structured['mata_uang'] = saldo_info.get('mata_uang', '') or saldo_info.get('currency', '')
+        if not structured or not structured.get('transaksi'):
+            # Try structured_data
+            if 'structured_data' in extracted_data and extracted_data['structured_data']:
+                structured = extracted_data['structured_data']
+                logger.info("✅ Using structured_data for Rekening Koran Excel")
 
-            # Use 'transactions' as 'transaksi' for compatibility
-            structured['transaksi'] = extracted_data.get('transactions', [])
-
-            logger.info("✅ Using flat structure (enhanced processor) for Rekening Koran Excel")
-            logger.info(f"   📝 Flattened fields: nama_bank='{structured.get('nama_bank')}', transactions={len(structured.get('transaksi', []))}")
-        elif 'structured_data' in extracted_data:
-            structured = extracted_data['structured_data']
-            logger.info("✅ Using structured_data for Rekening Koran Excel")
-        else:
+        if not structured:
+            # Last resort: use extracted_data itself
             structured = extracted_data
             logger.info("⚠️ Using raw extracted_data for Rekening Koran Excel")
 

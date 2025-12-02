@@ -164,12 +164,22 @@
 
     "BRI": {
       "market_share": "~20%",
-      "identification": "Look for 'Bank BRI', 'Bank Rakyat Indonesia', blue BRI logo",
-      "account_format": "15 digits: '0001-01-123456-50-3'",
-      "table_columns": "Tanggal | Keterangan | Mutasi | Saldo",
-      "key_feature": "Single 'Mutasi' column with + (credit) and - (debit)",
-      "extraction_tip": "Mutasi column: positive values (+1000000) → kredit field, negative values (-500000) → debet field OR put in mutasi field with sign",
-      "date_format": "DD/MM"
+      "identification": "Look for 'Bank BRI', 'Bank Rakyat Indonesia', blue BRI logo, 'LAPORAN TRANSAKSI FINANSIAL', 'Created By IBBIZ'",
+      "account_format": "15 digits: '041501001693302' or similar format",
+      "table_columns": "Tanggal Transaksi | Uraian Transaksi | Teller | Debet | Kredit | Saldo",
+      "key_feature": "⚠️ BRI uses SEPARATE Debet and Kredit columns (NOT single Mutasi column!). Date format includes TIME (DD/MM/YY HH:MM:SS). Has 'Teller' column with User ID.",
+      "extraction_tip": "1) Tanggal includes TIME - extract as DD/MM/YYYY HH:MM:SS (convert YY to YYYY). 2) Uraian Transaksi → keterangan field. 3) Debet column → debet field (if has value, not 0.00). 4) Kredit column → kredit field (if has value, not 0.00). 5) Teller column can be ignored or stored as referensi. 6) Summary section at LAST PAGE contains: Saldo Awal, Total Transaksi Debet, Total Transaksi Kredit, Saldo Akhir - EXTRACT THESE!",
+      "date_format": "DD/MM/YY HH:MM:SS → Convert to DD/MM/YYYY HH:MM:SS (e.g., '01/10/25 11:46:35' → '01/10/2025 11:46:35')",
+      "summary_section": "⚠️ CRITICAL: BRI has summary table at bottom of LAST PAGE with: 'Saldo Awal/Opening Balance', 'Total Transaksi Debet/Total Debit Transaction', 'Total Transaksi Kredit/Total Credit Transaction', 'Saldo Akhir/Closing Balance'. ALWAYS extract these values!",
+      "zero_values": "BRI shows '0.00' for empty debet/kredit cells - treat as empty string, don't output '0'",
+      "column_mapping": {
+        "Tanggal Transaksi": "tanggal (convert YY to YYYY)",
+        "Uraian Transaksi": "keterangan",
+        "Teller": "referensi (optional)",
+        "Debet": "debet (if not 0.00)",
+        "Kredit": "kredit (if not 0.00)",
+        "Saldo": "saldo"
+      }
     },
 
     "CIMB_Niaga": {
