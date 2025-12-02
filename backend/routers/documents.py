@@ -565,6 +565,21 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                 processing_info = extracted_data.get("processing_info", {}) if isinstance(extracted_data, dict) else {}
                 parsing_method = processing_info.get("parsing_method") or result.get("ocr_engine_used", "Google Document AI")
                 
+                # ✅ DEBUG: Log what we're saving for rekening_koran
+                if file_info["document_type"] == "rekening_koran":
+                    logger.info(f"🔍 Saving Rekening Koran to DB for {db_file.name}")
+                    logger.info(f"   - extracted_data keys: {list(extracted_data.keys()) if isinstance(extracted_data, dict) else 'N/A'}")
+                    logger.info(f"   - has smart_mapped: {'smart_mapped' in extracted_data if isinstance(extracted_data, dict) else False}")
+                    logger.info(f"   - has transactions: {'transactions' in extracted_data if isinstance(extracted_data, dict) else False}")
+                    if isinstance(extracted_data, dict) and 'transactions' in extracted_data:
+                        txn_count = len(extracted_data.get('transactions', []))
+                        logger.info(f"   - transactions count: {txn_count}")
+                    if isinstance(extracted_data, dict) and 'smart_mapped' in extracted_data:
+                        smart_mapped = extracted_data.get('smart_mapped', {})
+                        if isinstance(smart_mapped, dict) and 'transactions' in smart_mapped:
+                            smart_txn_count = len(smart_mapped.get('transactions', []))
+                            logger.info(f"   - smart_mapped transactions count: {smart_txn_count}")
+                
                 # Create scan result in database
                 scan_result = DBScanResult(
                     id=str(uuid.uuid4()),
@@ -579,6 +594,10 @@ async def process_batch_async(batch_id: str, file_paths: List[dict]):
                     total_processing_time=result.get("processing_time", 0.0)
                 )
                 db.add(scan_result)
+                
+                # ✅ DEBUG: Confirm save
+                if file_info["document_type"] == "rekening_koran":
+                    logger.info(f"✅ Rekening Koran saved to DB with scan_result_id: {scan_result.id}")
                 
                 # Update file status
                 db_file.status = "completed"
