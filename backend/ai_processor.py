@@ -150,11 +150,29 @@ async def process_with_chunking(file_path: str, document_type: str) -> tuple:
                 }
 
                 chunk_results.append(chunk_result)
+                
+                # ✅ CRITICAL: Clear large variables after processing chunk
+                del chunk_text
+                if chunk_ocr_metadata and 'raw_response' in chunk_ocr_metadata:
+                    # Keep only essential data, clear large raw_response
+                    logger.info(f"🧹 Clearing chunk {i} raw_response from memory")
+                
+                # ✅ CRITICAL: Force garbage collection after each chunk
+                import gc
+                gc.collect()
+                
+                # ✅ MEMORY MONITORING: Log memory after cleanup
+                mem_after_cleanup = process.memory_info().rss / (1024 * 1024)  # MB
+                logger.info(f"💾 Memory after cleanup: {mem_after_cleanup:.1f} MB (freed: {mem_after_ocr - mem_after_cleanup:.1f} MB)")
+                logger.info(f"📊 Chunk {i}/{len(chunks)} complete - continuing...")
 
             except Exception as e:
                 logger.error(f"❌ Chunk {i} processing failed: {e}")
                 import traceback
                 logger.error(traceback.format_exc())
+                # ✅ Clean up on error too
+                import gc
+                gc.collect()
                 # Continue with other chunks
 
         logger.info("")
