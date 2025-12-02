@@ -1,7 +1,7 @@
 """Configuration management using Pydantic Settings"""
 
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import Optional, List
 import os
 
 
@@ -67,7 +67,23 @@ class Settings(BaseSettings):
     # ✅ NEW: Smart Mapper chunking for large documents
     smart_mapper_page_threshold: int = 5  # Process 5 pages max per Claude request (5 × 150 = 750 txns)
     smart_mapper_chunk_overlap: int = 1  # Overlap 1 page between chunks for continuity
-    
+
+    # Security settings (used by security.py)
+    # NOTE: Extensions WITHOUT dots - security.py extracts extension without dot
+    allowed_extensions_list: List[str] = ["pdf", "png", "jpg", "jpeg", "tiff", "tif"]
+    max_file_size_mb: int = 50
+    enable_virus_scan: bool = False
+    max_pdf_pages_per_file: int = 100
+
+    # Environment
+    environment: str = "development"
+
+    # Batch processing settings
+    max_concurrent_processing: int = 3
+
+    # CORS settings
+    cors_origins_list: List[str] = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"]
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
@@ -90,3 +106,10 @@ def get_results_dir() -> str:
     """Get results directory path, create if not exists"""
     os.makedirs(settings.results_dir, exist_ok=True)
     return settings.results_dir
+
+
+def get_exports_dir() -> str:
+    """Get exports directory path, create if not exists"""
+    exports_path = os.path.join(os.path.dirname(__file__), "exports")
+    os.makedirs(exports_path, exist_ok=True)
+    return exports_path
