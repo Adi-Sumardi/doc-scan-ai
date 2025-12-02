@@ -186,9 +186,24 @@ class CloudAIProcessor:
             name = f"projects/{project_id}/locations/{location}/processors/{processor_id}"
             logger.info(f"📄 Processing with Google Document AI: {name}")
             
+            # ✅ CRITICAL FIX: Check file size before reading to prevent OOM
+            file_size_bytes = os.path.getsize(file_path)
+            file_size_mb = file_size_bytes / (1024 * 1024)
+            logger.info(f"📊 File size: {file_size_mb:.1f} MB")
+            
+            # Google Document AI limit: 20MB for synchronous, 1GB for async
+            # We use 100MB as safety limit
+            if file_size_mb > 100:
+                logger.error(f"❌ File too large for processing: {file_size_mb:.1f}MB (>100MB limit)")
+                logger.error(f"❌ This file MUST be chunked before processing!")
+                logger.error(f"❌ Please ensure chunking is enabled and threshold is low enough")
+                raise Exception(f"File too large: {file_size_mb:.1f}MB. Chunking required.")
+            
             # Read document
+            logger.info(f"📄 Reading file into memory: {file_size_mb:.1f}MB")
             with open(file_path, "rb") as document:
                 document_content = document.read()
+            logger.info(f"✅ File read complete: {len(document_content)} bytes")
                 
             # Infer the MIME type
             mime_type, _ = mimetypes.guess_type(file_path)
