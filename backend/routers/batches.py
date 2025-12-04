@@ -458,17 +458,34 @@ async def delete_batch(
 
 @router.get("/results")
 async def get_all_results(
+    limit: int = Query(None, description="Maximum number of results to return"),
+    offset: int = Query(0, description="Number of results to skip"),
+    batch_ids: str = Query(None, description="Comma-separated list of batch IDs to filter"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get all scan results for current user"""
+    """Get scan results for current user with optional pagination and batch filtering"""
     try:
         # Join with Batch to filter by user_id
-        results = db.query(DBScanResult).join(
+        query = db.query(DBScanResult).join(
             Batch, DBScanResult.batch_id == Batch.id
         ).filter(
             Batch.user_id == current_user.id
-        ).order_by(desc(DBScanResult.created_at)).all()
+        )
+
+        # Filter by specific batch IDs if provided
+        if batch_ids:
+            batch_id_list = [bid.strip() for bid in batch_ids.split(",") if bid.strip()]
+            if batch_id_list:
+                query = query.filter(DBScanResult.batch_id.in_(batch_id_list))
+
+        query = query.order_by(desc(DBScanResult.created_at))
+
+        # Apply pagination if limit is specified
+        if limit is not None:
+            query = query.offset(offset).limit(limit)
+
+        results = query.all()
         
         results_list = []
         for result in results:

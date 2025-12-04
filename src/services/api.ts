@@ -157,8 +157,13 @@ export const apiService = {
     return response.data;
   },
 
-  getAllResults: async (): Promise<ScanResult[]> => {
-    const response = await api.get('/api/results');
+  getAllResults: async (batchIds?: string[]): Promise<ScanResult[]> => {
+    const params = new URLSearchParams();
+    // ✅ PERFORMANCE FIX: Only load results for specific batches
+    if (batchIds && batchIds.length > 0) {
+      params.append('batch_ids', batchIds.join(','));
+    }
+    const response = await api.get(`/api/results?${params.toString()}`);
     return response.data;
   },
 

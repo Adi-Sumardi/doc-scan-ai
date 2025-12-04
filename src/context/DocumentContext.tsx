@@ -345,16 +345,15 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
           console.log(`✅ Loaded ${recentBatches.length} recent batches (background)`);
           setBatches(recentBatches);
 
-          // Load results for recent batches only
-          const recentResults = await apiService.getAllResults();
-          const recentBatchIds = new Set(recentBatches.map(b => b.id));
+          // ✅ PERFORMANCE FIX: Only load results for the 5 recent batches, not ALL results!
+          const recentBatchIds = recentBatches.map(b => b.id);
+          const recentResults = await apiService.getAllResults(recentBatchIds);
 
-          // ✅ FIX: Ensure recentResults is an array before filtering
+          // ✅ FIX: Ensure recentResults is an array before setting
           const resultsArray = Array.isArray(recentResults) ? recentResults : [];
-          const filteredResults = resultsArray.filter(r => recentBatchIds.has(r.batch_id));
-          setScanResults(filteredResults);
+          setScanResults(resultsArray);
 
-          console.log(`✅ Loaded ${filteredResults.length} scan results (background)`);
+          console.log(`✅ Loaded ${resultsArray.length} scan results for ${recentBatchIds.length} batches (background)`);
 
           console.log('⚡ Background data load complete');
 
@@ -364,22 +363,19 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
               try {
                 console.log('🔄 Loading remaining batches (deep background)...');
                 const allBatches = await apiService.getAllBatches();
-                const remainingCount = allBatches.length - recentBatches.length;
+                const existingBatchIds = new Set(recentBatches.map(b => b.id));
+                const newBatches = allBatches.filter(b => !existingBatchIds.has(b.id));
 
-                if (remainingCount > 0) {
-                  console.log(`⚡ Loaded ${allBatches.length} total batches`);
+                if (newBatches.length > 0) {
+                  console.log(`⚡ Found ${newBatches.length} additional batches`);
 
                   // ✅ FIX: Merge with existing batches to preserve newly uploaded ones
                   setBatches(prev => {
-                    // Create a map of existing batches by ID
                     const existingMap = new Map(prev.map(b => [b.id, b]));
-
-                    // Merge: keep existing batches, add new ones from API
-                    const merged = [...prev]; // Start with existing (includes new uploads)
+                    const merged = [...prev];
 
                     allBatches.forEach(apiBatch => {
                       if (!existingMap.has(apiBatch.id)) {
-                        // Only add if not already in state
                         merged.push(apiBatch);
                       }
                     });
@@ -387,6 +383,14 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
                     console.log(`✅ Merged batches: ${prev.length} existing + ${merged.length - prev.length} new = ${merged.length} total`);
                     return merged;
                   });
+
+                  // ✅ PERFORMANCE FIX: Load results only for new batches (not already loaded)
+                  const newBatchIds = newBatches.map(b => b.id);
+                  const newResults = await apiService.getAllResults(newBatchIds);
+                  if (Array.isArray(newResults) && newResults.length > 0) {
+                    setScanResults(prev => [...prev, ...newResults]);
+                    console.log(`✅ Loaded ${newResults.length} additional results for ${newBatchIds.length} batches`);
+                  }
                 }
               } catch (bgError) {
                 console.error('Deep background load failed (non-critical):', bgError);
