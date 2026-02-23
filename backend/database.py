@@ -50,16 +50,21 @@ elif is_sqlite:
     connect_args = {'check_same_thread': False}
 
 # Create engine with optimized settings for production
-engine = create_engine(
-    DATABASE_URL,
-    pool_size=20,                    # Max 20 persistent connections in pool
-    max_overflow=30,                 # Max 30 additional connections when pool is full
-    pool_pre_ping=True,              # ✅ Verify connection is alive before using
-    pool_recycle=1800,               # ✅ FIX: Recycle connections every 30min (was 1 hour)
-    pool_timeout=30,                 # ✅ FIX: Max 30s wait for connection from pool
-    connect_args=connect_args,       # ✅ FIX: Database-specific connection timeouts
-    echo=False                       # Set to True for SQL debugging
-)
+engine_kwargs = {
+    "pool_pre_ping": True,
+    "connect_args": connect_args,
+    "echo": False,
+}
+if not is_sqlite:
+    # Pool settings only apply to non-SQLite databases
+    engine_kwargs.update({
+        "pool_size": 20,
+        "max_overflow": 30,
+        "pool_recycle": 1800,
+        "pool_timeout": 30,
+    })
+
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()

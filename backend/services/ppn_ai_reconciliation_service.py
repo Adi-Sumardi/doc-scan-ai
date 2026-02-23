@@ -21,8 +21,17 @@ from services.ppn_reconciliation_service import (
 
 logger = logging.getLogger(__name__)
 
-# Initialize OpenAI client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Lazy-initialize OpenAI client (avoid crash if OPENAI_API_KEY is unset at import time)
+_client = None
+
+def _get_openai_client() -> OpenAI:
+    global _client
+    if _client is None:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY environment variable is not set")
+        _client = OpenAI(api_key=api_key)
+    return _client
 
 
 class AIReconciliationService:
@@ -138,7 +147,7 @@ class AIReconciliationService:
             prompt = self._build_matching_prompt_a_vs_c(a_data, c_data)
 
             try:
-                response = client.chat.completions.create(
+                response = _get_openai_client().chat.completions.create(
                     model=self.model,
                     messages=[
                         {
@@ -263,7 +272,7 @@ class AIReconciliationService:
             prompt = self._build_matching_prompt_b_vs_e(b_data, e_data)
 
             try:
-                response = client.chat.completions.create(
+                response = _get_openai_client().chat.completions.create(
                     model=self.model,
                     messages=[
                         {

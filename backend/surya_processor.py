@@ -100,20 +100,17 @@ class SuryaProcessor:
         from PIL import Image
         import io
 
-        doc = fitz.open(file_path)
         images = []
-
-        for page_num in range(len(doc)):
-            page = doc[page_num]
-            # Render at 300 DPI for good OCR quality
-            mat = fitz.Matrix(300 / 72, 300 / 72)
-            pix = page.get_pixmap(matrix=mat)
-            img_data = pix.tobytes("png")
-            img = Image.open(io.BytesIO(img_data)).convert("RGB")
-            images.append(img)
-            del pix
-
-        doc.close()
+        with fitz.open(file_path) as doc:
+            for page_num in range(len(doc)):
+                page = doc[page_num]
+                # Render at 300 DPI for good OCR quality
+                mat = fitz.Matrix(300 / 72, 300 / 72)
+                pix = page.get_pixmap(matrix=mat)
+                img_data = pix.tobytes("png")
+                img = Image.open(io.BytesIO(img_data)).convert("RGB")
+                images.append(img)
+                del pix
         return images
 
     def _image_to_pil(self, file_path: str) -> list:

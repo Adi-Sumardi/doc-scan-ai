@@ -48,6 +48,7 @@ backend/exports/*
 !backend/exports/.gitkeep
 backend/results/*
 !backend/results/.gitkeep
+backend/temp_uploads/
 
 # IDE files
 .vscode/*

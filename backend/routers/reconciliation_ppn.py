@@ -686,7 +686,11 @@ async def run_reconciliation(
 
 
 @router.get("/reconciliation/{project_id}/results")
-async def get_reconciliation_results(project_id: str):
+async def get_reconciliation_results(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """
     Get reconciliation results for a project
 
@@ -697,18 +701,24 @@ async def get_reconciliation_results(project_id: str):
         Detailed reconciliation results with all matches and mismatches
     """
     try:
-        # TODO: Fetch results from database
-        # For now, return empty results
+        project = db.query(PPNProject).filter(
+            PPNProject.id == project_id,
+            PPNProject.user_id == current_user.id
+        ).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
 
         return {
             "project_id": project_id,
-            "status": "not_started",
-            "message": "No reconciliation has been run for this project yet"
+            "status": project.status or "not_started",
+            "message": "No reconciliation has been run for this project yet" if project.status != "completed" else "Reconciliation completed"
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get reconciliation results: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get results: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get results")
 
 
 @router.post("/reconciliation/{project_id}/export")
@@ -1318,6 +1328,19 @@ async def chat_reconciliation(
     if not files and not prompt.strip():
         raise HTTPException(status_code=400, detail="Please attach files or type a message")
 
+    # Validate uploaded files
+    MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+    MAX_FILES = 10
+    ALLOWED_EXTENSIONS = {'.xlsx', '.xls'}
+
+    if len(files) > MAX_FILES:
+        raise HTTPException(status_code=400, detail=f"Maximum {MAX_FILES} files allowed")
+
+    for uploaded_file in files:
+        ext = os.path.splitext(uploaded_file.filename or "")[1].lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(status_code=400, detail=f"File '{uploaded_file.filename}': only .xlsx and .xls files are supported")
+
     temp_paths = []
     try:
         # Save uploaded files and detect types
@@ -1327,11 +1350,15 @@ async def chat_reconciliation(
         rekening_koran_path = None
 
         for uploaded_file in files:
-            ext = os.path.splitext(uploaded_file.filename)[1]
+            ext = os.path.splitext(uploaded_file.filename or "")[1]
             temp_path = os.path.join(TEMP_DIR, f"{uuid.uuid4()}{ext}")
 
             with open(temp_path, "wb") as f:
                 content = uploaded_file.file.read()
+                if len(content) > MAX_FILE_SIZE:
+                    raise HTTPException(status_code=400, detail=f"File '{uploaded_file.filename}' exceeds {MAX_FILE_SIZE // (1024*1024)}MB limit")
+                if len(content) == 0:
+                    raise HTTPException(status_code=400, detail=f"File '{uploaded_file.filename}' is empty")
                 f.write(content)
 
             temp_paths.append(temp_path)

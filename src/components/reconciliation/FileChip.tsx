@@ -38,6 +38,7 @@ export default function FileChip({ name, detectedType, rowCount, error, onRemove
         <button
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
           className="ml-0.5 p-0.5 rounded-full hover:bg-blue-200 transition-colors"
+          aria-label={`Hapus file ${name}`}
         >
           <X className="w-3 h-3" />
         </button>

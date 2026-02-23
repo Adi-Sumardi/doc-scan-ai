@@ -1,6 +1,5 @@
 import { useRef, useEffect } from 'react';
-import { User, Loader2 } from 'lucide-react';
-import FileChip from './FileChip';
+import { User } from 'lucide-react';
 import ChatResultCard from './ChatResultCard';
 
 export interface ChatMessage {

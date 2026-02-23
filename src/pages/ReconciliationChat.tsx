@@ -138,6 +138,8 @@ export default function ReconciliationChat() {
     setIsProcessing(true);
 
     try {
+      if (!sessionId) return; // TypeScript narrowing guard
+
       const formData = new FormData();
       formData.append('prompt', prompt);
       formData.append('use_ai', String(useAI));
