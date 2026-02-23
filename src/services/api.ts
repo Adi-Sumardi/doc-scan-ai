@@ -3,11 +3,9 @@ import { getApiBaseUrl } from '../utils/config';
 
 const API_BASE_URL = getApiBaseUrl();
 
+const IS_DEV = import.meta.env.DEV;
+
 // Axios instance
-// NOTE: Default timeout is for general API calls. Individual endpoints can override this.
-// - Status polling: 10 minutes (processing can take long, but API call returns instantly)
-// - Uploads: Default 5 minutes is fine (upload itself is quick)
-// - Exports: Default 5 minutes should be sufficient
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 300000, // 5 minutes default timeout
@@ -16,9 +14,11 @@ const api = axios.create({
 // Request logging and JWT token interceptor
 api.interceptors.request.use(
   (config) => {
-    console.log(`[API Request] ${config.method?.toUpperCase()} ${config.url}`);
+    if (IS_DEV) {
+      console.log(`[API Request] ${config.method?.toUpperCase()} ${config.url}`);
+    }
 
-    // Add JWT token to requests if available (check both 'token' and 'access_token')
+    // Add JWT token to requests if available
     const token = localStorage.getItem('token') || localStorage.getItem('access_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -27,7 +27,6 @@ api.interceptors.request.use(
     return config;
   },
   (error) => {
-    console.error('[API Request Error]', error);
     return Promise.reject(error);
   }
 );
@@ -35,56 +34,36 @@ api.interceptors.request.use(
 // Response logging & error handling with 401 auto-logout
 api.interceptors.response.use(
   (response) => {
-    console.log(`[API Response] ${response.status} ${response.config.url}`);
+    if (IS_DEV) {
+      console.log(`[API Response] ${response.status} ${response.config.url}`);
+    }
     return response;
   },
   (error) => {
-    console.error('[API Response Error]', error.response?.data || error.message);
-
     // Handle 401 Unauthorized - auto logout and cleanup
     if (error.response?.status === 401) {
-      console.warn('🔒 401 Unauthorized - Token expired or invalid');
-
-      // Clear all auth-related data from localStorage
       localStorage.removeItem('token');
       localStorage.removeItem('access_token');
       localStorage.removeItem('user');
-
-      // Clear sessionStorage as well
       sessionStorage.clear();
 
-      // Redirect to login page if not already there
       if (!window.location.pathname.includes('/login') &&
           !window.location.pathname.includes('/register')) {
-        console.log('🔄 Redirecting to login page...');
-
-        // Save current path to redirect back after login
         const currentPath = window.location.pathname + window.location.search;
         if (currentPath !== '/' && currentPath !== '/login') {
           localStorage.setItem('redirectAfterLogin', currentPath);
         }
-
-        // Redirect with a small delay to allow cleanup
-        setTimeout(() => {
-          window.location.href = '/login';
-        }, 100);
+        setTimeout(() => { window.location.href = '/login'; }, 100);
       }
-    }
-
-    // Handle 403 Forbidden
-    if (error.response?.status === 403) {
-      console.warn('🚫 403 Forbidden - Access denied');
     }
 
     // Handle network errors
     if (error.message === 'Network Error') {
-      console.error('❌ Network Error - Check if backend is running');
       error.message = 'Cannot connect to server. Please check your connection.';
     }
 
     // Handle timeout errors
     if (error.code === 'ECONNABORTED') {
-      console.error('⏱️ Request Timeout');
       error.message = 'Request timeout. Please try again.';
     }
 
@@ -106,12 +85,11 @@ export interface Batch {
   processed_files: number;
   completed_at?: string;
   error?: string;
-  // New fields for improved animation
   failed_files?: number;
   current_file?: string;
   eta_seconds?: number;
   error_message?: string;
-  results?: any[];  // Per-file progress data
+  results?: any[];
 }
 export interface ScanResult {
   id: string; batch_id: string; filename: string; document_type: string; extracted_text?: string; extracted_data: any;
@@ -119,7 +97,90 @@ export interface ScanResult {
   ocr_processing_time?: number; processing_time?: number;
   original_filename?: string; file_type?: string; status?: string; ai_data?: AIData; export_formats?: string[];
   nextgen_metrics?: NextGenOCRMetrics; processing_quality?: ProcessingQuality; document_structure?: any; extracted_entities?: any;
-  raw_ocr_result?: any; // Raw OCR JSON from Google Document AI
+  raw_ocr_result?: any;
+}
+
+// ==================== Reconciliation Chat Interfaces ====================
+
+export interface ReconciliationSession {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface ReconciliationAttachment {
+  name: string;
+  detected_type?: string;
+  row_count?: number;
+  error?: string;
+}
+
+export interface ReconciliationMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  attachments?: ReconciliationAttachment[];
+  results?: ReconciliationResults;
+  created_at?: string;
+}
+
+export interface ReconciliationResults {
+  files_detected?: Array<{ name: string; detected_type: string; row_count: number; error?: string }>;
+  company_npwp?: string;
+  reconciliation?: {
+    status: string;
+    error?: string;
+    point_a_count?: number;
+    point_b_count?: number;
+    point_c_count?: number;
+    point_e_count?: number;
+    matches?: {
+      point_a_vs_c?: ReconciliationMatch[];
+      point_b_vs_e?: ReconciliationMatch[];
+    };
+    mismatches?: {
+      point_a_unmatched?: Record<string, unknown>[];
+      point_c_unmatched?: Record<string, unknown>[];
+      point_b_unmatched?: Record<string, unknown>[];
+      point_e_unmatched?: Record<string, unknown>[];
+    };
+    summary?: ReconciliationSummary;
+  };
+}
+
+export interface ReconciliationMatch {
+  id?: string;
+  match_type?: string;
+  match_confidence?: number;
+  details?: {
+    nomor_faktur?: string;
+    vendor_name?: string;
+    amount?: number;
+    [key: string]: unknown;
+  };
+}
+
+export interface ReconciliationSummary {
+  match_rate?: number;
+  total_auto_matched?: number;
+  total_suggested?: number;
+  total_unmatched?: number;
+  match_rate_a_vs_c?: number;
+  match_rate_b_vs_e?: number;
+  [key: string]: unknown;
+}
+
+export interface SendMessageResponse {
+  user_message: ReconciliationMessage;
+  assistant_message: ReconciliationMessage;
+}
+
+export interface SessionDetailResponse {
+  id: string;
+  title: string;
+  created_at: string;
+  messages: ReconciliationMessage[];
 }
 
 // API Service
@@ -133,9 +194,7 @@ export const apiService = {
   },
 
   getBatchStatus: async (batchId: string): Promise<Batch> => {
-    // Status polling should have very long timeout since backend processing can take 10+ minutes
-    // The actual API call returns instantly, but we need to wait for processing to complete
-    const response = await api.get(`/api/batches/${batchId}`, { timeout: 600000 }); // 10 minutes
+    const response = await api.get(`/api/batches/${batchId}`, { timeout: 600000 });
     return response.data;
   },
 
@@ -148,18 +207,12 @@ export const apiService = {
     const params = new URLSearchParams();
     if (limit !== undefined) params.append('limit', limit.toString());
     if (offset !== undefined) params.append('offset', offset.toString());
-    // ✅ PERFORMANCE FIX: Don't include files in list view - massive over-fetching!
-    // Files are only needed when viewing batch details (getBatchStatus has include_files=true)
-    // This reduces initial load from 150+ records to just 15 batches
-    // params.append('include_files', 'true');  // ❌ REMOVED - causes slow loading
-
     const response = await api.get(`/api/batches?${params.toString()}`);
     return response.data;
   },
 
   getAllResults: async (batchIds?: string[]): Promise<ScanResult[]> => {
     const params = new URLSearchParams();
-    // ✅ PERFORMANCE FIX: Only load results for specific batches
     if (batchIds && batchIds.length > 0) {
       params.append('batch_ids', batchIds.join(','));
     }
@@ -219,11 +272,6 @@ export const apiService = {
     window.URL.revokeObjectURL(url);
   },
 
-  saveToGoogleDrive: async (resultId: string, format: 'excel' | 'pdf') => {
-    console.log(`Saving result ${resultId} to Google Drive as ${format}`);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-  },
-
   updateResult: async (resultId: string, updatedData: any): Promise<any> => {
     const response = await api.patch(`/api/results/${resultId}`, updatedData);
     return response.data;
@@ -235,23 +283,22 @@ export const apiService = {
 
   // ==================== Reconciliation Chat ====================
   reconciliation: {
-    getSessions: async () => {
+    getSessions: async (): Promise<ReconciliationSession[]> => {
       const response = await api.get('/api/reconciliation-ppn/sessions');
       return response.data;
     },
-    createSession: async () => {
+    createSession: async (): Promise<ReconciliationSession> => {
       const response = await api.post('/api/reconciliation-ppn/sessions');
       return response.data;
     },
-    getSession: async (sessionId: string) => {
+    getSession: async (sessionId: string): Promise<SessionDetailResponse> => {
       const response = await api.get(`/api/reconciliation-ppn/sessions/${sessionId}`);
       return response.data;
     },
-    deleteSession: async (sessionId: string) => {
-      const response = await api.delete(`/api/reconciliation-ppn/sessions/${sessionId}`);
-      return response.data;
+    deleteSession: async (sessionId: string): Promise<void> => {
+      await api.delete(`/api/reconciliation-ppn/sessions/${sessionId}`);
     },
-    sendMessage: async (sessionId: string, formData: FormData) => {
+    sendMessage: async (sessionId: string, formData: FormData): Promise<SendMessageResponse> => {
       const response = await api.post(
         `/api/reconciliation-ppn/sessions/${sessionId}/chat`,
         formData,

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Plus, MessageSquare, Trash2, X, Menu, RefreshCw, AlertTriangle } from 'lucide-react';
 
 interface Session {
@@ -43,12 +43,29 @@ function DeleteModal({ sessionTitle, onConfirm, onCancel }: {
   onCancel: () => void;
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     cancelRef.current?.focus();
-    const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
-    document.addEventListener('keydown', handleEsc);
-    return () => document.removeEventListener('keydown', handleEsc);
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onCancel(); return; }
+      // Focus trap: cycle between Cancel and Hapus buttons
+      if (e.key === 'Tab') {
+        const focusable = [cancelRef.current, confirmRef.current].filter(Boolean) as HTMLElement[];
+        if (focusable.length < 2) return;
+        const idx = focusable.indexOf(document.activeElement as HTMLElement);
+        if (e.shiftKey) {
+          e.preventDefault();
+          focusable[idx <= 0 ? focusable.length - 1 : idx - 1].focus();
+        } else {
+          e.preventDefault();
+          focusable[(idx + 1) % focusable.length].focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onCancel]);
 
   return (
@@ -81,6 +98,7 @@ function DeleteModal({ sessionTitle, onConfirm, onCancel }: {
             Batal
           </button>
           <button
+            ref={confirmRef}
             onClick={onConfirm}
             className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-xl hover:bg-red-700 transition-colors shadow-sm"
           >
@@ -97,6 +115,14 @@ export default function ChatSidebar({
   onNewSession, onSelectSession, onDeleteSession, onRetryLoad
 }: ChatSidebarProps) {
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
+
+  const handleSessionKeyDown = useCallback((e: React.KeyboardEvent, sessionId: string) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onSelectSession(sessionId);
+      if (window.innerWidth < 1024) onToggle();
+    }
+  }, [onSelectSession, onToggle]);
 
   return (
     <>
@@ -209,11 +235,13 @@ export default function ChatSidebar({
                 <div
                   key={session.id}
                   onClick={() => { onSelectSession(session.id); if (window.innerWidth < 1024) onToggle(); }}
+                  onKeyDown={(e) => handleSessionKeyDown(e, session.id)}
+                  tabIndex={0}
                   role="listitem"
                   aria-selected={activeSessionId === session.id}
                   aria-label={`Sesi: ${session.title}`}
                   className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer
-                    transition-all text-sm ${
+                    transition-all text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 ${
                       activeSessionId === session.id
                         ? 'bg-slate-700/80 text-white'
                         : 'text-slate-300 hover:bg-slate-800/60'
@@ -229,7 +257,7 @@ export default function ChatSidebar({
                       e.stopPropagation();
                       setDeleteTarget(session);
                     }}
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-600 rounded-lg transition-all"
+                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 hover:bg-slate-600 rounded-lg transition-all"
                     aria-label={`Hapus sesi ${session.title}`}
                   >
                     <Trash2 className="w-3.5 h-3.5 text-slate-400" />

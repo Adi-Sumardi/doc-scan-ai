@@ -60,25 +60,27 @@ class SuryaProcessor:
         os.environ.setdefault('TABLE_REC_BATCH_SIZE',
                               os.environ.get('TABLE_REC_BATCH_SIZE', '2'))
 
+        # Lazy loading: models are loaded on first use, not at startup
+        logger.info("Surya OCR processor created (models will load on first use)")
+
+    def _ensure_core_models(self):
+        """Lazy-load core Surya models on first use (foundation + recognition + detection)"""
+        if self._foundation is not None:
+            return
         try:
-            self._init_models()
+            from surya.foundation import FoundationPredictor
+            from surya.detection import DetectionPredictor
+            from surya.recognition import RecognitionPredictor
+
+            logger.info("Loading Surya OCR core models...")
+            self._foundation = FoundationPredictor()
+            self._detection = DetectionPredictor()
+            self._recognition = RecognitionPredictor(self._foundation)
             self.initialized = True
-            logger.info("Surya OCR initialized (CPU mode)")
+            logger.info("Surya OCR core models loaded (foundation + recognition + detection)")
         except Exception as e:
-            logger.error(f"Surya OCR init failed: {e}", exc_info=True)
-            self.initialized = False
-
-    def _init_models(self):
-        """Load core Surya models (foundation + recognition + detection)"""
-        from surya.foundation import FoundationPredictor
-        from surya.detection import DetectionPredictor
-        from surya.recognition import RecognitionPredictor
-
-        self._foundation = FoundationPredictor()
-        self._detection = DetectionPredictor()
-        self._recognition = RecognitionPredictor(self._foundation)
-
-        logger.info("Surya OCR core models loaded (foundation + recognition + detection)")
+            logger.error(f"Surya OCR model loading failed: {e}", exc_info=True)
+            raise
 
     def _init_layout_model(self):
         """Load layout model on demand (memory saving)"""
@@ -119,14 +121,9 @@ class SuryaProcessor:
         img = Image.open(file_path).convert("RGB")
         return [img]
 
-    async def process_document(self, file_path: str) -> SuryaOCRResult:
-        """Process document with Surya OCR
-
-        Supports: PDF, PNG, JPG, JPEG, TIFF, BMP
-        Returns: SuryaOCRResult with Google DocAI-compatible raw_response
-        """
-        if not self.initialized:
-            raise Exception("Surya OCR not initialized")
+    def _process_document_sync(self, file_path: str) -> SuryaOCRResult:
+        """Synchronous document processing (CPU-bound, runs in thread pool)"""
+        self._ensure_core_models()
 
         start_time = time.time()
         file_ext = Path(file_path).suffix.lower()
@@ -214,6 +211,15 @@ class SuryaProcessor:
             document_type="",
             language_detected="id",
         )
+
+    async def process_document(self, file_path: str) -> SuryaOCRResult:
+        """Process document with Surya OCR (async wrapper using thread pool)
+
+        Supports: PDF, PNG, JPG, JPEG, TIFF, BMP
+        Returns: SuryaOCRResult with Google DocAI-compatible raw_response
+        """
+        import asyncio
+        return await asyncio.to_thread(self._process_document_sync, file_path)
 
     def _build_google_compatible_response(
         self,

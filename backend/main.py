@@ -78,13 +78,18 @@ async def add_security_headers(request, call_next):
     if settings.environment == "production":
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     
+    # CSP: restrict connect-src in production
+    connect_src = "'self'"
+    if settings.environment != "production":
+        connect_src += " http://localhost:* http://127.0.0.1:*"
+
     csp_policy = (
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: https:; "
         "font-src 'self' data:; "
-        "connect-src 'self' http://localhost:* http://127.0.0.1:*; "
+        f"connect-src {connect_src}; "
         "frame-ancestors 'none'; "
         "base-uri 'self'; "
         "form-action 'self'"

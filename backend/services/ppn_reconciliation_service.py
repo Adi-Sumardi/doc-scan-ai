@@ -166,18 +166,14 @@ def split_faktur_pajak(df: pd.DataFrame, company_npwp: str) -> Tuple[pd.DataFram
     company_npwp_normalized = normalize_npwp(company_npwp)
     logger.info(f"Normalized company NPWP: {company_npwp_normalized}")
 
-    # Log first few NPWP values from the DataFrame
+    # Log sample NPWP values at DEBUG level (PII protection)
     if 'NPWP Penjual' in df.columns:
-        sample_penjual = df['NPWP Penjual'].head(3).tolist()
-        logger.info(f"Sample NPWP Penjual values (raw): {sample_penjual}")
-        logger.info(f"Sample NPWP Penjual values (normalized): {[normalize_npwp(x) for x in sample_penjual]}")
+        logger.debug(f"Sample NPWP Penjual count: {df['NPWP Penjual'].notna().sum()}")
     else:
         logger.error(f"Column 'NPWP Penjual' not found! Available columns: {list(df.columns)}")
 
     if 'NPWP Pembeli' in df.columns:
-        sample_pembeli = df['NPWP Pembeli'].head(3).tolist()
-        logger.info(f"Sample NPWP Pembeli values (raw): {sample_pembeli}")
-        logger.info(f"Sample NPWP Pembeli values (normalized): {[normalize_npwp(x) for x in sample_pembeli]}")
+        logger.debug(f"Sample NPWP Pembeli count: {df['NPWP Pembeli'].notna().sum()}")
     else:
         logger.error(f"Column 'NPWP Pembeli' not found! Available columns: {list(df.columns)}")
 
@@ -476,13 +472,11 @@ def run_ppn_reconciliation(
     Returns:
         Dictionary with reconciliation results
     """
-    logger.info("=" * 80)
     logger.info("Starting PPN reconciliation...")
-    logger.info(f"Faktur Pajak path: {faktur_pajak_path}")
-    logger.info(f"Bukti Potong path: {bukti_potong_path}")
-    logger.info(f"Rekening Koran path: {rekening_koran_path}")
-    logger.info(f"Company NPWP: {company_npwp}")
-    logger.info("=" * 80)
+    logger.debug(f"Faktur Pajak path: {faktur_pajak_path}")
+    logger.debug(f"Bukti Potong path: {bukti_potong_path}")
+    logger.debug(f"Rekening Koran path: {rekening_koran_path}")
+    logger.debug(f"Company NPWP: {company_npwp}")
 
     # Load Faktur Pajak (required)
     df_faktur = load_excel_to_dataframe(faktur_pajak_path)
@@ -650,9 +644,9 @@ def run_ppn_reconciliation(
         f"Reconciliation completed: {auto_matched} auto-matched, {suggested} suggested, "
         f"{total_unmatched} unmatched, {match_rate:.1f}% match rate"
     )
-    logger.info(
-        f"💰 Margin Analysis: Penjualan Rp {total_penjualan_dpp:,.0f} - Pembelian Rp {total_pembelian_dpp:,.0f} "
-        f"= Margin Rp {margin_idr:,.0f} ({margin_pct:.2f}%)"
+    logger.debug(
+        f"Margin Analysis: Penjualan DPP={total_penjualan_dpp:,.0f} - Pembelian DPP={total_pembelian_dpp:,.0f} "
+        f"= Margin {margin_idr:,.0f} ({margin_pct:.2f}%)"
     )
 
     return result

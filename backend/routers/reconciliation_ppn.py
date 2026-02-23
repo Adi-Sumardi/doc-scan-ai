@@ -7,8 +7,10 @@ Comprehensive reconciliation for Indonesian tax documents:
 - Point E: Rekening Koran (Bank Statement)
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Body, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Depends, Body, UploadFile, File, Form, Request
 from fastapi.responses import StreamingResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -33,6 +35,7 @@ import json
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
+limiter = Limiter(key_func=get_remote_address)
 
 # Directory for temporary file storage
 TEMP_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "temp_uploads")
@@ -217,7 +220,7 @@ async def create_project(
     except Exception as e:
         logger.error(f"Failed to create project: {str(e)}", exc_info=True)
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to create project: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to create project")
 
 
 @router.get("/projects", response_model=List[ProjectResponse])
@@ -273,7 +276,7 @@ async def list_projects(
 
     except Exception as e:
         logger.error(f"Failed to list projects: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to list projects: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to list projects")
 
 
 @router.get("/projects/{project_id}", response_model=ProjectResponse)
@@ -319,7 +322,7 @@ async def get_project(
         raise
     except Exception as e:
         logger.error(f"Failed to get project: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get project: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get project")
 
 
 @router.put("/projects/{project_id}", response_model=ProjectResponse)
@@ -384,7 +387,7 @@ async def update_project(
     except Exception as e:
         logger.error(f"Failed to update project {project_id}: {str(e)}", exc_info=True)
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to update project: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update project")
 
 
 @router.delete("/projects/{project_id}")
@@ -423,7 +426,7 @@ async def delete_project(
     except Exception as e:
         logger.error(f"Failed to delete project: {str(e)}", exc_info=True)
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to delete project: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to delete project")
 
 
 @router.post("/reconcile-with-files")
@@ -497,7 +500,7 @@ async def run_reconciliation_with_files(
         bukti_potong_path = get_or_save_file(bukti_potong_file, bukti_potong_file_id, "Bukti Potong", required=False)
         rekening_koran_path = get_or_save_file(rekening_koran_file, rekening_koran_file_id, "Rekening Koran", required=False)
 
-        logger.info(f"Running reconciliation with files: FP={faktur_pajak_path}, BP={bukti_potong_path}, RK={rekening_koran_path}, AI={use_ai}")
+        logger.info(f"Running reconciliation: FP={'yes' if faktur_pajak_path else 'no'}, BP={'yes' if bukti_potong_path else 'no'}, RK={'yes' if rekening_koran_path else 'no'}, AI={use_ai}")
 
         # Run reconciliation (AI-enhanced or rule-based)
         try:
@@ -547,7 +550,7 @@ async def run_reconciliation_with_files(
             logger.error(f"Reconciliation failed: {str(e)}", exc_info=True)
             project.status = "draft"
             db.commit()
-            raise HTTPException(status_code=500, detail=f"Reconciliation failed: {str(e)}")
+            raise HTTPException(status_code=500, detail="Reconciliation failed")
         finally:
             # Clean up temporary files
             for path in [faktur_pajak_path, bukti_potong_path, rekening_koran_path]:
@@ -562,7 +565,7 @@ async def run_reconciliation_with_files(
         raise
     except Exception as e:
         logger.error(f"Reconciliation endpoint failed: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/reconcile", response_model=ReconciliationResult)
@@ -663,7 +666,7 @@ async def run_reconciliation(
             logger.error(f"Reconciliation failed: {str(e)}", exc_info=True)
             project.status = "draft"
             db.commit()
-            raise HTTPException(status_code=500, detail=f"Reconciliation failed: {str(e)}")
+            raise HTTPException(status_code=500, detail="Reconciliation failed")
 
         # Update project status to completed
         project.status = "completed"
@@ -682,7 +685,7 @@ async def run_reconciliation(
     except Exception as e:
         logger.error(f"Failed to run reconciliation: {str(e)}", exc_info=True)
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to run reconciliation: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to run reconciliation")
 
 
 @router.get("/reconciliation/{project_id}/results")
@@ -1116,7 +1119,7 @@ async def export_reconciliation_results(
         raise
     except Exception as e:
         logger.error(f"Failed to export reconciliation results: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to export results: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to export results")
 
 
 # ==================== Chat-Based Reconciliation Endpoints ====================
@@ -1305,7 +1308,9 @@ async def _chat_with_ai(prompt: str, session_id: str, db: Session) -> str:
 
 
 @router.post("/sessions/{session_id}/chat")
+@limiter.limit("20/minute")
 async def chat_reconciliation(
+    request: Request,
     session_id: str,
     prompt: str = Form(""),
     files: List[UploadFile] = File(default=[]),
@@ -1530,7 +1535,7 @@ async def chat_reconciliation(
         raise
     except Exception as e:
         logger.error(f"Chat reconciliation error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         # Clean up temp files
         for path in temp_paths:
@@ -1666,4 +1671,4 @@ async def export_chat_results(
 
     except Exception as e:
         logger.error(f"Export failed: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Export failed")

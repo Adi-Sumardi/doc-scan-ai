@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import { lazy, Suspense } from 'react';
 import Navbar from './components/Navbar';
 import Dashboard from './pages/Dashboard';
 import Upload from './pages/Upload';
@@ -11,12 +12,25 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import AdminDashboard from './pages/AdminDashboard';
 import UserActivities from './pages/UserActivities';
-import ReconciliationChat from './pages/ReconciliationChat';
 import { DocumentProvider } from './context/DocumentContext';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 import './App.css';
+
+// Lazy-load ReconciliationChat to reduce initial bundle size
+const ReconciliationChat = lazy(() => import('./pages/ReconciliationChat'));
+
+function ReconciliationFallback() {
+  return (
+    <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
+      <div className="text-center">
+        <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-3" />
+        <p className="text-sm text-slate-500">Loading Reconciliation...</p>
+      </div>
+    </div>
+  );
+}
 
 function App() {
   return (
@@ -69,7 +83,11 @@ function App() {
                 } />
                 <Route path="/reconciliation" element={
                   <ProtectedRoute>
-                    <ReconciliationChat />
+                    <ErrorBoundary>
+                      <Suspense fallback={<ReconciliationFallback />}>
+                        <ReconciliationChat />
+                      </Suspense>
+                    </ErrorBoundary>
                   </ProtectedRoute>
                 } />
                 <Route path="/ppn-reconciliation" element={<Navigate to="/reconciliation" replace />} />

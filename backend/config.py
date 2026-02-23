@@ -96,6 +96,20 @@ class Settings(BaseSettings):
 # Global settings instance
 settings = Settings()
 
+# Startup validation for production
+if settings.environment == "production":
+    if settings.jwt_secret_key == "your-secret-key-change-in-production":
+        raise RuntimeError(
+            "CRITICAL: JWT_SECRET_KEY is using the default value. "
+            "Set a secure JWT_SECRET_KEY environment variable before running in production."
+        )
+    if settings.cors_origins_list == ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"]:
+        import logging as _log
+        _log.getLogger(__name__).warning(
+            "CORS_ORIGINS_LIST is using default localhost values in production. "
+            "Set CORS_ORIGINS_LIST to your actual domain(s)."
+        )
+
 
 # Helper functions to get directories
 def get_upload_dir() -> str:

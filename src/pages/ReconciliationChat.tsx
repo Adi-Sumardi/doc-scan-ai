@@ -1,21 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { apiService } from '../services/api';
+import type { ReconciliationSession, ReconciliationMessage } from '../services/api';
 import ChatSidebar from '../components/reconciliation/ChatSidebar';
-import ChatMessages, { ChatMessage } from '../components/reconciliation/ChatMessages';
+import ChatMessages from '../components/reconciliation/ChatMessages';
 import ChatInput from '../components/reconciliation/ChatInput';
 
-interface Session {
-  id: string;
-  title: string;
-  created_at: string;
-  updated_at?: string;
-}
-
 export default function ReconciliationChat() {
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessions, setSessions] = useState<ReconciliationSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ReconciliationMessage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingType, setProcessingType] = useState<'chat' | 'reconciliation'>('chat');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -25,25 +19,23 @@ export default function ReconciliationChat() {
   // AbortController ref for cancelling in-flight session loads
   const loadSessionAbortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    loadSessions();
-  }, []);
-
-  const loadSessions = async () => {
+  const loadSessions = useCallback(async () => {
     try {
       const data = await apiService.reconciliation.getSessions();
       setSessions(data);
       setLoadState('ready');
-    } catch (err) {
-      console.error('Failed to load sessions:', err);
+    } catch {
       setLoadState('error');
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions]);
 
   // Load messages when session changes — with AbortController to cancel stale requests
   useEffect(() => {
     if (activeSessionId) {
-      // Cancel any in-flight request
       if (loadSessionAbortRef.current) {
         loadSessionAbortRef.current.abort();
       }
@@ -58,9 +50,8 @@ export default function ReconciliationChat() {
             setMessagesLoading(false);
           }
         })
-        .catch(err => {
+        .catch(() => {
           if (!controller.signal.aborted) {
-            console.error('Failed to load session:', err);
             toast.error('Gagal memuat sesi');
             setMessagesLoading(false);
           }
@@ -79,8 +70,7 @@ export default function ReconciliationChat() {
       setSessions(prev => [session, ...prev]);
       setActiveSessionId(session.id);
       setMessages([]);
-    } catch (err) {
-      console.error('Failed to create session:', err);
+    } catch {
       toast.error('Gagal membuat sesi baru');
     }
   }, []);
@@ -93,19 +83,24 @@ export default function ReconciliationChat() {
     try {
       await apiService.reconciliation.deleteSession(id);
       setSessions(prev => prev.filter(s => s.id !== id));
+      setActiveSessionId(prev => prev === id ? null : prev);
       if (activeSessionId === id) {
-        setActiveSessionId(null);
         setMessages([]);
       }
       toast.success('Sesi dihapus');
-    } catch (err) {
-      console.error('Failed to delete session:', err);
+    } catch {
       toast.error('Gagal menghapus sesi');
     }
   }, [activeSessionId]);
 
   const handleSend = useCallback(async (prompt: string, files: File[], useAI: boolean) => {
+    // Prevent double-submit
+    if (isProcessing) return;
+
     let sessionId = activeSessionId;
+
+    // Set processing early to prevent race condition on rapid clicks
+    setIsProcessing(true);
 
     // Auto-create session if none active
     if (!sessionId) {
@@ -114,32 +109,27 @@ export default function ReconciliationChat() {
         setSessions(prev => [session, ...prev]);
         setActiveSessionId(session.id);
         sessionId = session.id;
-      } catch (err) {
-        console.error('Failed to create session:', err);
+      } catch {
         toast.error('Gagal membuat sesi baru');
+        setIsProcessing(false);
         return;
       }
     }
 
-    // Capture file names before files array is cleared by ChatInput
     const fileNames = files.map(f => f.name);
 
-    // Optimistic: show user message immediately
-    const tempUserMsg: ChatMessage = {
-      id: `temp-${Date.now()}`,
+    // Optimistic: show user message immediately with unique ID
+    const tempUserMsg: ReconciliationMessage = {
+      id: `temp-${crypto.randomUUID()}`,
       role: 'user',
       content: prompt,
       attachments: fileNames.map(name => ({ name })),
       created_at: new Date().toISOString(),
     };
     setMessages(prev => [...prev, tempUserMsg]);
-
     setProcessingType(files.length > 0 ? 'reconciliation' : 'chat');
-    setIsProcessing(true);
 
     try {
-      if (!sessionId) return; // TypeScript narrowing guard
-
       const formData = new FormData();
       formData.append('prompt', prompt);
       formData.append('use_ai', String(useAI));
@@ -154,7 +144,7 @@ export default function ReconciliationChat() {
         result.assistant_message,
       ]);
 
-      // Update session title in sidebar using captured file names
+      // Update session title in sidebar from server response
       if (result.user_message.content || fileNames.length > 0) {
         setSessions(prev => prev.map(s =>
           s.id === sessionId
@@ -167,22 +157,19 @@ export default function ReconciliationChat() {
         ));
       }
 
-      loadSessions();
-
     } catch (err: unknown) {
-      console.error('Failed to send message:', err);
       // Remove temp user message on error
       setMessages(prev => prev.filter(m => m.id !== tempUserMsg.id));
       let errorMsg = 'Gagal memproses pesan';
       if (err instanceof Error && 'response' in err) {
-        const axiosErr = err as any;
+        const axiosErr = err as { response?: { data?: { detail?: string } } };
         errorMsg = axiosErr.response?.data?.detail || errorMsg;
       }
       toast.error(errorMsg);
     } finally {
       setIsProcessing(false);
     }
-  }, [activeSessionId]);
+  }, [activeSessionId, isProcessing]);
 
   const handleExport = useCallback(async (messageId: string) => {
     if (!activeSessionId) return;
@@ -194,10 +181,10 @@ export default function ReconciliationChat() {
       a.href = url;
       a.download = `Reconciliation_${new Date().toISOString().slice(0, 10)}.xlsx`;
       a.click();
-      window.URL.revokeObjectURL(url);
+      // Delay revoke to allow download to start (Safari compatibility)
+      setTimeout(() => window.URL.revokeObjectURL(url), 1000);
       toast.success('Excel berhasil diunduh');
-    } catch (err) {
-      console.error('Export failed:', err);
+    } catch {
       toast.error('Gagal mengunduh Excel');
     }
   }, [activeSessionId]);

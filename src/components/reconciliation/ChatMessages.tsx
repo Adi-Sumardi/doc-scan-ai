@@ -1,18 +1,13 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 import { User } from 'lucide-react';
 import ChatResultCard from './ChatResultCard';
+import type { ReconciliationMessage } from '../../services/api';
 
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  attachments?: Array<{ name: string; detected_type?: string; row_count?: number; error?: string }>;
-  results?: any;
-  created_at?: string;
-}
+// Re-export for backward compat
+export type ChatMessage = ReconciliationMessage;
 
 interface ChatMessagesProps {
-  messages: ChatMessage[];
+  messages: ReconciliationMessage[];
   isProcessing?: boolean;
   processingType?: 'chat' | 'reconciliation';
   messagesLoading?: boolean;
@@ -67,14 +62,13 @@ function WelcomeMessage() {
   );
 }
 
-function MessageBubble({ message, onExport }: { message: ChatMessage; onExport?: () => void }) {
+function MessageBubble({ message, onExport }: { message: ReconciliationMessage; onExport?: () => void }) {
   const isUser = message.role === 'user';
 
   if (isUser) {
     return (
       <div className="flex gap-3 mb-5 justify-end" role="listitem">
         <div className="max-w-[80%] flex flex-col items-end">
-          {/* Attachments above bubble */}
           {message.attachments && message.attachments.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mb-1.5 justify-end">
               {message.attachments.map((att, i) => (
@@ -85,7 +79,6 @@ function MessageBubble({ message, onExport }: { message: ChatMessage; onExport?:
             </div>
           )}
 
-          {/* User bubble */}
           {message.content?.trim() && (
             <div className="bg-indigo-600 text-white rounded-2xl rounded-br-md px-4 py-3 shadow-sm">
               <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
@@ -146,13 +139,33 @@ function LoadingSkeleton() {
 
 export default function ChatMessages({ messages, isProcessing, processingType = 'chat', messagesLoading, onExport }: ChatMessagesProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
 
+  // Track whether user is near bottom of the scroll area
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const threshold = 100;
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  }, []);
+
+  // Only auto-scroll if user is near bottom
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (isNearBottomRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, isProcessing]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6" role="log" aria-label="Chat messages" aria-live="polite">
+    <div
+      ref={scrollContainerRef}
+      onScroll={handleScroll}
+      className="flex-1 overflow-y-auto px-4 sm:px-6 py-6"
+      role="log"
+      aria-label="Chat messages"
+      aria-live="polite"
+    >
       {messagesLoading ? (
         <>
           <LoadingSkeleton />

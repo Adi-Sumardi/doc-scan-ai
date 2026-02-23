@@ -89,13 +89,18 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
 
   const canSend = !disabled && (prompt.trim() || files.length > 0);
 
+  const handleSubmit = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    handleSend();
+  }, [handleSend]);
+
   return (
-    <div
+    <form
+      onSubmit={handleSubmit}
       className={`bg-white border-t border-slate-200 px-4 sm:px-6 py-3 transition-colors relative ${isDragOver ? 'bg-indigo-50 border-indigo-300' : ''}`}
       onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
       onDragLeave={() => setIsDragOver(false)}
       onDrop={handleDrop}
-      role="form"
       aria-label="Chat input"
     >
       {/* Attached files */}
@@ -112,6 +117,7 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
         {/* Left actions */}
         <div className="flex items-center gap-1">
           <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled}
             className="p-2 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-40"
@@ -130,6 +136,7 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
           />
 
           <button
+            type="button"
             onClick={() => setUseAI(!useAI)}
             disabled={disabled}
             className={`p-2 rounded-lg transition-colors disabled:opacity-40 ${
@@ -170,7 +177,7 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
 
         {/* Send button */}
         <button
-          onClick={handleSend}
+          type="submit"
           disabled={!canSend}
           className={`p-2.5 rounded-xl transition-all ${
             canSend
@@ -189,6 +196,6 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
           <p className="text-indigo-600 font-medium text-sm">Drop file Excel di sini</p>
         </div>
       )}
-    </div>
+    </form>
   );
 }
