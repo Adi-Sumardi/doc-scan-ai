@@ -55,7 +55,7 @@ const Navbar = () => {
         { path: '/documents', icon: FileText, label: 'Documents' },
       ]
     },
-    { path: '/ppn-reconciliation', icon: FileSpreadsheet, label: 'Reconciliation' },
+    { path: '/reconciliation', icon: FileSpreadsheet, label: 'Reconciliation' },
   ];
   
   // Add Admin menu item if user is admin

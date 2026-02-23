@@ -19,13 +19,18 @@ import os
 import tempfile
 import shutil
 from sqlalchemy.orm import Session
-from database import get_db, PPNProject, User
+from database import get_db, PPNProject, ReconciliationSession, ReconciliationMessage, User
 from auth import get_current_user
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from services.ppn_reconciliation_service import run_ppn_reconciliation
+from services.ppn_reconciliation_service import (
+    run_ppn_reconciliation, detect_file_type, extract_company_npwp
+)
 from services.ppn_ai_reconciliation_service import run_ppn_ai_reconciliation
 from excel_reader_service import excel_reader_service
+import pandas as pd
+import json
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -1081,8 +1086,10 @@ async def export_reconciliation_results(
         wb.save(excel_file)
         excel_file.seek(0)
 
-        # Generate filename
-        filename = f"PPN_Reconciliation_{project.name.replace(' ', '_')}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        # Generate filename (sanitize user input)
+        import re as _re
+        safe_name = _re.sub(r'[^a-zA-Z0-9._-]', '_', project.name[:30])
+        filename = f"PPN_Reconciliation_{safe_name}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
 
         logger.info(f"Exported reconciliation results for project: {project_id}")
 
@@ -1091,7 +1098,7 @@ async def export_reconciliation_results(
             excel_file,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
-                "Content-Disposition": f"attachment; filename={filename}"
+                "Content-Disposition": f'attachment; filename="{filename}"'
             }
         )
 
@@ -1100,3 +1107,536 @@ async def export_reconciliation_results(
     except Exception as e:
         logger.error(f"Failed to export reconciliation results: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to export results: {str(e)}")
+
+
+# ==================== Chat-Based Reconciliation Endpoints ====================
+
+@router.post("/sessions")
+async def create_session(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new reconciliation chat session"""
+    session = ReconciliationSession(
+        id=str(uuid.uuid4()),
+        user_id=current_user.id,
+        title="New Reconciliation"
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+
+    return {
+        "id": session.id,
+        "title": session.title,
+        "created_at": session.created_at.isoformat() if session.created_at else None,
+        "updated_at": session.updated_at.isoformat() if session.updated_at else None,
+    }
+
+
+@router.get("/sessions")
+async def list_sessions(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List all reconciliation chat sessions for current user"""
+    sessions = db.query(ReconciliationSession).filter(
+        ReconciliationSession.user_id == current_user.id
+    ).order_by(ReconciliationSession.created_at.desc()).all()
+
+    return [
+        {
+            "id": s.id,
+            "title": s.title,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+        }
+        for s in sessions
+    ]
+
+
+@router.get("/sessions/{session_id}")
+async def get_session(
+    session_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get session with all messages"""
+    session = db.query(ReconciliationSession).filter(
+        ReconciliationSession.id == session_id,
+        ReconciliationSession.user_id == current_user.id
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    messages = db.query(ReconciliationMessage).filter(
+        ReconciliationMessage.session_id == session_id
+    ).order_by(
+        ReconciliationMessage.created_at.asc(),
+        ReconciliationMessage.role.desc()  # 'user' before 'assistant' when timestamps match
+    ).all()
+
+    return {
+        "id": session.id,
+        "title": session.title,
+        "created_at": session.created_at.isoformat() if session.created_at else None,
+        "updated_at": session.updated_at.isoformat() if session.updated_at else None,
+        "messages": [
+            {
+                "id": m.id,
+                "role": m.role,
+                "content": m.content,
+                "attachments": m.attachments,
+                "results": m.results,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+            }
+            for m in messages
+        ]
+    }
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a reconciliation session and its messages"""
+    session = db.query(ReconciliationSession).filter(
+        ReconciliationSession.id == session_id,
+        ReconciliationSession.user_id == current_user.id
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Delete messages first
+    db.query(ReconciliationMessage).filter(
+        ReconciliationMessage.session_id == session_id
+    ).delete()
+
+    db.delete(session)
+    db.commit()
+
+    return {"status": "deleted", "id": session_id}
+
+
+# ==================== AI Chat Helper ====================
+
+async def _chat_with_ai(prompt: str, session_id: str, db: Session) -> str:
+    """Conversational AI chat about tax reconciliation using OpenAI GPT-4.1"""
+    try:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            return "AI chat tidak tersedia. OPENAI_API_KEY belum dikonfigurasi."
+
+        client = OpenAI(api_key=api_key)
+
+        # Load conversation history from this session
+        history_messages = db.query(ReconciliationMessage).filter(
+            ReconciliationMessage.session_id == session_id
+        ).order_by(
+            ReconciliationMessage.created_at.asc(),
+            ReconciliationMessage.role.desc()
+        ).all()
+
+        # Build messages for OpenAI
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "Kamu adalah asisten ahli rekonsiliasi pajak Indonesia. "
+                    "Kamu membantu pengguna dengan pertanyaan seputar:\n"
+                    "- Faktur Pajak (PPN Keluaran & Masukan)\n"
+                    "- Bukti Potong (PPh 21, 23, dll)\n"
+                    "- Rekening Koran (Bank Statement)\n"
+                    "- Rekonsiliasi pajak: mencocokkan Faktur Pajak vs Bukti Potong, Faktur vs Rekening Koran\n"
+                    "- Peraturan perpajakan Indonesia terkait PPN, PPh, e-Faktur, e-Bupot\n"
+                    "- Format NPWP, nomor faktur, kode transaksi\n\n"
+                    "Jawab dalam Bahasa Indonesia yang profesional dan mudah dipahami. "
+                    "Jika pengguna bertanya di luar topik pajak/akuntansi, tetap jawab dengan sopan "
+                    "tapi arahkan kembali ke topik rekonsiliasi pajak.\n\n"
+                    "Jika pengguna ingin melakukan rekonsiliasi, minta mereka upload file Excel "
+                    "(Faktur Pajak, Bukti Potong, atau Rekening Koran) beserta instruksi."
+                )
+            }
+        ]
+
+        # Add conversation history (last 20 messages to keep context manageable)
+        for msg in history_messages[-20:]:
+            if msg.role == "user":
+                messages.append({"role": "user", "content": msg.content or ""})
+            elif msg.role == "assistant":
+                # Include result summary if available, not full data
+                content = msg.content or ""
+                if msg.results and msg.results.get("reconciliation", {}).get("status") == "completed":
+                    summary = msg.results.get("reconciliation", {}).get("summary", {})
+                    content += f"\n[Hasil rekonsiliasi sebelumnya: match_rate={summary.get('match_rate', 0)}%, "
+                    content += f"matched={summary.get('total_auto_matched', 0)}, "
+                    content += f"unmatched={summary.get('total_unmatched', 0)}]"
+                messages.append({"role": "assistant", "content": content})
+
+        # Add current user prompt
+        messages.append({"role": "user", "content": prompt})
+
+        response = client.chat.completions.create(
+            model="gpt-4.1",
+            messages=messages,
+            max_tokens=2000,
+            temperature=0.7,
+        )
+
+        return response.choices[0].message.content or "Maaf, saya tidak bisa menjawab saat ini."
+
+    except Exception as e:
+        logger.error(f"AI chat error: {e}", exc_info=True)
+        return f"Maaf, terjadi kesalahan saat memproses pertanyaan Anda. Silakan coba lagi."
+
+
+@router.post("/sessions/{session_id}/chat")
+async def chat_reconciliation(
+    session_id: str,
+    prompt: str = Form(""),
+    files: List[UploadFile] = File(default=[]),
+    use_ai: bool = Form(True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Send a chat message with files + prompt, returns assistant response with reconciliation results.
+    Auto-detects file types and extracts NPWP from faktur pajak.
+    """
+    session = db.query(ReconciliationSession).filter(
+        ReconciliationSession.id == session_id,
+        ReconciliationSession.user_id == current_user.id
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if not files and not prompt.strip():
+        raise HTTPException(status_code=400, detail="Please attach files or type a message")
+
+    temp_paths = []
+    try:
+        # Save uploaded files and detect types
+        files_detected = []
+        faktur_pajak_path = None
+        bukti_potong_path = None
+        rekening_koran_path = None
+
+        for uploaded_file in files:
+            ext = os.path.splitext(uploaded_file.filename)[1]
+            temp_path = os.path.join(TEMP_DIR, f"{uuid.uuid4()}{ext}")
+
+            with open(temp_path, "wb") as f:
+                content = uploaded_file.file.read()
+                f.write(content)
+
+            temp_paths.append(temp_path)
+
+            # Auto-detect file type from column headers
+            try:
+                df = pd.read_excel(temp_path)
+                detected_type = detect_file_type(df)
+                row_count = len(df)
+
+                files_detected.append({
+                    "name": uploaded_file.filename,
+                    "detected_type": detected_type,
+                    "row_count": row_count,
+                    "size": len(content),
+                })
+
+                if detected_type == 'faktur_pajak':
+                    faktur_pajak_path = temp_path
+                elif detected_type == 'bukti_potong':
+                    bukti_potong_path = temp_path
+                elif detected_type == 'rekening_koran':
+                    rekening_koran_path = temp_path
+                else:
+                    files_detected[-1]["error"] = "Tipe file tidak dikenali dari kolom Excel"
+
+            except Exception as e:
+                files_detected.append({
+                    "name": uploaded_file.filename,
+                    "detected_type": "error",
+                    "row_count": 0,
+                    "error": f"Gagal membaca file: {str(e)}",
+                })
+
+        # Save user message (set explicit timestamp so ordering is guaranteed)
+        user_created_at = datetime.utcnow()
+        user_msg = ReconciliationMessage(
+            id=str(uuid.uuid4()),
+            session_id=session_id,
+            role="user",
+            content=prompt,
+            attachments=files_detected,
+            created_at=user_created_at,
+        )
+        db.add(user_msg)
+
+        # Update session title from first prompt
+        existing_msgs = db.query(ReconciliationMessage).filter(
+            ReconciliationMessage.session_id == session_id
+        ).count()
+        if existing_msgs == 0 and prompt.strip():
+            session.title = prompt.strip()[:50]
+        elif existing_msgs == 0 and files_detected:
+            session.title = f"Rekonsiliasi {files_detected[0]['name'][:40]}"
+
+        # Run reconciliation if we have at least faktur pajak
+        assistant_content = ""
+        results_data = {"files_detected": files_detected}
+
+        if faktur_pajak_path:
+            # Auto-extract NPWP
+            try:
+                fp_df = pd.read_excel(faktur_pajak_path)
+                company_npwp = extract_company_npwp(fp_df)
+            except Exception as e:
+                logger.warning(f"Failed to extract NPWP: {e}")
+                company_npwp = ""
+
+            results_data["company_npwp"] = company_npwp
+
+            if not company_npwp:
+                assistant_content = "Tidak dapat mendeteksi NPWP perusahaan dari file Faktur Pajak. Pastikan kolom 'NPWP Penjual' terisi."
+            else:
+                logger.info(f"Chat reconciliation: NPWP={company_npwp}, AI={use_ai}")
+
+                try:
+                    if use_ai:
+                        reconciliation_result = run_ppn_ai_reconciliation(
+                            faktur_pajak_path=faktur_pajak_path,
+                            bukti_potong_path=bukti_potong_path,
+                            rekening_koran_path=rekening_koran_path,
+                            company_npwp=company_npwp,
+                            use_ai=True
+                        )
+                    else:
+                        reconciliation_result = run_ppn_reconciliation(
+                            faktur_pajak_path=faktur_pajak_path,
+                            bukti_potong_path=bukti_potong_path,
+                            rekening_koran_path=rekening_koran_path,
+                            company_npwp=company_npwp
+                        )
+
+                    results_data["reconciliation"] = {
+                        "status": "completed",
+                        "point_a_count": reconciliation_result['point_a_count'],
+                        "point_b_count": reconciliation_result['point_b_count'],
+                        "point_c_count": reconciliation_result['point_c_count'],
+                        "point_e_count": reconciliation_result['point_e_count'],
+                        "matches": reconciliation_result['matches'],
+                        "mismatches": reconciliation_result['mismatches'],
+                        "summary": reconciliation_result['summary'],
+                    }
+
+                    summary = reconciliation_result['summary']
+                    match_rate = summary.get('match_rate', 0)
+                    total_matched = summary.get('total_auto_matched', 0) + summary.get('total_suggested', 0)
+                    total_unmatched = summary.get('total_unmatched', 0)
+
+                    assistant_content = (
+                        f"Rekonsiliasi selesai. "
+                        f"Match rate: {match_rate:.1f}% | "
+                        f"Matched: {total_matched} | "
+                        f"Unmatched: {total_unmatched}"
+                    )
+
+                except Exception as e:
+                    logger.error(f"Chat reconciliation failed: {e}", exc_info=True)
+                    assistant_content = f"Rekonsiliasi gagal: {str(e)}"
+                    results_data["reconciliation"] = {"status": "failed", "error": str(e)}
+        else:
+            if files_detected:
+                unknown_files = [f['name'] for f in files_detected if f['detected_type'] in ('unknown', 'error')]
+                if unknown_files:
+                    assistant_content = (
+                        f"File yang diupload tidak terdeteksi sebagai Faktur Pajak. "
+                        f"Pastikan file Excel memiliki kolom: Nomor Faktur, NPWP Penjual, NPWP Pembeli, dll."
+                    )
+                else:
+                    assistant_content = "Tidak ada file Faktur Pajak. Upload minimal file Faktur Pajak untuk memulai rekonsiliasi."
+            else:
+                # No files — use OpenAI for conversational chat about reconciliation
+                if prompt.strip():
+                    assistant_content = await _chat_with_ai(prompt, session_id, db)
+                else:
+                    assistant_content = "Silakan upload file Excel untuk memulai rekonsiliasi, atau tanyakan sesuatu tentang rekonsiliasi pajak."
+
+        # Save assistant message (timestamp after user message for correct ordering)
+        assistant_msg = ReconciliationMessage(
+            id=str(uuid.uuid4()),
+            session_id=session_id,
+            role="assistant",
+            content=assistant_content,
+            results=results_data,
+            created_at=datetime.utcnow(),
+        )
+        db.add(assistant_msg)
+
+        session.updated_at = datetime.utcnow()
+        db.commit()
+
+        return {
+            "user_message": {
+                "id": user_msg.id,
+                "role": "user",
+                "content": user_msg.content,
+                "attachments": user_msg.attachments,
+                "created_at": user_msg.created_at.isoformat() if user_msg.created_at else None,
+            },
+            "assistant_message": {
+                "id": assistant_msg.id,
+                "role": "assistant",
+                "content": assistant_msg.content,
+                "results": assistant_msg.results,
+                "created_at": assistant_msg.created_at.isoformat() if assistant_msg.created_at else None,
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Chat reconciliation error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Clean up temp files
+        for path in temp_paths:
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temp file {path}: {e}")
+
+
+@router.post("/sessions/{session_id}/export")
+async def export_chat_results(
+    session_id: str,
+    body: Dict[str, Any] = Body(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Export reconciliation results from a chat message to Excel"""
+    session = db.query(ReconciliationSession).filter(
+        ReconciliationSession.id == session_id,
+        ReconciliationSession.user_id == current_user.id
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    message_id = body.get("message_id")
+    if not message_id:
+        raise HTTPException(status_code=400, detail="message_id is required")
+
+    message = db.query(ReconciliationMessage).filter(
+        ReconciliationMessage.id == message_id,
+        ReconciliationMessage.session_id == session_id,
+        ReconciliationMessage.role == "assistant"
+    ).first()
+
+    if not message or not message.results:
+        raise HTTPException(status_code=404, detail="Results not found")
+
+    reconciliation = message.results.get("reconciliation", {})
+    if reconciliation.get("status") != "completed":
+        raise HTTPException(status_code=400, detail="No completed reconciliation results to export")
+
+    try:
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+
+        header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True, size=11)
+        border = Border(
+            left=Side(style='thin'), right=Side(style='thin'),
+            top=Side(style='thin'), bottom=Side(style='thin')
+        )
+
+        # Summary sheet
+        ws = wb.create_sheet("Summary")
+        ws.append(["Reconciliation Summary"])
+        ws.append([])
+        ws.append(["Session:", session.title])
+        ws.append(["NPWP:", message.results.get("company_npwp", "-")])
+        ws.append(["Generated:", datetime.utcnow().strftime('%d/%m/%Y %H:%M:%S UTC')])
+        ws.append([])
+
+        summary = reconciliation.get("summary", {})
+        ws.append(["Metric", "Value"])
+        for key, val in summary.items():
+            ws.append([key.replace("_", " ").title(), str(val)])
+
+        # Matched A vs C
+        matches_ac = reconciliation.get("matches", {}).get("point_a_vs_c", [])
+        if matches_ac:
+            ws_ac = wb.create_sheet("Matched A vs C")
+            headers = ["No", "Nomor Faktur", "Vendor", "Amount", "Match Type", "Confidence"]
+            ws_ac.append(headers)
+            for i, cell in enumerate(ws_ac[1], 1):
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.border = border
+            for idx, m in enumerate(matches_ac, 1):
+                d = m.get("details", {})
+                ws_ac.append([
+                    idx, d.get("nomor_faktur", ""), d.get("vendor_name", ""),
+                    d.get("amount", 0), m.get("match_type", ""), m.get("match_confidence", 0)
+                ])
+
+        # Matched B vs E
+        matches_be = reconciliation.get("matches", {}).get("point_b_vs_e", [])
+        if matches_be:
+            ws_be = wb.create_sheet("Matched B vs E")
+            headers = ["No", "Nomor Faktur", "Vendor", "Amount", "Bank Amount", "Match Type", "Confidence"]
+            ws_be.append(headers)
+            for i, cell in enumerate(ws_be[1], 1):
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.border = border
+            for idx, m in enumerate(matches_be, 1):
+                d = m.get("details", {})
+                ws_be.append([
+                    idx, d.get("nomor_faktur", ""), d.get("vendor_name", ""),
+                    d.get("amount", 0), d.get("bank_amount", 0),
+                    m.get("match_type", ""), m.get("match_confidence", 0)
+                ])
+
+        # Unmatched sheet
+        mismatches = reconciliation.get("mismatches", {})
+        has_unmatched = any(len(v) > 0 for v in mismatches.values() if isinstance(v, list))
+        if has_unmatched:
+            ws_um = wb.create_sheet("Unmatched")
+            for point_key, items in mismatches.items():
+                if not items:
+                    continue
+                ws_um.append([point_key.replace("_", " ").title()])
+                if items and isinstance(items[0], dict):
+                    keys = list(items[0].keys())
+                    ws_um.append(keys)
+                    for item in items:
+                        ws_um.append([item.get(k, "") for k in keys])
+                ws_um.append([])
+
+        excel_file = io.BytesIO()
+        wb.save(excel_file)
+        excel_file.seek(0)
+
+        import re as _re
+        safe_title = _re.sub(r'[^a-zA-Z0-9._-]', '_', session.title[:30])
+        filename = f"Reconciliation_{safe_title}_{datetime.utcnow().strftime('%Y%m%d')}.xlsx"
+
+        return StreamingResponse(
+            excel_file,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+
+    except Exception as e:
+        logger.error(f"Export failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")

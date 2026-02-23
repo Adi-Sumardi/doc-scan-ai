@@ -231,7 +231,43 @@ export const apiService = {
 
   getResultFile: (resultId: string): string => {
     return `${API_BASE_URL}/api/results/${resultId}/file`;
-  }
+  },
+
+  // ==================== Reconciliation Chat ====================
+  reconciliation: {
+    getSessions: async () => {
+      const response = await api.get('/api/reconciliation-ppn/sessions');
+      return response.data;
+    },
+    createSession: async () => {
+      const response = await api.post('/api/reconciliation-ppn/sessions');
+      return response.data;
+    },
+    getSession: async (sessionId: string) => {
+      const response = await api.get(`/api/reconciliation-ppn/sessions/${sessionId}`);
+      return response.data;
+    },
+    deleteSession: async (sessionId: string) => {
+      const response = await api.delete(`/api/reconciliation-ppn/sessions/${sessionId}`);
+      return response.data;
+    },
+    sendMessage: async (sessionId: string, formData: FormData) => {
+      const response = await api.post(
+        `/api/reconciliation-ppn/sessions/${sessionId}/chat`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000 }
+      );
+      return response.data;
+    },
+    exportResults: async (sessionId: string, messageId: string): Promise<Blob> => {
+      const response = await api.post(
+        `/api/reconciliation-ppn/sessions/${sessionId}/export`,
+        { message_id: messageId },
+        { responseType: 'blob' }
+      );
+      return response.data;
+    },
+  },
 };
 
 export default api;

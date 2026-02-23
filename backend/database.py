@@ -5,7 +5,7 @@ Production-grade database with comprehensive models
 from sqlalchemy import create_engine, MetaData
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy import Column, String, Integer, Text, DateTime, JSON, Float, Boolean
+from sqlalchemy import Column, String, Integer, Text, DateTime, JSON, Float, Boolean, ForeignKey
 from sqlalchemy.dialects.mysql import LONGTEXT
 import os
 from datetime import datetime
@@ -377,6 +377,32 @@ class PPNPointE(Base):
 
     # Metadata
     raw_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ==================== Reconciliation Chat Models ====================
+
+class ReconciliationSession(Base):
+    """Chat-based reconciliation session"""
+    __tablename__ = "reconciliation_sessions"
+
+    id = Column(String(36), primary_key=True, index=True)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String(255), default="New Reconciliation")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ReconciliationMessage(Base):
+    """Message in a reconciliation chat session"""
+    __tablename__ = "reconciliation_messages"
+
+    id = Column(String(36), primary_key=True, index=True)
+    session_id = Column(String(36), ForeignKey("reconciliation_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    role = Column(String(20), nullable=False)  # 'user' or 'assistant'
+    content = Column(Text, nullable=True)
+    attachments = Column(JSON, nullable=True)  # [{name, size, detected_type, row_count}]
+    results = Column(JSON, nullable=True)  # reconciliation results (assistant only)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

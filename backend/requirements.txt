@@ -28,8 +28,8 @@ slowapi==0.1.9              # Rate limiting for authentication endpoints
 prometheus-client==0.21.1
 structlog==24.4.0
 
-# ===== OCR REMOVED =====
-# REMOVED: paddleocr, easyocr, rapidocr, pytesseract - Using only Google Document AI now
+# ===== OCR ENGINES =====
+surya-ocr>=0.6.0            # Free local OCR (primary engine) - Surya OCR
 nest-asyncio==1.6.0         # For running asyncio loops inside other loops (gRPC compatibility)
 
 # ===== IMAGE PROCESSING (MINIMAL) =====

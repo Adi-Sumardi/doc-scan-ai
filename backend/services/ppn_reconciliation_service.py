@@ -42,6 +42,35 @@ REQUIRED_COLUMNS_REKENING_KORAN = [
 ]
 
 
+def detect_file_type(df: pd.DataFrame) -> str:
+    """Auto-detect file type from Excel column headers"""
+    cols = set(c.strip() for c in df.columns)
+    if 'Nomor Faktur' in cols and ('NPWP Penjual' in cols or 'NPWP Pembeli' in cols):
+        return 'faktur_pajak'
+    if 'Nomor Bukti Potong' in cols and 'NPWP Pemotong' in cols:
+        return 'bukti_potong'
+    if 'Keterangan' in cols and ('Debet (Rp)' in cols or 'Kredit (Rp)' in cols):
+        return 'rekening_koran'
+    return 'unknown'
+
+
+def extract_company_npwp(df: pd.DataFrame) -> str:
+    """Auto-extract company NPWP from faktur pajak (most frequent NPWP Penjual)"""
+    if 'NPWP Penjual' not in df.columns:
+        return ''
+    try:
+        npwp_series = df['NPWP Penjual'].dropna().astype(str).str.strip()
+        npwp_series = npwp_series[npwp_series != '']
+        if npwp_series.empty:
+            return ''
+        mode_result = npwp_series.mode()
+        if mode_result.empty:
+            return npwp_series.iloc[0]
+        return mode_result.iloc[0]
+    except Exception:
+        return ''
+
+
 def validate_excel_columns(df: pd.DataFrame, required_columns: List[str], file_type: str) -> None:
     """
     Validate that Excel has all required columns
@@ -285,13 +314,13 @@ def match_point_b_vs_e(point_b: pd.DataFrame, point_e: pd.DataFrame) -> Dict[str
         for fmt in formats:
             try:
                 return pd.to_datetime(str(date_str), format=fmt, errors='raise')
-            except:
+            except (ValueError, TypeError):
                 continue
 
         # Fallback to pandas auto-parse
         try:
             return pd.to_datetime(date_str, errors='coerce')
-        except:
+        except (ValueError, TypeError):
             return None
 
     # Match with graduated tolerance
@@ -325,7 +354,7 @@ def match_point_b_vs_e(point_b: pd.DataFrame, point_e: pd.DataFrame) -> Dict[str
                 date_score = 0.0  # Beyond 7 days = no match
 
             # Calculate amount score (up to 5% tolerance)
-            amount_diff_pct = abs(b_amount - e_debet) / b_amount * 100
+            amount_diff_pct = abs(b_amount - e_debet) / b_amount * 100 if b_amount != 0 else (0 if e_debet == 0 else 100)
             if amount_diff_pct <= 5:
                 amount_score = max(0.0, 1.0 - (amount_diff_pct / 5.0))
             else:

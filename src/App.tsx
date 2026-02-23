@@ -11,8 +11,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import AdminDashboard from './pages/AdminDashboard';
 import UserActivities from './pages/UserActivities';
-import PPNReconciliation from './pages/PPNReconciliation';
-import PPNProjectDetail from './pages/PPNProjectDetail';
+import ReconciliationChat from './pages/ReconciliationChat';
 import { DocumentProvider } from './context/DocumentContext';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -70,19 +69,10 @@ function App() {
                 } />
                 <Route path="/reconciliation" element={
                   <ProtectedRoute>
-                    <PPNReconciliation />
+                    <ReconciliationChat />
                   </ProtectedRoute>
                 } />
-                <Route path="/ppn-reconciliation" element={
-                  <ProtectedRoute>
-                    <PPNReconciliation />
-                  </ProtectedRoute>
-                } />
-                <Route path="/ppn-reconciliation/:projectId" element={
-                  <ProtectedRoute>
-                    <PPNProjectDetail />
-                  </ProtectedRoute>
-                } />
+                <Route path="/ppn-reconciliation" element={<Navigate to="/reconciliation" replace />} />
               </Routes>
             </main>
             <Toaster position="top-right" />

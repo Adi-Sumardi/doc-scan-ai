@@ -1,8 +1,8 @@
 """
 PPN AI-Enhanced Reconciliation Service
-Hybrid approach: GPT-4o primary + rule-based fallback
-- Uses GPT-4o for intelligent matching with fuzzy logic
-- Falls back to traditional rule-based matching if GPT-4o fails or quota exceeded
+Hybrid approach: GPT-4.1 primary + rule-based fallback
+- Uses GPT-4.1 for intelligent matching with fuzzy logic
+- Falls back to traditional rule-based matching if GPT-4.1 fails or quota exceeded
 """
 
 import pandas as pd
@@ -32,7 +32,7 @@ class AIReconciliationService:
 
     def __init__(self):
         self.use_ai = bool(os.getenv("OPENAI_API_KEY"))
-        self.model = "gpt-4o"
+        self.model = "gpt-4.1"
         self.max_retries = 2
         logger.info(f"🤖 AI Reconciliation Service initialized (AI enabled: {self.use_ai})")
 
@@ -43,7 +43,7 @@ class AIReconciliationService:
         use_fallback: bool = True
     ) -> Dict[str, List]:
         """
-        Match Point A vs C using GPT-4o with fallback to rule-based
+        Match Point A vs C using GPT-4.1 with fallback to rule-based
 
         Args:
             point_a: Faktur Keluaran dataframe
@@ -58,7 +58,7 @@ class AIReconciliationService:
             return rule_based_match_a_c(point_a, point_c)
 
         try:
-            logger.info("🤖 Attempting AI-enhanced matching for Point A vs C with GPT-4o")
+            logger.info("🤖 Attempting AI-enhanced matching for Point A vs C with GPT-4.1")
             return self._ai_match_a_vs_c(point_a, point_c)
 
         except Exception as e:
@@ -66,9 +66,9 @@ class AIReconciliationService:
 
             # Check for quota/rate limit errors
             if "quota" in error_msg or "rate_limit" in error_msg or "insufficient" in error_msg:
-                logger.warning(f"⚠️ GPT-4o quota exceeded or rate limited: {str(e)}")
+                logger.warning(f"⚠️ GPT-4.1 quota exceeded or rate limited: {str(e)}")
             else:
-                logger.error(f"❌ GPT-4o matching failed: {str(e)}")
+                logger.error(f"❌ GPT-4.1 matching failed: {str(e)}")
 
             if use_fallback:
                 logger.info("♻️ Falling back to rule-based matching for Point A vs C")
@@ -83,7 +83,7 @@ class AIReconciliationService:
         use_fallback: bool = True
     ) -> Dict[str, List]:
         """
-        Match Point B vs E using GPT-4o with fallback to rule-based
+        Match Point B vs E using GPT-4.1 with fallback to rule-based
 
         Args:
             point_b: Faktur Masukan dataframe
@@ -98,7 +98,7 @@ class AIReconciliationService:
             return rule_based_match_b_e(point_b, point_e)
 
         try:
-            logger.info("🤖 Attempting AI-enhanced matching for Point B vs E with GPT-4o")
+            logger.info("🤖 Attempting AI-enhanced matching for Point B vs E with GPT-4.1")
             return self._ai_match_b_vs_e(point_b, point_e)
 
         except Exception as e:
@@ -106,9 +106,9 @@ class AIReconciliationService:
 
             # Check for quota/rate limit errors
             if "quota" in error_msg or "rate_limit" in error_msg or "insufficient" in error_msg:
-                logger.warning(f"⚠️ GPT-4o quota exceeded or rate limited: {str(e)}")
+                logger.warning(f"⚠️ GPT-4.1 quota exceeded or rate limited: {str(e)}")
             else:
-                logger.error(f"❌ GPT-4o matching failed: {str(e)}")
+                logger.error(f"❌ GPT-4.1 matching failed: {str(e)}")
 
             if use_fallback:
                 logger.info("♻️ Falling back to rule-based matching for Point B vs E")
@@ -118,7 +118,7 @@ class AIReconciliationService:
 
     def _ai_match_a_vs_c(self, point_a: pd.DataFrame, point_c: pd.DataFrame) -> Dict[str, List]:
         """
-        AI-enhanced matching for Point A vs C using GPT-4o
+        AI-enhanced matching for Point A vs C using GPT-4.1
         """
         matches = []
         point_a_matched_idx = set()
@@ -243,7 +243,7 @@ class AIReconciliationService:
 
     def _ai_match_b_vs_e(self, point_b: pd.DataFrame, point_e: pd.DataFrame) -> Dict[str, List]:
         """
-        AI-enhanced matching for Point B vs E using GPT-4o
+        AI-enhanced matching for Point B vs E using GPT-4.1
         """
         matches = []
         point_b_matched_idx = set()

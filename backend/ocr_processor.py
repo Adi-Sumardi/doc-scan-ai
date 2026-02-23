@@ -1,7 +1,7 @@
 """
-OCR Processor Module - Simplified Version
-Handles all OCR operations using ONLY Google Document AI
-Fallback OCR engines (PaddleOCR, EasyOCR, RapidOCR) have been removed
+OCR Processor Module - Hybrid Version
+Primary: Surya OCR (free, local)
+Fallback: Google Document AI (paid, cloud)
 Smart Mapper GPT handles field extraction from raw OCR text
 """
 
@@ -12,102 +12,152 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Try to import Cloud AI Processor (Google Document AI ONLY)
+# OCR Engine configuration
+# Options: surya_primary, google_primary, surya_only, google_only
+OCR_ENGINE_MODE = os.environ.get('OCR_ENGINE_MODE', 'surya_primary')
+
+# Try to import Surya OCR (free, local)
+try:
+    from surya_processor import SuryaProcessor
+    HAS_SURYA = True
+    logger.info("Surya OCR available")
+except ImportError:
+    HAS_SURYA = False
+    logger.warning("Surya OCR not available (pip install surya-ocr)")
+
+# Try to import Google Document AI (paid, cloud)
 try:
     from cloud_ai_processor import CloudAIProcessor
     HAS_CLOUD_AI = True
-    logger.info("✅ Cloud AI Processor loaded successfully (Google Document AI)")
+    logger.info("Google Document AI available")
 except ImportError:
     HAS_CLOUD_AI = False
-    logger.error("❌ Cloud AI Processor not available - System cannot function!")
-    logger.error("Install with: pip install google-cloud-documentai")
+    logger.warning("Google Document AI not available")
 
 
 class RealOCRProcessor:
-    """Simplified OCR processor using ONLY Google Document AI
-    
-    All fallback OCR engines (PaddleOCR, EasyOCR, RapidOCR) have been removed.
-    Smart Mapper GPT handles intelligent field extraction from raw OCR text.
+    """Hybrid OCR processor: Surya OCR (free, primary) + Google DocAI (paid, fallback)
+
+    Engine modes:
+    - surya_primary: Try Surya first, fallback to Google (default)
+    - google_primary: Try Google first, fallback to Surya
+    - surya_only: Only use Surya (100% free)
+    - google_only: Only use Google (current behavior)
     """
-    
+
     def __init__(self):
         self.initialized = False
         self._last_ocr_result = None
+        self.surya_processor = None
+        self.cloud_processor = None
 
-        # Initialize Google Document AI processor
-        if not HAS_CLOUD_AI:
-            logger.critical("❌ Google Document AI not available - system cannot function!")
-            logger.critical("Install with: pip install google-cloud-documentai")
-            logger.critical("Configure GCP credentials: GOOGLE_APPLICATION_CREDENTIALS environment variable")
-            return
+        logger.info(f"OCR Engine Mode: {OCR_ENGINE_MODE}")
 
-        try:
-            self.cloud_processor = CloudAIProcessor()
-            logger.info("🚀 Google Document AI initialized successfully")
-            self.initialized = True
-        except Exception as e:
-            logger.critical(f"❌ Failed to initialize Google Document AI: {e}", exc_info=True)
-            logger.critical("System cannot function without Google Document AI!")
-            self.initialized = False
-    
-    async def extract_text(self, file_path: str) -> str:
-        """Extract text using Google Document AI ONLY
-        
-        No fallback OCR engines. If Google Document AI fails, the system cannot process the document.
-        Smart Mapper GPT handles field extraction from the raw OCR text.
-        """
+        # Initialize Surya OCR if needed
+        if OCR_ENGINE_MODE in ('surya_primary', 'surya_only', 'google_primary') and HAS_SURYA:
+            try:
+                self.surya_processor = SuryaProcessor()
+                logger.info("Surya OCR initialized (PRIMARY)" if OCR_ENGINE_MODE == 'surya_primary'
+                            else "Surya OCR initialized")
+            except Exception as e:
+                logger.error(f"Surya OCR init failed: {e}", exc_info=True)
+
+        # Initialize Google Document AI if needed
+        if OCR_ENGINE_MODE in ('surya_primary', 'google_primary', 'google_only') and HAS_CLOUD_AI:
+            try:
+                self.cloud_processor = CloudAIProcessor()
+                logger.info("Google Document AI initialized (FALLBACK)" if OCR_ENGINE_MODE == 'surya_primary'
+                            else "Google Document AI initialized")
+            except Exception as e:
+                logger.error(f"Google Document AI init failed: {e}", exc_info=True)
+
+        self.initialized = (
+            self.surya_processor is not None or
+            self.cloud_processor is not None
+        )
+
         if not self.initialized:
-            logger.error("❌ OCR processor not initialized - Google Document AI unavailable")
+            logger.critical("No OCR engine available! System cannot function.")
+            logger.critical("Install surya-ocr (pip install surya-ocr) or configure Google Document AI")
+
+    async def extract_text(self, file_path: str) -> str:
+        """Extract text with hybrid engine (try primary, fallback to secondary)"""
+        if not self.initialized:
+            logger.error("No OCR engine initialized")
             return ""
-            
+
         if not os.path.exists(file_path):
-            logger.error(f"❌ File not found: {file_path}")
+            logger.error(f"File not found: {file_path}")
             return ""
-        
+
         file_ext = Path(file_path).suffix.lower()
-        logger.info(f"🔍 Processing {file_ext} file with Google Document AI: {file_path}")
-        
-        # Use Google Document AI (ONLY option)
-        try:
-            result = await self.cloud_processor.process_with_google(file_path)
-            
-            if result and result.raw_text:
-                logger.info(f"✅ Google Document AI success: {len(result.raw_text)} chars, {result.confidence:.1f}% confidence")
-                self._last_ocr_result = {
-                    'text': result.raw_text,
-                    'extracted_fields': result.extracted_fields,
-                    'confidence': result.confidence,
-                    'engine_used': result.service_used,
-                    'quality_score': result.confidence,
-                    'processing_time': result.processing_time,
-                    'raw_response': result.raw_response
-                }
-                return result.raw_text
-            else:
-                logger.error("❌ Google Document AI returned no text")
-                logger.error("Check: 1) GCP credentials, 2) Processor ID, 3) GCP console logs")
-                return ""
-                
-        except Exception as e:
-            logger.error(f"❌ Google Document AI processing failed: {e}", exc_info=True)
-            return ""
-    
+
+        # Determine engine order based on mode
+        if OCR_ENGINE_MODE == 'surya_primary':
+            engines = [
+                ('surya', self.surya_processor),
+                ('google', self.cloud_processor),
+            ]
+        elif OCR_ENGINE_MODE == 'google_primary':
+            engines = [
+                ('google', self.cloud_processor),
+                ('surya', self.surya_processor),
+            ]
+        elif OCR_ENGINE_MODE == 'surya_only':
+            engines = [('surya', self.surya_processor)]
+        else:  # google_only
+            engines = [('google', self.cloud_processor)]
+
+        # Try engines in order
+        for engine_name, engine in engines:
+            if engine is None:
+                continue
+
+            try:
+                logger.info(f"Processing {file_ext} file with {engine_name}: {file_path}")
+
+                if engine_name == 'surya':
+                    result = await engine.process_document(file_path)
+                else:
+                    result = await engine.process_with_google(file_path)
+
+                if result and result.raw_text:
+                    logger.info(
+                        f"{engine_name} OCR success: "
+                        f"{len(result.raw_text)} chars, "
+                        f"{result.confidence:.1f}% confidence"
+                    )
+
+                    self._last_ocr_result = {
+                        'text': result.raw_text,
+                        'extracted_fields': result.extracted_fields,
+                        'confidence': result.confidence,
+                        'engine_used': result.service_used,
+                        'quality_score': result.confidence,
+                        'processing_time': result.processing_time,
+                        'raw_response': result.raw_response,
+                    }
+                    return result.raw_text
+                else:
+                    logger.warning(f"{engine_name} returned no text, trying next engine...")
+
+            except Exception as e:
+                logger.error(f"{engine_name} OCR failed: {e}", exc_info=True)
+                continue
+
+        logger.error("All OCR engines failed - no text extracted")
+        return ""
+
     def get_last_ocr_metadata(self) -> Optional[Dict[str, Any]]:
         """Get metadata from the last OCR operation"""
         return self._last_ocr_result
-    
-    def get_ocr_system_info(self) -> Dict[str, Any]:
-        """Get information about OCR system (Google Document AI only)"""
-        return {
-            'ocr_engine': 'Google Document AI',
-            'initialized': self.initialized,
-            'fallback_engines': None,  # No fallbacks
-            'smart_mapper_enabled': True
-        }
 
-# REMOVED METHODS:
-# - preprocess_image() - No longer needed, Google Doc AI handles preprocessing
-# - extract_text_easyocr() - EasyOCR removed
-# - extract_text_tesseract() - Tesseract removed  
-# - extract_text_from_pdf() - Google Doc AI handles PDFs directly
-# All fallback OCR engines have been removed to simplify codebase
+    def get_ocr_system_info(self) -> Dict[str, Any]:
+        """Get information about OCR system"""
+        return {
+            'engine_mode': OCR_ENGINE_MODE,
+            'surya_available': self.surya_processor is not None,
+            'google_available': self.cloud_processor is not None,
+            'initialized': self.initialized,
+            'smart_mapper_enabled': True,
+        }

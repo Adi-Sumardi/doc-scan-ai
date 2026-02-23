@@ -203,7 +203,9 @@ class FakturPajakExporter(BaseExporter):
             if qty_str and qty_str != '-':
                 try:
                     import re
-                    qty_clean = re.sub(r'[^\d.]', '', str(qty_str))
+                    # Indonesian format: comma is decimal separator (1,00 = 1)
+                    qty_text = str(qty_str).replace(',', '.')
+                    qty_clean = re.sub(r'[^\d.]', '', qty_text)
                     if qty_clean:
                         qty = float(qty_clean)
                         # Return integer if whole number, otherwise with decimals
@@ -257,6 +259,7 @@ class FakturPajakExporter(BaseExporter):
         """
         Parse quantity string to number (int or float)
         Returns the number, or '-' if cannot parse
+        Handles Indonesian format where comma is decimal separator (e.g. "1,00" = 1)
         """
         if not qty_str or qty_str == '-':
             return '-'
@@ -264,6 +267,9 @@ class FakturPajakExporter(BaseExporter):
         try:
             import re
             qty_text = str(qty_str).strip()
+
+            # Indonesian format: comma is decimal separator (1,00 = 1)
+            qty_text = qty_text.replace(',', '.')
 
             # Remove any non-numeric characters except decimal point
             qty_clean = re.sub(r'[^\d.]', '', qty_text)
@@ -365,12 +371,13 @@ class FakturPajakExporter(BaseExporter):
             qty_str = item.get('quantity', '-')
             price_str = item.get('unit_price', '-')
 
-            # Parse quantity
+            # Parse quantity (Indonesian format: comma = decimal, e.g. "1,00" = 1)
             qty = 0
             if qty_str and qty_str != '-':
                 try:
                     import re
-                    qty_clean = re.sub(r'[^\d.]', '', str(qty_str))
+                    qty_text = str(qty_str).replace(',', '.')
+                    qty_clean = re.sub(r'[^\d.]', '', qty_text)
                     if qty_clean:
                         qty = float(qty_clean)
                 except:
@@ -1603,9 +1610,10 @@ class FakturPajakExporter(BaseExporter):
                     has_quantity = True
                     # Try to extract numeric value from quantity string
                     try:
-                        # Remove any non-numeric characters except decimal point
+                        # Indonesian format: comma is decimal separator (1,00 = 1)
                         import re
-                        qty_clean = re.sub(r'[^\d.]', '', str(qty_str))
+                        qty_text = str(qty_str).replace(',', '.')
+                        qty_clean = re.sub(r'[^\d.]', '', qty_text)
                         if qty_clean:
                             qty_num = float(qty_clean)
                             total_quantity += qty_num
