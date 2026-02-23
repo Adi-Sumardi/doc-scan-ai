@@ -15,9 +15,7 @@ export default function ReconciliationChat() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loadState, setLoadState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [messagesLoading, setMessagesLoading] = useState(false);
-
-  // AbortController ref for cancelling in-flight session loads
-  const loadSessionAbortRef = useRef<AbortController | null>(null);
+  const [messagesError, setMessagesError] = useState(false);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -33,26 +31,25 @@ export default function ReconciliationChat() {
     loadSessions();
   }, [loadSessions]);
 
-  // Load messages when session changes — with AbortController to cancel stale requests
+  // Load messages when session changes — AbortController cancels in-flight HTTP requests
   useEffect(() => {
     if (activeSessionId) {
-      if (loadSessionAbortRef.current) {
-        loadSessionAbortRef.current.abort();
-      }
       const controller = new AbortController();
-      loadSessionAbortRef.current = controller;
 
+      setMessages([]);
       setMessagesLoading(true);
-      apiService.reconciliation.getSession(activeSessionId)
+      setMessagesError(false);
+      apiService.reconciliation.getSession(activeSessionId, controller.signal)
         .then(data => {
-          if (!controller.signal.aborted) {
-            setMessages(data.messages || []);
-            setMessagesLoading(false);
-          }
+          setMessages(data.messages || []);
+          setMessagesLoading(false);
         })
-        .catch(() => {
-          if (!controller.signal.aborted) {
-            toast.error('Gagal memuat sesi');
+        .catch((err) => {
+          // Ignore aborted requests (user switched session before response arrived)
+          if (controller.signal.aborted) return;
+          const isCancel = err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError';
+          if (!isCancel) {
+            setMessagesError(true);
             setMessagesLoading(false);
           }
         });
@@ -233,6 +230,14 @@ export default function ReconciliationChat() {
           isProcessing={isProcessing}
           processingType={processingType}
           messagesLoading={messagesLoading}
+          messagesError={messagesError}
+          onRetryMessages={() => {
+            if (activeSessionId) {
+              setActiveSessionId(null);
+              // Re-trigger the useEffect by setting the ID again on next tick
+              setTimeout(() => setActiveSessionId(activeSessionId), 0);
+            }
+          }}
           onExport={handleExport}
         />
 

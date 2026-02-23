@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback } from 'react';
-import { User } from 'lucide-react';
+import { User, RefreshCw, AlertTriangle } from 'lucide-react';
 import ChatResultCard from './ChatResultCard';
 import type { ReconciliationMessage } from '../../services/api';
 
@@ -11,6 +11,8 @@ interface ChatMessagesProps {
   isProcessing?: boolean;
   processingType?: 'chat' | 'reconciliation';
   messagesLoading?: boolean;
+  messagesError?: boolean;
+  onRetryMessages?: () => void;
   onExport?: (messageId: string) => void;
 }
 
@@ -137,7 +139,7 @@ function LoadingSkeleton() {
   );
 }
 
-export default function ChatMessages({ messages, isProcessing, processingType = 'chat', messagesLoading, onExport }: ChatMessagesProps) {
+export default function ChatMessages({ messages, isProcessing, processingType = 'chat', messagesLoading, messagesError, onRetryMessages, onExport }: ChatMessagesProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
@@ -171,6 +173,23 @@ export default function ChatMessages({ messages, isProcessing, processingType = 
           <LoadingSkeleton />
           <LoadingSkeleton />
         </>
+      ) : messagesError ? (
+        <div className="flex flex-col items-center justify-center py-16 px-4">
+          <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4">
+            <AlertTriangle className="w-6 h-6 text-red-500" />
+          </div>
+          <p className="text-slate-700 font-medium text-sm mb-1">Gagal memuat riwayat chat</p>
+          <p className="text-slate-400 text-xs mb-4">Periksa koneksi Anda lalu coba lagi</p>
+          {onRetryMessages && (
+            <button
+              onClick={onRetryMessages}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 rounded-xl hover:bg-indigo-100 transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Coba lagi
+            </button>
+          )}
+        </div>
       ) : messages.length === 0 && !isProcessing ? (
         <WelcomeMessage />
       ) : (

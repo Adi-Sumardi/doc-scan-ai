@@ -291,8 +291,8 @@ export const apiService = {
       const response = await api.post('/api/reconciliation-ppn/sessions');
       return response.data;
     },
-    getSession: async (sessionId: string): Promise<SessionDetailResponse> => {
-      const response = await api.get(`/api/reconciliation-ppn/sessions/${sessionId}`);
+    getSession: async (sessionId: string, signal?: AbortSignal): Promise<SessionDetailResponse> => {
+      const response = await api.get(`/api/reconciliation-ppn/sessions/${sessionId}`, { signal });
       return response.data;
     },
     deleteSession: async (sessionId: string): Promise<void> => {
