@@ -1187,7 +1187,7 @@ async def get_session(
         ReconciliationMessage.session_id == session_id
     ).order_by(
         ReconciliationMessage.created_at.asc(),
-        ReconciliationMessage.id.asc()  # preserve insertion order when timestamps match
+        ReconciliationMessage.role.desc()  # 'user' before 'assistant' when timestamps match
     ).all()
 
     return {

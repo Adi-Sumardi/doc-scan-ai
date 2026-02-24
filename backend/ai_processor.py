@@ -46,9 +46,25 @@ except ImportError as e:
     logger.warning(f"⚠️ Smart Mapper service not available: {e}")
 
 
-# Global instances
-ocr_processor = RealOCRProcessor()
-parser = IndonesianTaxDocumentParser()
+# Global instances — lazy-initialized to avoid heavy imports at startup
+ocr_processor: RealOCRProcessor | None = None
+parser: IndonesianTaxDocumentParser | None = None
+
+
+def get_ocr_processor() -> RealOCRProcessor:
+    """Lazy-init OCR processor on first use (avoids heavy startup imports)"""
+    global ocr_processor
+    if ocr_processor is None:
+        ocr_processor = RealOCRProcessor()
+    return ocr_processor
+
+
+def get_parser() -> IndonesianTaxDocumentParser:
+    """Lazy-init parser on first use"""
+    global parser
+    if parser is None:
+        parser = IndonesianTaxDocumentParser()
+    return parser
 
 
 async def process_with_chunking(file_path: str, document_type: str) -> tuple:
@@ -62,6 +78,8 @@ async def process_with_chunking(file_path: str, document_type: str) -> tuple:
     Returns:
         tuple: (merged_text, merged_metadata)
     """
+    # Ensure globals are initialized
+    get_ocr_processor()
     try:
         logger.info("=" * 80)
         logger.info("🔄 CHUNKING MODE ACTIVATED")
@@ -257,6 +275,9 @@ async def process_document_ai(file_path: str, document_type: str) -> Dict[str, A
     Returns:
         Dictionary with extracted_data, confidence, raw_text, processing_time
     """
+    # Ensure globals are initialized
+    get_ocr_processor()
+    get_parser()
     start_time = asyncio.get_event_loop().time()
     try:
         logger.info(f"🔍 Processing {document_type} document: {file_path}")
@@ -701,6 +722,9 @@ async def _process_document_chunked(file_path: str, document_type: str, start_ti
     Returns:
         Merged extraction result from all chunks
     """
+    # Ensure globals are initialized
+    get_ocr_processor()
+    get_parser()
     try:
         page_count = pdf_chunker.get_page_count(file_path)
         logger.info(f"📚 Processing {page_count}-page rekening koran in chunks")
@@ -887,5 +911,7 @@ __all__ = [
     'create_batch_excel_export',
     'create_batch_pdf_export',
     'ocr_processor',
-    'parser'
+    'parser',
+    'get_ocr_processor',
+    'get_parser'
 ]

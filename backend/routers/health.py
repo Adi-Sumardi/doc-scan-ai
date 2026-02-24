@@ -10,7 +10,6 @@ import logging
 
 from database import User, SessionLocal
 from auth import get_current_active_user
-from ai_processor import RealOCRProcessor
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -37,8 +36,9 @@ limiter = Limiter(key_func=get_remote_address)
 async def heartbeat():
     """Health check endpoint for production validation"""
     try:
-        # Test OCR system health
-        ocr_processor = RealOCRProcessor()
+        # Lazy import to avoid heavy module load at startup
+        from ai_processor import get_ocr_processor
+        ocr_processor = get_ocr_processor()
         ocr_info = ocr_processor.get_ocr_system_info()
         
         return {

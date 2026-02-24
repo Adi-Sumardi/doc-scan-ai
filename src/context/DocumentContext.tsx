@@ -361,8 +361,8 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
           if (recentBatches.length === 5) {
             setTimeout(async () => {
               try {
-                console.log('🔄 Loading remaining batches (deep background)...');
-                const allBatches = await apiService.getAllBatches();
+                console.log('🔄 Loading remaining batches (deep background, max 50)...');
+                const allBatches = await apiService.getAllBatches(50, 0);
                 const existingBatchIds = new Set(recentBatches.map(b => b.id));
                 const newBatches = allBatches.filter(b => !existingBatchIds.has(b.id));
 
@@ -421,34 +421,31 @@ export const DocumentProvider = ({ children }: { children: ReactNode }) => {
       loadingBatchesRef.current.clear();
 
       // Use Promise.allSettled to handle partial failures gracefully
-      const [batchesPromise, resultsPromise] = await Promise.allSettled([
-        apiService.getAllBatches(),
-        apiService.getAllResults()
+      // Limit to 50 most recent batches to avoid overloading the server
+      const [batchesPromise] = await Promise.allSettled([
+        apiService.getAllBatches(50, 0),
       ]);
 
       if (batchesPromise.status === 'fulfilled' && Array.isArray(batchesPromise.value)) {
-        console.log(`✅ Loaded ${batchesPromise.value.length} batches`);
-        console.log('Batches data:', batchesPromise.value);
-        setBatches(batchesPromise.value);
+        const fetchedBatches = batchesPromise.value;
+        console.log(`✅ Loaded ${fetchedBatches.length} batches`);
+        setBatches(fetchedBatches);
 
-        // Debug: Log state after update
-        setTimeout(() => {
-          console.log('🔍 Batches state after update check');
-        }, 100);
+        // Load results only for fetched batches (not ALL results)
+        if (fetchedBatches.length > 0) {
+          try {
+            const batchIds = fetchedBatches.map(b => b.id);
+            const results = await apiService.getAllResults(batchIds);
+            if (Array.isArray(results)) {
+              console.log(`✅ Loaded ${results.length} results`);
+              setScanResults(results);
+            }
+          } catch (e) {
+            console.error('❌ Failed to load results:', e);
+          }
+        }
       } else if (batchesPromise.status === 'rejected') {
         console.error('❌ Failed to load batches:', batchesPromise.reason);
-      }
-
-      if (resultsPromise.status === 'fulfilled' && Array.isArray(resultsPromise.value)) {
-        console.log(`✅ Loaded ${resultsPromise.value.length} results`);
-        setScanResults(resultsPromise.value);
-      } else if (resultsPromise.status === 'rejected') {
-        console.error('❌ Failed to load results:', resultsPromise.reason);
-      }
-
-      // Only show error toast if both failed
-      // Defer toast to avoid state update during render warning
-      if (batchesPromise.status === 'rejected' && resultsPromise.status === 'rejected') {
         setTimeout(() => {
           toast.error('Failed to load data from server');
         }, 0);

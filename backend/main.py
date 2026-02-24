@@ -107,10 +107,8 @@ def validate_environment():
     from sqlalchemy import text
     try:
         from database import SessionLocal
-        from ai_processor import RealOCRProcessor
     except ModuleNotFoundError:  # pragma: no cover - package context fallback
         from .database import SessionLocal
-        from .ai_processor import RealOCRProcessor
     
     # Check storage directories
     storage_dirs = {
@@ -139,15 +137,15 @@ def validate_environment():
         logger.error(f"❌ Database connection failed: {e}")
         raise
 
-    # Check OCR system
+    # Check OCR system (non-blocking — lazy init on first request)
     try:
-        ocr = RealOCRProcessor()
-        if not ocr.initialized:
-            raise RuntimeError("No OCR engines available")
-        logger.info("✅ OCR system OK")
+        from ocr_processor import HAS_SURYA, HAS_CLOUD_AI
+        if HAS_SURYA or HAS_CLOUD_AI:
+            logger.info(f"✅ OCR system OK (surya={'yes' if HAS_SURYA else 'no'}, cloud={'yes' if HAS_CLOUD_AI else 'no'}, lazy init)")
+        else:
+            logger.warning("⚠️ No OCR engines detected — OCR features will be unavailable")
     except Exception as e:
-        logger.error(f"❌ OCR system error: {e}")
-        raise
+        logger.warning(f"⚠️ OCR system check skipped: {e}")
 
 # Run validation
 try:
